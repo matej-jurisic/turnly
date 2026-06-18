@@ -35,4 +35,14 @@ internal static class HttpHelpers
         response.EnsureSuccessStatusCode();
         return await response.ReadAsync<AuthResponse>();
     }
+
+    /// <summary>Logs in and returns a client whose requests carry that user's bearer token.</summary>
+    public static async Task<AuthResponse> LoginAsync(
+        this HttpClient client, string username, string password)
+    {
+        var login = await (await client.PostJsonAsync("/api/auth/login",
+            new LoginRequest(username, password))).ReadAsync<AuthResponse>();
+        client.UseBearer(login.AccessToken);
+        return login;
+    }
 }

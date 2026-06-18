@@ -1,8 +1,10 @@
 import { useState } from 'react'
 import type { FormEvent } from 'react'
-import { authApi, ApiError } from '@/lib/api'
+import { useQuery } from '@tanstack/react-query'
+import { authApi, usersApi, ApiError } from '@/lib/api'
 import { useAuthStore } from '@/store/auth'
 import { Button } from '@/components/ui/Button'
+import { Badge } from '@/components/ui/Badge'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { Input, Label } from '@/components/ui/Field'
 
@@ -43,6 +45,8 @@ export function SettingsPage() {
         </CardContent>
       </Card>
 
+      {user && <PointsCard userId={user.id} />}
+
       <Card>
         <CardHeader>
           <CardTitle>Change password</CardTitle>
@@ -69,5 +73,40 @@ export function SettingsPage() {
         </CardContent>
       </Card>
     </div>
+  )
+}
+
+function PointsCard({ userId }: { userId: string }) {
+  const { data: me } = useQuery({ queryKey: ['me'], queryFn: authApi.me })
+  const { data: log } = useQuery({ queryKey: ['points-log', userId], queryFn: () => usersApi.pointsLog(userId) })
+
+  return (
+    <Card>
+      <CardHeader className="flex items-center justify-between">
+        <CardTitle>Points</CardTitle>
+        <Badge tone="violet">{me?.points ?? 0} pts</Badge>
+      </CardHeader>
+      <CardContent>
+        {!log || log.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No points activity yet.</p>
+        ) : (
+          <ul className="divide-y divide-border">
+            {log.map((entry) => (
+              <li key={entry.id} className="flex items-center justify-between py-2 text-sm">
+                <span className="text-muted-foreground">
+                  {entry.description ?? entry.type}
+                  <span className="ml-2 text-xs">
+                    {new Date(entry.createdAt).toLocaleDateString()}
+                  </span>
+                </span>
+                <span className={entry.delta >= 0 ? 'text-success' : 'text-destructive'}>
+                  {entry.delta >= 0 ? '+' : ''}{entry.delta}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </CardContent>
+    </Card>
   )
 }

@@ -33,6 +33,8 @@ public static class ServiceCollectionExtensions
         services.AddScoped<AuthService>();
         services.AddScoped<UserService>();
         services.AddScoped<SetupService>();
+        services.AddScoped<TagService>();
+        services.AddScoped<ChoreService>();
 
         return services;
     }

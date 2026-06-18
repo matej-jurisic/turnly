@@ -46,5 +46,19 @@ public static class UserEndpoints
             var result = await users.SetPasswordAsync(id, req.NewPassword, ct);
             return result.Succeeded ? Results.NoContent() : result.Error!.ToProblem();
         });
+
+        // Points log is readable by the user themselves or any admin (not the Admin-only group).
+        var self = app.MapGroup("/api/users").RequireAuthorization();
+        self.MapGet("/{id:guid}/points-log", async (Guid id, ClaimsPrincipal principal,
+            UserService users, CancellationToken ct) =>
+        {
+            if (principal.GetUserId() is not { } actingUserId)
+                return Results.Unauthorized();
+            if (actingUserId != id && !principal.IsInRole(nameof(Core.Enums.UserRole.Admin)))
+                return Results.Forbid();
+
+            var result = await users.GetPointsLogAsync(id, ct);
+            return result.Succeeded ? Results.Ok(result.Value) : result.Error!.ToProblem();
+        });
     }
 }

@@ -21,6 +21,8 @@ public sealed class TestContext : IDisposable
     public UserService Users { get; }
     public AuthService Auth { get; }
     public SetupService Setup { get; }
+    public TagService Tags { get; }
+    public ChoreService Chores { get; }
 
     public TestContext()
     {
@@ -45,6 +47,8 @@ public sealed class TestContext : IDisposable
         Users = new UserService(Db, Hasher);
         Auth = new AuthService(Db, Hasher, Tokens);
         Setup = new SetupService(Db, Hasher, Auth);
+        Tags = new TagService(Db);
+        Chores = new ChoreService(Db, Tags);
     }
 
     public void Dispose()

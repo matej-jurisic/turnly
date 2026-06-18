@@ -24,8 +24,24 @@ public class UserService
     public async Task<List<UserDto>> ListAsync(CancellationToken ct = default)
         => await _db.Users
             .OrderBy(u => u.DisplayName)
-            .Select(u => new UserDto(u.Id, u.Username, u.DisplayName, u.AvatarColor, u.Role, u.CreatedAt))
+            .Select(u => new UserDto(u.Id, u.Username, u.DisplayName, u.AvatarColor, u.Role, u.Points, u.CreatedAt))
             .ToListAsync(ct);
+
+    public async Task<Result<List<PointsLogEntryDto>>> GetPointsLogAsync(Guid userId, CancellationToken ct = default)
+    {
+        if (!await _db.Users.AnyAsync(u => u.Id == userId, ct))
+            return Result.Fail<List<PointsLogEntryDto>>(Error.NotFound("User not found."));
+
+        // Order client-side: SQLite can't ORDER BY DateTimeOffset.
+        var entries = (await _db.PointsLog
+                .Where(e => e.UserId == userId)
+                .ToListAsync(ct))
+            .OrderByDescending(e => e.CreatedAt)
+            .Select(e => new PointsLogEntryDto(e.Id, e.Delta, e.Type, e.Description, e.ChoreCompletionId, e.CreatedAt))
+            .ToList();
+
+        return Result.Success(entries);
+    }
 
     public async Task<Result<UserDto>> GetAsync(Guid id, CancellationToken ct = default)
     {

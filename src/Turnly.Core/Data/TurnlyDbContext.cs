@@ -1,4 +1,6 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.ChangeTracking;
+using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Turnly.Core.Entities;
 
 namespace Turnly.Core.Data;
@@ -11,6 +13,10 @@ public class TurnlyDbContext : DbContext
 
     public DbSet<User> Users => Set<User>();
     public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
+    public DbSet<Chore> Chores => Set<Chore>();
+    public DbSet<Tag> Tags => Set<Tag>();
+    public DbSet<ChoreCompletion> ChoreCompletions => Set<ChoreCompletion>();
+    public DbSet<PointsLogEntry> PointsLog => Set<PointsLogEntry>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
@@ -28,6 +34,11 @@ public class TurnlyDbContext : DbContext
                 .WithOne(x => x.User!)
                 .HasForeignKey(x => x.UserId)
                 .OnDelete(DeleteBehavior.Cascade);
+
+            e.HasMany(x => x.PointsLog)
+                .WithOne(x => x.User!)
+                .HasForeignKey(x => x.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
         });
 
         b.Entity<RefreshToken>(e =>
@@ -36,5 +47,65 @@ public class TurnlyDbContext : DbContext
             e.HasIndex(x => x.TokenHash).IsUnique();
             e.Property(x => x.TokenHash).IsRequired().HasMaxLength(128);
         });
+
+        b.Entity<Chore>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Name).IsRequired().HasMaxLength(128);
+            e.Property(x => x.Description).HasMaxLength(1024);
+            e.Property(x => x.Emoji).HasMaxLength(16);
+            e.Property(x => x.RepeatType).HasConversion<string>().HasMaxLength(16);
+            e.Property(x => x.Weekdays).HasConversion(WeekdaysConverter, WeekdaysComparer);
+
+            e.HasOne(x => x.CurrentAssignee)
+                .WithMany()
+                .HasForeignKey(x => x.CurrentAssigneeId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            e.HasMany(x => x.Assignees).WithMany();
+            e.HasMany(x => x.Tags).WithMany(t => t.Chores);
+
+            e.HasMany(x => x.Completions)
+                .WithOne(x => x.Chore!)
+                .HasForeignKey(x => x.ChoreId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        b.Entity<Tag>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.HasIndex(x => x.Name).IsUnique();
+            e.Property(x => x.Name).IsRequired().HasMaxLength(64);
+        });
+
+        b.Entity<ChoreCompletion>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Notes).HasMaxLength(1024);
+
+            e.HasOne(x => x.CompletedBy)
+                .WithMany()
+                .HasForeignKey(x => x.CompletedByUserId)
+                .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        b.Entity<PointsLogEntry>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Type).HasConversion<string>().HasMaxLength(16);
+            e.Property(x => x.Description).HasMaxLength(256);
+        });
     }
+
+    /// <summary>Stores the selected weekdays as a comma-separated list of <see cref="DayOfWeek"/> values.</summary>
+    private static readonly ValueConverter<List<DayOfWeek>, string> WeekdaysConverter = new(
+        v => string.Join(',', v.Select(d => (int)d)),
+        v => string.IsNullOrEmpty(v)
+            ? new List<DayOfWeek>()
+            : v.Split(',', StringSplitOptions.RemoveEmptyEntries).Select(s => (DayOfWeek)int.Parse(s)).ToList());
+
+    private static readonly ValueComparer<List<DayOfWeek>> WeekdaysComparer = new(
+        (a, b) => (a ?? new List<DayOfWeek>()).SequenceEqual(b ?? new List<DayOfWeek>()),
+        v => v.Aggregate(0, (hash, d) => HashCode.Combine(hash, (int)d)),
+        v => v.ToList());
 }

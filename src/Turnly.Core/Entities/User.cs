@@ -12,5 +12,9 @@ public class User
     public UserRole Role { get; set; } = UserRole.Member;
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
 
+    /// <summary>Denormalized point balance, kept in sync with <see cref="PointsLog"/>.</summary>
+    public int Points { get; set; }
+
     public ICollection<RefreshToken> RefreshTokens { get; set; } = new List<RefreshToken>();
+    public ICollection<PointsLogEntry> PointsLog { get; set; } = new List<PointsLogEntry>();
 }

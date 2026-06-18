@@ -1,8 +1,14 @@
 import { useAuthStore } from '@/store/auth'
 import type {
   AuthResponse,
+  Chore,
+  CompleteChoreRequest,
+  CreateChoreRequest,
   CreateUserRequest,
+  PointsLogEntry,
   SetupRequest,
+  Tag,
+  UpdateChoreRequest,
   UpdateUserRequest,
   User,
 } from '@/lib/types'
@@ -105,4 +111,22 @@ export const usersApi = {
   remove: (id: string) => request<void>(`/users/${id}`, { method: 'DELETE' }),
   setPassword: (id: string, newPassword: string) =>
     request<void>(`/users/${id}/password`, { method: 'POST', body: json({ newPassword }) }),
+  pointsLog: (id: string) => request<PointsLogEntry[]>(`/users/${id}/points-log`),
+}
+
+export const choresApi = {
+  list: () => request<Chore[]>('/chores'),
+  get: (id: string) => request<Chore>(`/chores/${id}`),
+  create: (body: CreateChoreRequest) => request<Chore>('/chores', { method: 'POST', body: json(body) }),
+  update: (id: string, body: UpdateChoreRequest) =>
+    request<Chore>(`/chores/${id}`, { method: 'PUT', body: json(body) }),
+  remove: (id: string) => request<void>(`/chores/${id}`, { method: 'DELETE' }),
+  complete: (id: string, body: CompleteChoreRequest) =>
+    request<Chore>(`/chores/${id}/complete`, { method: 'POST', body: json(body) }),
+  undoCompletion: (completionId: string) =>
+    request<void>(`/completions/${completionId}`, { method: 'DELETE' }),
+}
+
+export const tagsApi = {
+  list: () => request<Tag[]>('/tags'),
 }

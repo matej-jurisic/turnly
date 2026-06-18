@@ -5,9 +5,12 @@ and 8-phase roadmap, and `README.md` for user-facing setup.
 
 ## What this is
 
-Self-hosted family chore-management web app (PWA). **Phase 1 (Foundation) is complete**:
-auth, user CRUD + roles, password management, DB schema, Docker. Phases 2–8 (chores,
-recurrence, points, dashboard, notifications, history, awards, PWA) are not started.
+Self-hosted family chore-management web app (PWA). **Phases 1–2 are complete.** Phase 1
+(Foundation): auth, user CRUD + roles, password management, DB schema, Docker. Phase 2
+(Chores – Core): chore CRUD (name, description, emoji, tags, assignees, points), basic
+recurrence (one-time/daily/weekly/monthly/yearly + start date), mark complete + undo, and a
+per-user points log. Phases 3–8 (advanced recurrence + assignment strategies + scheduling
+prefs, dashboard, notifications, history, awards, PWA) are not started.
 
 ## Stack & layout
 
@@ -23,11 +26,68 @@ tests/Turnly.Tests Unit/ and Integration/ test folders.
 web/               React frontend (path alias `@` → `web/src`).
 ```
 
+## Architecture reference (file map)
+
+A navigation index so you don't have to re-scan the whole codebase. Patterns are consistent —
+copy the nearest existing example. Paths are under `src/` / `web/src/` / `tests/Turnly.Tests/`.
+
+**Backend (`Turnly.Core`)**
+- `Entities/` — POCOs; convention is `Guid Id = Guid.NewGuid()` + `DateTimeOffset CreatedAt`,
+  no base class. `User, RefreshToken, Chore, Tag, ChoreCompletion, PointsLogEntry`.
+- `Enums/` — `UserRole, RepeatType, PointsLogType`; **stored as strings** (`HasConversion<string>`)
+  and serialized as strings in JSON.
+- `Data/TurnlyDbContext.cs` — DbSets + fluent config in `OnModelCreating`. Many-to-many via
+  skip navs (`Chore.Assignees`, `Chore.Tags`). `Chore.Weekdays` (`List<DayOfWeek>`) is stored
+  via a CSV `ValueConverter` + `ValueComparer`.
+- `Common/Result.cs` — `Result`/`Result<T>` + `Error(ErrorType, msg)` (Validation/NotFound/
+  Conflict/Unauthorized/Forbidden). **Expected failures return Results, not exceptions.**
+- `Common/Validators.cs` — shared static rules returning `Error?` (`Username`, `Password`,
+  `ChoreName`, `Points`, …); membership/cross-field rules live in the service.
+- `Dtos/Dtos.cs` — request/response records, each domain DTO has a static `FromEntity`.
+  `ChoreDto.FromEntity(chore, lastCompletion?)` embeds the latest completion for undo.
+- `Services/*Service.cs` — ctor-inject `TurnlyDbContext` (+ deps); methods return `Result`/
+  `Result<T>`. `AuthService, UserService, SetupService, TagService, ChoreService`. Registered
+  in `ServiceCollectionExtensions.AddTurnlyCore`.
+- `Recurrence/RecurrenceCalculator.cs` — pure `Next(type, weekdays, current)`; unit-tested.
+- ⚠️ **SQLite can't `ORDER BY` a `DateTimeOffset`** — order date fields client-side after
+  `ToListAsync` (see `ChoreService.ListAsync`, `LatestCompletionsAsync`, `GetPointsLogAsync`).
+
+**Backend (`Turnly.Api`)**
+- `Program.cs` — `AddTurnlyCore`, `JsonStringEnumConverter`, JWT bearer (claims unmapped:
+  `sub`/`role`), `"Admin"` authorization policy, then `app.Map*Endpoints()` + SPA fallback.
+- `Endpoints/*Endpoints.cs` — `MapGroup(...).RequireAuthorization()`; thin handlers:
+  parse → call service → `result.Succeeded ? Results.Ok/... : result.Error!.ToProblem()`.
+  Per-endpoint `.RequireAuthorization("Admin")` for admin-only ops (e.g. chore create/edit/
+  delete). Chores/complete + completions/undo are open to any member.
+- `Endpoints/ApiResults.cs` — `Error.ToProblem()` (status mapping) and
+  `principal.GetUserId()` (reads the `sub` claim).
+
+**Frontend (`web/src`)**
+- `App.tsx` — auth-gated routing; index redirects to `/chores`. `Layout.tsx` builds the
+  sidebar from a `tabs` array (Chores for all, Users admin-only) + `navItemClass`.
+- `pages/` — `UsersPage` and `ChoresPage` are the canonical CRUD-with-modal examples
+  (lift modal state to the page, `useQuery`/`useMutation`, `invalidateQueries` after writes).
+- `lib/api.ts` — `request<T>` (bearer + one-shot 401 refresh); per-resource objects
+  (`usersApi`, `choresApi`, `tagsApi`). `lib/types.ts` mirrors the backend DTOs.
+- `store/auth.ts` — Zustand; `useAuthStore(s => s.user)`, role via `user.role === 'Admin'`.
+- `components/ui/` — `Button, Badge, Card(+Header/Title/Content), Modal(+Avatar), Field
+  (Input/Label/Select), ColorPicker`. Semantic Tailwind tokens only (see theming section).
+
+**Tests**
+- `Unit/TestContext.cs` — in-memory SQLite (kept-open connection) + real services; construct
+  new services here when added. Naming: `Method_scenario`. See `ChoreServiceTests`,
+  `RecurrenceCalculatorTests`.
+- `Integration/TurnlyApiFactory.cs` + `HttpHelpers.cs` (`SetupAdminAsync`, `LoginAsync`,
+  `UseBearer`, `ReadAsync<T>`). Test classes are `IDisposable` with a fresh factory per class.
+
+**EF migrations:** `dotnet-ef` is a global tool — if `dotnet ef` isn't found, prefix
+`PATH="$PATH:$HOME/.dotnet/tools"`. SQLite migrations only (see gotcha below).
+
 ## Commands
 
 ```bash
 dotnet build                              # build solution
-dotnet test                               # all tests (currently 29, keep them green)
+dotnet test                               # all tests (currently 51, keep them green)
 dotnet run --project src/Turnly.Api       # backend (dev) on http://localhost:5199
 cd web && npm install && npm run dev      # frontend on :5173, proxies /api → :5199
 cd web && npm run build                   # typechecks (tsc -b) + production build
@@ -116,8 +176,11 @@ load. New UI should match this; don't introduce one-off styles.
   directory containing the `appsettings.json` (or pass config via env vars).
 - **Tests use in-memory SQLite** with a kept-open connection; migrations are applied on
   startup. Integration tests get an isolated DB per test class.
-- User deletion currently only blocks self / last-admin; the spec's reassign-chores +
-  wipe-history behavior is a marked **Phase 2 extension point** in `UserService.DeleteAsync`.
+- User deletion only blocks self / last-admin; the spec's reassign-chores + wipe-history
+  behavior is **still a deferred extension point** in `UserService.DeleteAsync`. ⚠️ Now that
+  chores exist, deleting a user who is a chore's `CurrentAssignee` or has any `ChoreCompletion`
+  will fail at the DB level (FK `Restrict`) rather than returning a clean error — the
+  reassign/wipe flow (a future phase) must land before user deletion is robust again.
 
 ## Verify changes
 
