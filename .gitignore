@@ -1,0 +1,27 @@
+# .NET
+bin/
+obj/
+*.user
+artifacts/
+
+# EF / SQLite databases
+*.db
+*.db-shm
+*.db-wal
+
+# Node / frontend
+node_modules/
+web/dist/
+web/.vite/
+
+# Env / secrets
+.env
+*.local
+
+# IDE
+.vs/
+.idea/
+.vscode/
+
+# OS
+.DS_Store

@@ -1,0 +1,36 @@
+services:
+  app:
+    build: .
+    image: turnly
+    ports:
+      - "${PORT:-8080}:8080"
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      Jwt__Secret: ${JWT_SECRET:?set JWT_SECRET in .env}
+      Jwt__Issuer: ${JWT_ISSUER:-Turnly}
+      Jwt__Audience: ${JWT_AUDIENCE:-Turnly}
+      Database__Provider: ${DATABASE_PROVIDER:-sqlite}
+      ConnectionStrings__Default: ${CONNECTION_STRING:-Data Source=/data/turnly.db}
+      Auth__RefreshCookie__Secure: ${COOKIE_SECURE:-true}
+    volumes:
+      - turnly-data:/data
+    restart: unless-stopped
+
+  # Optional Postgres backend. Enable with: docker compose --profile postgres up
+  # and set DATABASE_PROVIDER=postgres + CONNECTION_STRING in .env.
+  # NOTE: Phase 1 ships SQLite migrations only; generate a Postgres migration set
+  # before first use on Postgres.
+  postgres:
+    image: postgres:17-alpine
+    profiles: ["postgres"]
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-turnly}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-turnly}
+      POSTGRES_DB: ${POSTGRES_DB:-turnly}
+    volumes:
+      - turnly-postgres:/var/lib/postgresql/data
+    restart: unless-stopped
+
+volumes:
+  turnly-data:
+  turnly-postgres:

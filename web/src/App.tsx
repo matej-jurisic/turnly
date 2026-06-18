@@ -1,0 +1,80 @@
+import { useEffect, useState } from 'react'
+import { Navigate, Route, Routes } from 'react-router-dom'
+import { authApi, tryRefresh } from '@/lib/api'
+import { useAuthStore } from '@/store/auth'
+import { Layout } from '@/components/Layout'
+import { SetupPage } from '@/pages/SetupPage'
+import { LoginPage } from '@/pages/LoginPage'
+import { UsersPage } from '@/pages/UsersPage'
+import { SettingsPage } from '@/pages/SettingsPage'
+
+export default function App() {
+  const status = useAuthStore((s) => s.status)
+  const user = useAuthStore((s) => s.user)
+  const setStatus = useAuthStore((s) => s.setStatus)
+  const [needsSetup, setNeedsSetup] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+    void (async () => {
+      try {
+        const { needsSetup } = await authApi.status()
+        if (cancelled) return
+        setNeedsSetup(needsSetup)
+        if (needsSetup) {
+          setStatus('unauthenticated')
+          return
+        }
+        // Exchange the httpOnly refresh cookie for a session, if one exists.
+        const restored = await tryRefresh()
+        if (!cancelled && !restored) setStatus('unauthenticated')
+      } catch {
+        if (!cancelled) {
+          setNeedsSetup(false)
+          setStatus('unauthenticated')
+        }
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [setStatus])
+
+  if (status === 'loading') {
+    return (
+      <div className="flex min-h-screen items-center justify-center text-muted-foreground">Loading…</div>
+    )
+  }
+
+  if (status === 'authenticated') {
+    return (
+      <Routes>
+        <Route element={<Layout />}>
+          <Route index element={<Navigate to={user?.role === 'Admin' ? '/users' : '/settings'} replace />} />
+          <Route
+            path="/users"
+            element={user?.role === 'Admin' ? <UsersPage /> : <Navigate to="/settings" replace />}
+          />
+          <Route path="/settings" element={<SettingsPage />} />
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Route>
+      </Routes>
+    )
+  }
+
+  if (needsSetup) {
+    return (
+      <Routes>
+        <Route path="/setup" element={<SetupPage />} />
+        <Route path="*" element={<Navigate to="/setup" replace />} />
+      </Routes>
+    )
+  }
+
+  return (
+    <Routes>
+      <Route path="/login" element={<LoginPage />} />
+      <Route path="*" element={<Navigate to="/login" replace />} />
+    </Routes>
+  )
+}

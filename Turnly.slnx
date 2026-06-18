@@ -1,0 +1,9 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Turnly.Api/Turnly.Api.csproj" />
+    <Project Path="src/Turnly.Core/Turnly.Core.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Turnly.Tests/Turnly.Tests.csproj" />
+  </Folder>
+</Solution>

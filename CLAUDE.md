@@ -1,0 +1,126 @@
+# CLAUDE.md
+
+Guidance for working in the Turnly repository. See `specs.md` for the full product spec
+and 8-phase roadmap, and `README.md` for user-facing setup.
+
+## What this is
+
+Self-hosted family chore-management web app (PWA). **Phase 1 (Foundation) is complete**:
+auth, user CRUD + roles, password management, DB schema, Docker. Phases 2–8 (chores,
+recurrence, points, dashboard, notifications, history, awards, PWA) are not started.
+
+## Stack & layout
+
+- **Backend:** ASP.NET Core (.NET 10) minimal APIs, EF Core. Solution file is `Turnly.slnx`.
+- **Frontend:** React 19 + Vite + TypeScript, Tailwind CSS v4, TanStack Query, React Router.
+- **Tests:** xUnit (unit + `WebApplicationFactory` integration).
+
+```
+src/Turnly.Core    Entities, EF DbContext, auth + business services. NO web dependencies —
+                   all business logic lives here so it's unit-testable without a host.
+src/Turnly.Api     ASP.NET Core host: endpoint groups, auth wiring, serves the built SPA.
+tests/Turnly.Tests Unit/ and Integration/ test folders.
+web/               React frontend (path alias `@` → `web/src`).
+```
+
+## Commands
+
+```bash
+dotnet build                              # build solution
+dotnet test                               # all tests (currently 29, keep them green)
+dotnet run --project src/Turnly.Api       # backend (dev) on http://localhost:5199
+cd web && npm install && npm run dev      # frontend on :5173, proxies /api → :5199
+cd web && npm run build                   # typechecks (tsc -b) + production build
+
+# EF migrations (DbContext lives in Core; Api is the startup project):
+dotnet ef migrations add <Name> --project src/Turnly.Core --startup-project src/Turnly.Api --output-dir Migrations
+
+# Docker:
+cp .env.example .env && docker compose up --build   # http://localhost:8080
+```
+
+## Conventions — follow these
+
+- **Business logic goes in `Turnly.Core` services** (`AuthService`, `UserService`,
+  `SetupService`), not in endpoints. Endpoints are thin: parse → call service → map result.
+- **Result pattern, not exceptions, for expected failures.** Services return
+  `Result` / `Result<T>` with an `Error(ErrorType, message)` (see `Common/Result.cs`).
+  Endpoints map errors to HTTP via `error.ToProblem()` in `Endpoints/ApiResults.cs`
+  (Validation→400, NotFound→404, Conflict→409, Unauthorized→401, Forbidden→403).
+- **Shared validation** lives in `Common/Validators.cs` — reuse it across services.
+- **DTOs** are in `Core/Dtos/Dtos.cs`; map entities with `UserDto.FromEntity`. Don't leak
+  entities out of services.
+- **Auth model:** access token (~15 min JWT) returned in the response body; the 6-month
+  refresh token is set in an httpOnly `Secure` cookie (path `/api/auth`) and **rotated** on
+  every refresh. Token logic is in `Core/Auth/TokenService.cs`; cookie I/O in
+  `Api/Auth/RefreshCookieManager.cs`. JWT claims are unmapped — read user id from the `sub`
+  claim (`principal.GetUserId()`), role from the `role` claim.
+- **Enums serialize as strings** in JSON (configured in `Program.cs`). Frontend mirrors this
+  (`UserRole = 'Admin' | 'Member'`).
+- **Theming / colors:** the UI uses **semantic design tokens**, not hardcoded colors.
+  Tokens are CSS variables defined once in `web/src/index.css` (`:root` = light, `.dark` =
+  dark) and mapped into Tailwind via `@theme inline`, giving utilities like `bg-card`,
+  `text-muted-foreground`, `border-border`, `bg-primary`, `text-destructive`, `text-success`.
+  **To recolor the app, edit the variables in `index.css` — don't reintroduce `bg-slate-*` /
+  `text-*-600` literals in components.** Alpha states use the `/NN` modifier (e.g.
+  `hover:bg-primary/90`). Dark mode is class-based (`.dark` on `<html>`); the theme store is
+  `web/src/lib/theme.ts` (system-aware, persisted to `localStorage`), toggled via
+  `components/ThemeToggle.tsx`, and pre-applied by an inline script in `index.html` to avoid
+  a flash. A new palette = another scope overriding the same variables.
+- **Frontend:** `tsconfig.app.json` has `verbatimModuleSyntax` — use `import type` for
+  type-only imports (e.g. `import type { FormEvent } from 'react'`), or `tsc` fails. Server
+  state goes through TanStack Query (`queryKey: ['users']`, invalidate after mutations); auth
+  state is in the Zustand store (`store/auth.ts`, access token in memory only). All API calls
+  go through `lib/api.ts`, which auto-refreshes once on 401.
+
+## Design language
+
+Target aesthetic: **modern clean B2B SaaS dashboard** — unobtrusive, readable, low cognitive
+load. New UI should match this; don't introduce one-off styles.
+
+- **Layout — three-pane.** Fixed left **sidebar** for global nav (`md:` and up), a sticky white
+  **top bar** (account menu now; search lives here too), and a centered **workspace**. Below
+  `md` the sidebar collapses into the animated mobile **drawer** (mirrors the sidebar). See
+  `components/Layout.tsx`.
+- **Color — high-key cool-neutral.** Gray canvas (`--background`), pure-white cards
+  (`--card`), white nav chrome (`--sidebar`). Accent is **violet-blue** (`--primary`
+  `#5b4ee8` / dark `#7b6ef6`) used sparingly for primary actions, the logo, focus rings, and
+  active state.
+- **Active/selected = soft accent tint, never a solid block.** Use `bg-primary/10` + `text-primary`
+  (see `navItemClass`). Hover uses neutral `bg-accent`.
+- **Status pills** via the `Badge` component (`components/ui/Badge.tsx`): soft tinted background
+  (`color-mix`, ~14%) + saturated same-hue text. Tones: `neutral | violet | red | blue | amber | green`.
+- **Soft elevation, not flat.** White surfaces get diffuse shadows: `shadow-card` for cards,
+  `shadow-pop` for popovers/drawer (tokens in `index.css`). Avoid hard/heavy shadows.
+- **Rounded corners 8–12px** (`--radius-md/lg/xl`); pills and avatars stay fully round.
+- **Typography:** Inter (self-hosted via `@fontsource-variable/inter`), **two weights** — 400
+  body, 600 reserved for **headers and selected items only**. `font-medium` (500) only for
+  micro-text legibility (badges, avatar initials). Don't bold body text, labels, or buttons.
+- **Icons:** minimalist **outline/stroke** (Feather-style), uniform 2px stroke, `currentColor`.
+- **Whitespace:** generous padding inside cards, clear separation between sections.
+- **Avatars:** circular, initials on the user's `avatarColor`. Overlapping avatar stacks are the
+  intended pattern for collaborator/assignee lists (Phase 2+).
+
+## Gotchas
+
+- **Postgres is wired but Phase 1 ships SQLite migrations only.** Switching
+  `Database:Provider=postgres` requires generating a Postgres migration set first, or
+  migrate-on-startup fails. SQLite is the default and the tested path.
+- **`Jwt:Secret` must be set** (env var `Jwt__Secret`, or `.env` `JWT_SECRET`) and be ≥32
+  bytes, or auth crashes. It's empty in `appsettings.json` by design; dev value is in
+  `appsettings.Development.json`.
+- **`COOKIE_SECURE`/`Auth:RefreshCookie:Secure`** must be `false` for plain-HTTP local
+  testing (otherwise the refresh cookie is never stored/sent). Keep `true` in production.
+- **Dev port quirk:** `dotnet run` honors `launchSettings.json` (port 5199 expected by the
+  Vite proxy). When running the published DLL directly, set `ASPNETCORE_URLS` and run from a
+  directory containing the `appsettings.json` (or pass config via env vars).
+- **Tests use in-memory SQLite** with a kept-open connection; migrations are applied on
+  startup. Integration tests get an isolated DB per test class.
+- User deletion currently only blocks self / last-admin; the spec's reassign-chores +
+  wipe-history behavior is a marked **Phase 2 extension point** in `UserService.DeleteAsync`.
+
+## Verify changes
+
+Run `dotnet test` for backend logic and `cd web && npm run build` for the frontend. For
+end-to-end, run both dev servers (or `docker compose up --build`) and exercise the
+setup → login → user-management flow.
