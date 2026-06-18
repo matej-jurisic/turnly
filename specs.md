@@ -216,6 +216,13 @@ Service worker, offline read + completion queue, installability, app shell / ico
 
 ---
 
+## Next in line - changes / fixes before next phase
+
+- Move points to separate tab
+- Improve chore buttons UX, one checkmark button, menu dropdown for other options
+- Change assignees picker to be a list of on/off pills - similar to weekdays
+- Fix tags not updating
+
 ## Out of Scope (v1)
 
 - Photo proof of completion
@@ -224,3 +231,7 @@ Service worker, offline read + completion queue, installability, app shell / ico
 - Third-party OAuth
 - Native iOS/Android apps
 - Chore sub-tasks
+
+## Ideas - also out of scope
+
+- Capacitor app (let user set server url)
