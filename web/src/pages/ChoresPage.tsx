@@ -256,7 +256,7 @@ function ChoreFormModal({ title, chore, onClose, onSaved }: ChoreFormModalProps)
           setError(null)
           mutation.mutate()
         }}
-        className="max-h-[70vh] space-y-4 overflow-y-auto"
+        className="max-h-[70vh] space-y-4 overflow-y-auto px-1 -mx-1"
       >
         <div>
           <Label htmlFor="name">Name</Label>
