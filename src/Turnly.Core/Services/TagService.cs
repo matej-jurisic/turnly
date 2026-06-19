@@ -29,8 +29,8 @@ public class TagService
         if (trimmed.Length > 50)
             return Result.Fail<TagDto>(Error.Validation("Tag name must be 50 characters or fewer."));
 
-        var existing = await _db.Tags.ToListAsync(ct);
-        if (existing.Any(t => string.Equals(t.Name, trimmed, StringComparison.OrdinalIgnoreCase)))
+        var exists = await _db.Tags.AnyAsync(t => t.Name.ToLower() == trimmed.ToLower(), ct);
+        if (exists)
             return Result.Fail<TagDto>(Error.Conflict("A tag with that name already exists."));
 
         var tag = new Tag { Name = trimmed };

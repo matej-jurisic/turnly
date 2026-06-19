@@ -2,8 +2,9 @@
 
 Family chore management web app (PWA). Self-hosted, simple, actually works.
 
-This repository currently implements **Phase 1 — Foundation**: authentication, user
-management with roles, password management, the database schema, and a Docker deployment.
+This repository currently implements **Phases 1–4**: foundation (auth, users, roles, Docker),
+chore CRUD with recurrence and assignment strategies, and a dashboard with today/overdue/upcoming
+views, per-user point totals, filtering, and global search.
 See [`specs.md`](./specs.md) for the full product spec and roadmap.
 
 ## Stack

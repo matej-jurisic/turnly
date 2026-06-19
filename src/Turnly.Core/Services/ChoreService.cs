@@ -23,7 +23,7 @@ public class ChoreService
     {
         // Order client-side: SQLite can't ORDER BY DateTimeOffset. Scheduled chores first
         // (earliest due), then unscheduled, then by name.
-        var chores = (await Query().ToListAsync(ct))
+        var chores = (await Query().AsNoTracking().ToListAsync(ct))
             .OrderBy(c => c.DueAt == null)
             .ThenBy(c => c.DueAt)
             .ThenBy(c => c.Name)
@@ -40,7 +40,7 @@ public class ChoreService
 
     public async Task<Result<ChoreDto>> GetAsync(Guid id, CancellationToken ct = default)
     {
-        var chore = await Query().FirstOrDefaultAsync(c => c.Id == id, ct);
+        var chore = await Query().AsNoTracking().FirstOrDefaultAsync(c => c.Id == id, ct);
         if (chore is null)
             return Result.Fail<ChoreDto>(Error.NotFound("Chore not found."));
 
@@ -249,17 +249,17 @@ public class ChoreService
             .ToList();
         if (ordered.Count == 0) return;
 
-        var assignedCounts = (await _db.ChoreAssignments
-                .Where(a => a.ChoreId == chore.Id)
-                .ToListAsync(ct))
+        var assignedCounts = await _db.ChoreAssignments
+            .Where(a => a.ChoreId == chore.Id)
             .GroupBy(a => a.UserId)
-            .ToDictionary(g => g.Key, g => g.Count());
+            .Select(g => new { UserId = g.Key, Count = g.Count() })
+            .ToDictionaryAsync(x => x.UserId, x => x.Count, ct);
 
-        var completedCounts = (await _db.ChoreCompletions
-                .Where(x => x.ChoreId == chore.Id)
-                .ToListAsync(ct))
+        var completedCounts = await _db.ChoreCompletions
+            .Where(x => x.ChoreId == chore.Id)
             .GroupBy(x => x.CompletedByUserId)
-            .ToDictionary(g => g.Key, g => g.Count());
+            .Select(g => new { UserId = g.Key, Count = g.Count() })
+            .ToDictionaryAsync(x => x.UserId, x => x.Count, ct);
         // Count the just-added (unsaved) completion too.
         completedCounts[completion.CompletedByUserId] = completedCounts.GetValueOrDefault(completion.CompletedByUserId) + 1;
 
@@ -288,7 +288,6 @@ public class ChoreService
 
         var completions = await _db.ChoreCompletions
             .Include(x => x.CompletedBy)
-            .Include(x => x.Chore)
             .Where(x => choreIds.Contains(x.ChoreId))
             .ToListAsync(ct);
 

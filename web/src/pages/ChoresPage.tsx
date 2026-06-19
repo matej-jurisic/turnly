@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { choresApi, tagsApi, usersApi, ApiError } from '@/lib/api'
@@ -134,25 +134,32 @@ export function ChoresPage() {
     onError: (err) => alert(err instanceof ApiError ? err.message : 'Undo failed'),
   })
 
-  const allTags = [...new Set((chores ?? []).flatMap((c) => c.tags))].sort()
-  const allAssignees = [
-    ...new Map(
-      (chores ?? [])
-        .filter((c) => c.currentAssignee)
-        .map((c) => [c.currentAssignee!.id, c.currentAssignee!]),
-    ).values(),
-  ].sort((a, b) => a.displayName.localeCompare(b.displayName))
+  const allTags = useMemo(
+    () => [...new Set((chores ?? []).flatMap((c) => c.tags))].sort(),
+    [chores],
+  )
+  const allAssignees = useMemo(
+    () =>
+      [
+        ...new Map(
+          (chores ?? [])
+            .filter((c) => c.currentAssignee)
+            .map((c) => [c.currentAssignee!.id, c.currentAssignee!]),
+        ).values(),
+      ].sort((a, b) => a.displayName.localeCompare(b.displayName)),
+    [chores],
+  )
 
-  const filtered = (chores ?? []).filter((c) => {
-    if (tagFilter && !c.tags.includes(tagFilter)) return false
-    if (assigneeFilter && c.currentAssignee?.id !== assigneeFilter) return false
-    return true
-  })
-
-  const overdue = filtered.filter((c) => choreDueStatus(c) === 'overdue')
-  const today = filtered.filter((c) => choreDueStatus(c) === 'today')
-  const upcoming = filtered.filter((c) => choreDueStatus(c) === 'upcoming')
-  const later = filtered.filter((c) => choreDueStatus(c) === 'later')
+  const { overdue, today, upcoming, later } = useMemo(() => {
+    const filtered = (chores ?? []).filter((c) => {
+      if (tagFilter && !c.tags.includes(tagFilter)) return false
+      if (assigneeFilter && c.currentAssignee?.id !== assigneeFilter) return false
+      return true
+    })
+    const buckets = { overdue: [] as Chore[], today: [] as Chore[], upcoming: [] as Chore[], later: [] as Chore[] }
+    for (const c of filtered) buckets[choreDueStatus(c)].push(c)
+    return buckets
+  }, [chores, tagFilter, assigneeFilter])
 
   const itemProps = (chore: Chore) => ({
     chore,
@@ -224,7 +231,7 @@ export function ChoresPage() {
       {!isLoading && (chores ?? []).length === 0 && (
         <p className="text-muted-foreground">No chores yet{isAdmin ? ' — add one to get started.' : '.'}</p>
       )}
-      {!isLoading && (chores ?? []).length > 0 && filtered.length === 0 && (
+      {!isLoading && (chores ?? []).length > 0 && overdue.length + today.length + upcoming.length + later.length === 0 && (
         <p className="text-muted-foreground">No chores match the current filters.</p>
       )}
 

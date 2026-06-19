@@ -40,12 +40,15 @@ public class UserService
             .ToList();
     }
 
-    // Load all PointsLog entries client-side; SQLite can't translate DateTimeOffset comparisons to SQL.
+    // SQLite can't translate DateTimeOffset comparisons to SQL, so filter in memory.
+    // Project to minimal columns to avoid loading full entities.
     private async Task<Dictionary<Guid, int>> ComputeWeeklyPointsAsync(CancellationToken ct)
     {
         var weekStart = GetCurrentWeekStart();
-        var allLog = await _db.PointsLog.ToListAsync(ct);
-        return allLog
+        var log = await _db.PointsLog
+            .Select(e => new { e.UserId, e.Delta, e.CreatedAt })
+            .ToListAsync(ct);
+        return log
             .Where(e => e.CreatedAt >= weekStart)
             .GroupBy(e => e.UserId)
             .ToDictionary(g => g.Key, g => g.Sum(e => e.Delta));
