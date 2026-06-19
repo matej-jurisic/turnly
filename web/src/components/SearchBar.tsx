@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
 import type { KeyboardEvent as ReactKeyboardEvent } from 'react'
-import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { choresApi, usersApi } from '@/lib/api'
 import type { Chore, LeaderboardEntry } from '@/lib/types'
@@ -10,17 +9,18 @@ import { cn } from '@/lib/utils'
 interface SearchBarProps {
   open: boolean
   onClose: () => void
+  onSelectChore: (chore: Chore) => void
+  onSelectUser: (user: LeaderboardEntry) => void
 }
 
 type Result =
   | { type: 'chore'; item: Chore }
   | { type: 'user'; item: LeaderboardEntry }
 
-export function SearchBar({ open, onClose }: SearchBarProps) {
+export function SearchBar({ open, onClose, onSelectChore, onSelectUser }: SearchBarProps) {
   const [query, setQuery] = useState('')
   const [activeIndex, setActiveIndex] = useState(-1)
   const inputRef = useRef<HTMLInputElement>(null)
-  const navigate = useNavigate()
 
   // Re-use cached data so no extra fetches when search opens.
   const { data: chores = [] } = useQuery({ queryKey: ['chores'], queryFn: choresApi.list })
@@ -74,9 +74,9 @@ export function SearchBar({ open, onClose }: SearchBarProps) {
   useEffect(() => { setActiveIndex(-1) }, [query])
 
   function select(r: Result) {
-    if (r.type === 'chore') navigate('/chores')
-    else navigate('/users')
     onClose()
+    if (r.type === 'chore') onSelectChore(r.item)
+    else onSelectUser(r.item)
   }
 
   function handleKeyDown(e: ReactKeyboardEvent<HTMLInputElement>) {

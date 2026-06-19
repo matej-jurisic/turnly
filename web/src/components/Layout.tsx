@@ -1,17 +1,26 @@
 import { useCallback, useEffect, useState } from 'react'
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
+import { useQueryClient } from '@tanstack/react-query'
 import { authApi } from '@/lib/api'
 import { useAuthStore } from '@/store/auth'
 import { UserMenu } from '@/components/UserMenu'
 import { SearchBar, SearchIcon } from '@/components/SearchBar'
+import { ChoreDetailsModal } from '@/components/ChoreDetailsModal'
+import { UserDetailsModal } from '@/components/UserDetailsModal'
+import { CompleteModal } from '@/components/CompleteModal'
+import type { Chore, LeaderboardEntry } from '@/lib/types'
 import { cn } from '@/lib/utils'
 
 export function Layout() {
   const user = useAuthStore((s) => s.user)
   const clear = useAuthStore((s) => s.clear)
   const navigate = useNavigate()
+  const queryClient = useQueryClient()
   const [menuOpen, setMenuOpen] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
+  const [detailChore, setDetailChore] = useState<Chore | null>(null)
+  const [completeChore, setCompleteChore] = useState<Chore | null>(null)
+  const [detailUser, setDetailUser] = useState<LeaderboardEntry | null>(null)
 
   async function logout() {
     setMenuOpen(false)
@@ -52,7 +61,6 @@ export function Layout() {
   const isAdmin = user?.role === 'Admin'
 
   const tabs = [
-    { to: '/dashboard', label: 'Dashboard', Icon: DashboardIcon },
     { to: '/chores', label: 'Chores', Icon: ChoresIcon },
     ...(isAdmin ? [{ to: '/users', label: 'Users', Icon: UsersIcon }] : []),
     { to: '/points', label: 'Points', Icon: PointsIcon },
@@ -163,7 +171,42 @@ export function Layout() {
       </div>
 
       {/* Global search overlay */}
-      <SearchBar open={searchOpen} onClose={closeSearch} />
+      <SearchBar
+        open={searchOpen}
+        onClose={closeSearch}
+        onSelectChore={setDetailChore}
+        onSelectUser={setDetailUser}
+      />
+
+      {detailChore && (
+        <ChoreDetailsModal
+          chore={detailChore}
+          onClose={() => setDetailChore(null)}
+          onComplete={() => { setCompleteChore(detailChore); setDetailChore(null) }}
+        />
+      )}
+
+      {completeChore && (
+        <CompleteModal
+          chore={completeChore}
+          onClose={() => setCompleteChore(null)}
+          onDone={() => {
+            setCompleteChore(null)
+            void queryClient.invalidateQueries({ queryKey: ['chores'] })
+          }}
+        />
+      )}
+
+      {detailUser && (
+        <UserDetailsModal
+          userId={detailUser.id}
+          displayName={detailUser.displayName}
+          avatarColor={detailUser.avatarColor}
+          points={detailUser.points}
+          weeklyPoints={detailUser.weeklyPoints}
+          onClose={() => setDetailUser(null)}
+        />
+      )}
     </div>
   )
 }
@@ -180,17 +223,6 @@ function CloseIcon() {
   return (
     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
       <path d="M18 6 6 18M6 6l12 12" />
-    </svg>
-  )
-}
-
-function DashboardIcon() {
-  return (
-    <svg className="shrink-0" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <rect x="3" y="3" width="7" height="7" />
-      <rect x="14" y="3" width="7" height="7" />
-      <rect x="14" y="14" width="7" height="7" />
-      <rect x="3" y="14" width="7" height="7" />
     </svg>
   )
 }

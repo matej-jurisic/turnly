@@ -2,7 +2,7 @@ import type { ReactNode } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 
 interface ModalProps {
-  title: string
+  title: ReactNode
   onClose: () => void
   children: ReactNode
 }

@@ -7,7 +7,6 @@ import { SetupPage } from '@/pages/SetupPage'
 import { LoginPage } from '@/pages/LoginPage'
 import { UsersPage } from '@/pages/UsersPage'
 import { ChoresPage } from '@/pages/ChoresPage'
-import { DashboardPage } from '@/pages/DashboardPage'
 import { SettingsPage } from '@/pages/SettingsPage'
 import { PointsPage } from '@/pages/PointsPage'
 
@@ -53,12 +52,12 @@ export default function App() {
     return (
       <Routes>
         <Route element={<Layout />}>
-          <Route index element={<Navigate to="/dashboard" replace />} />
-          <Route path="/dashboard" element={<DashboardPage />} />
+          <Route index element={<Navigate to="/chores" replace />} />
+          <Route path="/dashboard" element={<Navigate to="/chores" replace />} />
           <Route path="/chores" element={<ChoresPage />} />
           <Route
             path="/users"
-            element={user?.role === 'Admin' ? <UsersPage /> : <Navigate to="/dashboard" replace />}
+            element={user?.role === 'Admin' ? <UsersPage /> : <Navigate to="/chores" replace />}
           />
           <Route path="/points" element={<PointsPage />} />
           <Route path="/settings" element={<SettingsPage />} />
