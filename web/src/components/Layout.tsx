@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
 import { authApi } from '@/lib/api'
 import { useAuthStore } from '@/store/auth'
 import { UserMenu } from '@/components/UserMenu'
+import { SearchBar, SearchIcon } from '@/components/SearchBar'
 import { cn } from '@/lib/utils'
 
 export function Layout() {
@@ -10,6 +11,7 @@ export function Layout() {
   const clear = useAuthStore((s) => s.clear)
   const navigate = useNavigate()
   const [menuOpen, setMenuOpen] = useState(false)
+  const [searchOpen, setSearchOpen] = useState(false)
 
   async function logout() {
     setMenuOpen(false)
@@ -20,6 +22,20 @@ export function Layout() {
       navigate('/')
     }
   }
+
+  // Ctrl+K / Cmd+K opens search.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+        e.preventDefault()
+        setSearchOpen((v) => !v)
+      }
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [])
+
+  const closeSearch = useCallback(() => setSearchOpen(false), [])
 
   // Close the drawer on Escape; lock background scroll while it's open.
   useEffect(() => {
@@ -36,6 +52,7 @@ export function Layout() {
   const isAdmin = user?.role === 'Admin'
 
   const tabs = [
+    { to: '/dashboard', label: 'Dashboard', Icon: DashboardIcon },
     { to: '/chores', label: 'Chores', Icon: ChoresIcon },
     ...(isAdmin ? [{ to: '/users', label: 'Users', Icon: UsersIcon }] : []),
     { to: '/points', label: 'Points', Icon: PointsIcon },
@@ -70,17 +87,35 @@ export function Layout() {
 
       {/* Main column */}
       <div className="flex min-h-screen flex-col md:pl-60">
-        <header className="sticky top-0 z-20 flex h-16 items-center gap-2 border-b border-border bg-card px-4 md:px-6">
-          <button
-            type="button"
-            onClick={() => setMenuOpen(true)}
-            aria-label="Open menu"
-            className="-ml-1 rounded-md p-2 text-foreground hover:bg-accent md:hidden"
-          >
-            <MenuIcon />
-          </button>
-          <span className="text-lg font-semibold text-primary md:hidden">Turnly</span>
-          <div className="flex-1" />
+        <header className="sticky top-0 z-20 flex h-16 items-center border-b border-border bg-card px-4 md:px-6">
+          {/* Left: mobile menu + logo */}
+          <div className="flex items-center gap-2 md:hidden">
+            <button
+              type="button"
+              onClick={() => setMenuOpen(true)}
+              aria-label="Open menu"
+              className="-ml-1 rounded-md p-2 text-foreground hover:bg-accent"
+            >
+              <MenuIcon />
+            </button>
+            <span className="text-lg font-semibold text-primary">Turnly</span>
+          </div>
+
+          {/* Center: search */}
+          <div className="flex flex-1 justify-center px-4">
+            <button
+              type="button"
+              onClick={() => setSearchOpen(true)}
+              aria-label="Search"
+              className="flex w-full max-w-sm items-center gap-2 rounded-lg border border-border bg-card px-3 py-1.5 text-sm text-muted-foreground transition-colors hover:border-ring hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              <SearchIcon />
+              <span className="flex-1 text-left">Search…</span>
+              <kbd className="hidden rounded border border-border px-1 py-0.5 text-xs sm:inline">⌘K</kbd>
+            </button>
+          </div>
+
+          {/* Right: user menu */}
           <UserMenu onLogout={logout} />
         </header>
 
@@ -126,6 +161,9 @@ export function Layout() {
           <nav className="flex flex-col gap-1 px-3 py-2">{navLinks(() => setMenuOpen(false))}</nav>
         </div>
       </div>
+
+      {/* Global search overlay */}
+      <SearchBar open={searchOpen} onClose={closeSearch} />
     </div>
   )
 }
@@ -142,6 +180,17 @@ function CloseIcon() {
   return (
     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
       <path d="M18 6 6 18M6 6l12 12" />
+    </svg>
+  )
+}
+
+function DashboardIcon() {
+  return (
+    <svg className="shrink-0" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <rect x="3" y="3" width="7" height="7" />
+      <rect x="14" y="3" width="7" height="7" />
+      <rect x="14" y="14" width="7" height="7" />
+      <rect x="3" y="14" width="7" height="7" />
     </svg>
   )
 }

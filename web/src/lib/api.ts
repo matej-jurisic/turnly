@@ -5,6 +5,7 @@ import type {
   CompleteChoreRequest,
   CreateChoreRequest,
   CreateUserRequest,
+  LeaderboardEntry,
   PointsLogEntry,
   SetupRequest,
   Tag,
@@ -105,6 +106,7 @@ export const authApi = {
 
 export const usersApi = {
   list: () => request<User[]>('/users'),
+  leaderboard: () => request<LeaderboardEntry[]>('/users/leaderboard'),
   create: (body: CreateUserRequest) => request<User>('/users', { method: 'POST', body: json(body) }),
   update: (id: string, body: UpdateUserRequest) =>
     request<User>(`/users/${id}`, { method: 'PUT', body: json(body) }),

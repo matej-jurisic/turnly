@@ -10,11 +10,19 @@ public record UserDto(
     string AvatarColor,
     UserRole Role,
     int Points,
+    int WeeklyPoints,
     DateTimeOffset CreatedAt)
 {
-    public static UserDto FromEntity(User u) =>
-        new(u.Id, u.Username, u.DisplayName, u.AvatarColor, u.Role, u.Points, u.CreatedAt);
+    public static UserDto FromEntity(User u, int weeklyPoints = 0) =>
+        new(u.Id, u.Username, u.DisplayName, u.AvatarColor, u.Role, u.Points, weeklyPoints, u.CreatedAt);
 }
+
+public record LeaderboardEntryDto(
+    Guid Id,
+    string DisplayName,
+    string AvatarColor,
+    int Points,
+    int WeeklyPoints);
 
 /// <summary>
 /// Result of a successful authentication. The raw <see cref="RefreshToken"/> is set by

@@ -22,10 +22,41 @@ public class UserService
     }
 
     public async Task<List<UserDto>> ListAsync(CancellationToken ct = default)
-        => await _db.Users
-            .OrderBy(u => u.DisplayName)
-            .Select(u => new UserDto(u.Id, u.Username, u.DisplayName, u.AvatarColor, u.Role, u.Points, u.CreatedAt))
-            .ToListAsync(ct);
+    {
+        var weeklyByUser = await ComputeWeeklyPointsAsync(ct);
+        var users = await _db.Users.OrderBy(u => u.DisplayName).ToListAsync(ct);
+        return users.Select(u => UserDto.FromEntity(u, weeklyByUser.GetValueOrDefault(u.Id))).ToList();
+    }
+
+    public async Task<List<LeaderboardEntryDto>> GetLeaderboardAsync(CancellationToken ct = default)
+    {
+        var weeklyByUser = await ComputeWeeklyPointsAsync(ct);
+        var users = await _db.Users.ToListAsync(ct);
+        return users
+            .OrderByDescending(u => u.Points)
+            .Select(u => new LeaderboardEntryDto(
+                u.Id, u.DisplayName, u.AvatarColor, u.Points,
+                weeklyByUser.GetValueOrDefault(u.Id)))
+            .ToList();
+    }
+
+    // Load all PointsLog entries client-side; SQLite can't translate DateTimeOffset comparisons to SQL.
+    private async Task<Dictionary<Guid, int>> ComputeWeeklyPointsAsync(CancellationToken ct)
+    {
+        var weekStart = GetCurrentWeekStart();
+        var allLog = await _db.PointsLog.ToListAsync(ct);
+        return allLog
+            .Where(e => e.CreatedAt >= weekStart)
+            .GroupBy(e => e.UserId)
+            .ToDictionary(g => g.Key, g => g.Sum(e => e.Delta));
+    }
+
+    private static DateTimeOffset GetCurrentWeekStart()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var daysToMonday = (int)now.DayOfWeek == 0 ? 6 : (int)now.DayOfWeek - 1;
+        return new DateTimeOffset(now.AddDays(-daysToMonday).Date, TimeSpan.Zero);
+    }
 
     public async Task<Result<List<PointsLogEntryDto>>> GetPointsLogAsync(Guid userId, CancellationToken ct = default)
     {

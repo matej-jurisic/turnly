@@ -47,8 +47,12 @@ public static class UserEndpoints
             return result.Succeeded ? Results.NoContent() : result.Error!.ToProblem();
         });
 
-        // Points log is readable by the user themselves or any admin (not the Admin-only group).
+        // Endpoints accessible to any authenticated member.
         var self = app.MapGroup("/api/users").RequireAuthorization();
+
+        self.MapGet("/leaderboard", async (UserService users, CancellationToken ct) =>
+            Results.Ok(await users.GetLeaderboardAsync(ct)));
+
         self.MapGet("/{id:guid}/points-log", async (Guid id, ClaimsPrincipal principal,
             UserService users, CancellationToken ct) =>
         {

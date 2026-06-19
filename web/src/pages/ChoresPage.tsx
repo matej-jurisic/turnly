@@ -18,6 +18,7 @@ import { Card } from '@/components/ui/Card'
 import { Input, Label, Select } from '@/components/ui/Field'
 import { Modal, Avatar } from '@/components/ui/Modal'
 import { RecurrenceEditor } from '@/components/RecurrenceEditor'
+import { CompleteModal } from '@/components/CompleteModal'
 
 const REPEAT_OPTIONS: { value: RepeatType; label: string }[] = [
   { value: 'OneTime', label: 'One-time' },
@@ -410,7 +411,7 @@ function ChoreFormModal({ title, chore, onClose, onSaved }: ChoreFormModalProps)
       const body: ChoreRequest = {
         name,
         description: description.trim() || null,
-        emoji: emoji.trim() || null,
+        emoji: emoji.trim() || '📋',
         points: Number(points) || 0,
         repeatType,
         ...recurrence,
@@ -434,6 +435,10 @@ function ChoreFormModal({ title, chore, onClose, onSaved }: ChoreFormModalProps)
       <form
         onSubmit={(e) => {
           e.preventDefault()
+          if (assigneeIds.length === 0) {
+            setError('Select at least one assignee.')
+            return
+          }
           setError(null)
           mutation.mutate()
         }}
@@ -446,7 +451,7 @@ function ChoreFormModal({ title, chore, onClose, onSaved }: ChoreFormModalProps)
         <div className="flex gap-3">
           <div className="flex-1">
             <Label htmlFor="emoji">Emoji</Label>
-            <Input id="emoji" value={emoji} onChange={(e) => setEmoji(e.target.value)} placeholder="🧹" />
+            <Input id="emoji" value={emoji} onChange={(e) => setEmoji(e.target.value)} />
           </div>
           <div className="flex-1">
             <Label htmlFor="points">Points</Label>
@@ -505,7 +510,30 @@ function ChoreFormModal({ title, chore, onClose, onSaved }: ChoreFormModalProps)
           </div>
         )}
         <div>
-          <Label>Assignees</Label>
+          <div className="mb-1 flex items-center justify-between">
+            <Label className="mb-0">Assignees</Label>
+            {(allUsers ?? []).length > 1 && (() => {
+              const all = (allUsers ?? []).map((u) => u.id)
+              const allSelected = all.every((id) => assigneeIds.includes(id))
+              return (
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (allSelected) {
+                      setAssigneeIds([])
+                      setCurrentAssigneeId('')
+                    } else {
+                      setAssigneeIds(all)
+                      if (!all.includes(currentAssigneeId)) setCurrentAssigneeId(all[0] ?? '')
+                    }
+                  }}
+                  className="text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+                >
+                  {allSelected ? 'Deselect all' : 'Everyone'}
+                </button>
+              )
+            })()}
+          </div>
           <div className="flex flex-wrap gap-1">
             {(allUsers ?? []).map((u) => (
               <button
@@ -570,45 +598,6 @@ function ChoreFormModal({ title, chore, onClose, onSaved }: ChoreFormModalProps)
           <Button type="button" variant="secondary" onClick={onClose}>Cancel</Button>
           <Button type="submit" disabled={mutation.isPending}>
             {mutation.isPending ? 'Saving…' : 'Save'}
-          </Button>
-        </div>
-      </form>
-    </Modal>
-  )
-}
-
-function CompleteModal({ chore, onClose, onDone }: { chore: Chore; onClose: () => void; onDone: () => void }) {
-  const [notes, setNotes] = useState('')
-  const [error, setError] = useState<string | null>(null)
-
-  const mutation = useMutation({
-    mutationFn: () => choresApi.complete(chore.id, { notes: notes.trim() || null }),
-    onSuccess: onDone,
-    onError: (err) => setError(err instanceof ApiError ? err.message : 'Failed to complete'),
-  })
-
-  return (
-    <Modal title={`Complete "${chore.name}"`} onClose={onClose}>
-      <form
-        onSubmit={(e) => {
-          e.preventDefault()
-          setError(null)
-          mutation.mutate()
-        }}
-        className="space-y-4"
-      >
-        <p className="text-sm text-muted-foreground">
-          You'll earn <span className="font-medium text-foreground">{chore.points} points</span>.
-        </p>
-        <div>
-          <Label htmlFor="notes">Notes (optional)</Label>
-          <Input id="notes" value={notes} onChange={(e) => setNotes(e.target.value)} />
-        </div>
-        {error && <p className="text-sm text-destructive">{error}</p>}
-        <div className="flex justify-end gap-2">
-          <Button type="button" variant="secondary" onClick={onClose}>Cancel</Button>
-          <Button type="submit" disabled={mutation.isPending}>
-            {mutation.isPending ? 'Saving…' : 'Mark complete'}
           </Button>
         </div>
       </form>

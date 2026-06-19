@@ -81,8 +81,15 @@ public class ChoreService
             return Result.Fail<ChoreDto>(Error.NotFound("Chore not found."));
 
         var previousAssignee = chore.CurrentAssigneeId;
+        var oldStartDate = chore.StartDate;
+        var oldRule = RecurrenceRule.FromChore(chore);
+
         Apply(chore, req, validation.Value!);
-        chore.DueAt = RecurrenceCalculator.FirstOccurrence(RecurrenceRule.FromChore(chore), req.StartDate);
+
+        // Only recompute DueAt when the schedule itself changed; editing name/points/assignees/tags
+        // must not silently reset a due date that has already been advanced by completions.
+        if (chore.StartDate != oldStartDate || ScheduleChanged(oldRule, RecurrenceRule.FromChore(chore)))
+            chore.DueAt = RecurrenceCalculator.FirstOccurrence(RecurrenceRule.FromChore(chore), req.StartDate);
 
         // Reassigning via edit is itself an assignment event (keeps Least-Assigned honest).
         if (chore.CurrentAssigneeId != previousAssignee)
@@ -327,6 +334,17 @@ public class ChoreService
 
         return Result.Success(assignees);
     }
+
+    private static bool ScheduleChanged(RecurrenceRule a, RecurrenceRule b) =>
+        a.Type != b.Type ||
+        a.CustomMode != b.CustomMode ||
+        a.IntervalCount != b.IntervalCount ||
+        a.IntervalUnit != b.IntervalUnit ||
+        !a.Weekdays.SequenceEqual(b.Weekdays) ||
+        !a.DaysOfMonth.SequenceEqual(b.DaysOfMonth) ||
+        !a.Months.SequenceEqual(b.Months) ||
+        a.FrequencyCount != b.FrequencyCount ||
+        a.FrequencyPeriod != b.FrequencyPeriod;
 
     private static void Apply(Chore chore, IChoreInput req, List<User> assignees)
     {

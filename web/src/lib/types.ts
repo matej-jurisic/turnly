@@ -7,7 +7,16 @@ export interface User {
   avatarColor: string
   role: UserRole
   points: number
+  weeklyPoints: number
   createdAt: string
+}
+
+export interface LeaderboardEntry {
+  id: string
+  displayName: string
+  avatarColor: string
+  points: number
+  weeklyPoints: number
 }
 
 export interface AuthResponse {
