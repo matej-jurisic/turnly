@@ -2,10 +2,11 @@
 
 Family chore management web app (PWA). Self-hosted, simple, actually works.
 
-This repository currently implements **Phases 1–7**: foundation (auth, users, roles, Docker),
+This repository currently implements **Phases 1–8**: foundation (auth, users, roles, Docker),
 chore CRUD with recurrence and assignment strategies, a dashboard with today/overdue/upcoming
 views, per-user point totals, filtering, and global search, a history/stats view, awards and
-point redemption, and per-occurrence skip and one-off reassignment.
+point redemption, per-occurrence skip and one-off reassignment, and Web Push notifications
+(per-chore reminder/due/follow-up schedule via self-hosted VAPID keys).
 See [`specs.md`](./specs.md) for the full product spec and roadmap.
 
 ## Stack
@@ -41,6 +42,13 @@ to create the admin account. Data persists in the `turnly-data` volume.
 
 ## Local development
 
+First, create your local dev config (it's gitignored, as it holds dev-only secrets):
+
+```bash
+cp src/Turnly.Api/appsettings.Development.json.example \
+   src/Turnly.Api/appsettings.Development.json
+```
+
 Backend (terminal 1):
 
 ```bash
@@ -52,6 +60,24 @@ Frontend (terminal 2):
 ```bash
 cd web && npm install && npm run dev     # http://localhost:5173 (proxies /api → backend)
 ```
+
+## Notifications (Web Push)
+
+Push notifications are optional and stay off until VAPID keys are configured. Generate one
+keypair once:
+
+```bash
+npx web-push generate-vapid-keys
+```
+
+- **Docker / production:** set `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, and `VAPID_SUBJECT`
+  (e.g. `mailto:you@example.com`) in `.env`.
+- **Local dev:** put the same values under the `Vapid` section of
+  `src/Turnly.Api/appsettings.Development.json`.
+
+Then each user enables push per-device under **Settings → Notifications**, and chores get a
+notification schedule (reminder / due / follow-up) in the chore form. Without keys, the
+background scheduler stays idle and the rest of the app works normally.
 
 ## Tests
 

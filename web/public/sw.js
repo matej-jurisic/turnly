@@ -1,6 +1,10 @@
-// Turnly push-only service worker (Phase 8).
-// Receives Web Push messages and shows notifications. The full PWA (offline, app shell,
-// caching, install) is Phase 9 — this file deliberately handles only push + clicks.
+// Turnly service worker.
+// Phase 8: receives Web Push messages and shows notifications.
+// Plus a no-op fetch handler so the app is installable (real offline caching/app-shell is Phase 9).
+
+// Pass-through fetch — no caching yet, but having a fetch handler satisfies
+// installability heuristics in some browsers.
+self.addEventListener('fetch', () => {})
 
 self.addEventListener('push', (event) => {
   let data = {}

@@ -137,8 +137,10 @@ copy the nearest existing example. Paths are under `src/` / `web/src/` / `tests/
 - `lib/api.ts` — `request<T>` (bearer + one-shot 401 refresh); per-resource objects
   (`usersApi`, `choresApi`, `tagsApi`, `notificationsApi`). `lib/types.ts` mirrors the backend DTOs.
 - **Notifications (Phase 8):** `lib/push.ts` wraps the browser Push API
-  (`enablePush`/`disablePush`/`isPushEnabled`, VAPID key decode); `web/public/sw.js` is a minimal
-  push-only service worker (registered in `main.tsx`). `components/NotificationsEditor.tsx` is the
+  (`enablePush`/`disablePush`/`isPushEnabled`, VAPID key decode); `web/public/sw.js` is the service
+  worker (push + `notificationclick` + a no-op `fetch` for installability), registered in `main.tsx`.
+  `web/public/manifest.webmanifest` + `icon-192/512.png` make the app installable (basic PWA install
+  only — offline/app-shell/caching is still Phase 9); linked from `index.html`. `components/NotificationsEditor.tsx` is the
   per-chore schedule sub-form (modeled on `RecurrenceEditor`, embedded in the `ChoresPage` form);
   `SettingsPage`'s Notifications card has enable/disable-on-this-device, a list of the user's
   registered devices (label + "This device" marker + per-device remove), and an admin-only "Send
