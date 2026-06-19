@@ -20,4 +20,8 @@ public class ChoreCompletion
 
     /// <summary>The chore's <c>DueAt</c> when it was completed; restored on undo.</summary>
     public DateTimeOffset? OccurrenceDueAt { get; set; }
+
+    /// <summary>The chore's current assignee before this completion (possibly) rotated it;
+    /// restored on undo. A plain snapshot, not a navigation.</summary>
+    public Guid? PreviousAssigneeId { get; set; }
 }

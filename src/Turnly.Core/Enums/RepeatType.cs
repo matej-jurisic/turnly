@@ -1,8 +1,8 @@
 namespace Turnly.Core.Enums;
 
 /// <summary>
-/// Basic recurrence types (Phase 2). Custom recurrence (interval / frequency /
-/// days-of-month) is a Phase 3 extension and intentionally absent here.
+/// Recurrence types. The first five are the basic Phase 2 schedules; <see cref="Custom"/>
+/// (Phase 3) delegates to a <see cref="CustomRecurrenceMode"/> for richer rules.
 /// </summary>
 public enum RepeatType
 {
@@ -10,5 +10,6 @@ public enum RepeatType
     Daily = 1,
     Weekly = 2,
     Monthly = 3,
-    Yearly = 4
+    Yearly = 4,
+    Custom = 5
 }

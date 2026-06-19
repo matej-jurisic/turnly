@@ -37,7 +37,23 @@ export interface UpdateUserRequest {
   role: UserRole
 }
 
-export type RepeatType = 'OneTime' | 'Daily' | 'Weekly' | 'Monthly' | 'Yearly'
+export type RepeatType = 'OneTime' | 'Daily' | 'Weekly' | 'Monthly' | 'Yearly' | 'Custom'
+
+export type CustomRecurrenceMode = 'Interval' | 'DaysOfWeek' | 'DaysOfMonth' | 'Frequency'
+
+export type RecurrenceUnit = 'Day' | 'Week' | 'Month' | 'Year'
+
+export type FrequencyPeriod = 'Day' | 'Week' | 'Month' | 'Year'
+
+export type AssignmentStrategy =
+  | 'Random'
+  | 'LeastAssigned'
+  | 'LeastCompleted'
+  | 'KeepLastAssigned'
+  | 'RandomExceptLastAssigned'
+  | 'RoundRobin'
+
+export type SchedulingPreference = 'FromScheduledDate' | 'FromCompletionDate' | 'ToFirstNextRepeat'
 
 export type Weekday =
   | 'Sunday'
@@ -58,30 +74,46 @@ export interface ChoreCompletion {
   pointsAwarded: number
 }
 
-export interface Chore {
+/** Custom-recurrence parameters; which fields apply depends on `customMode`. */
+export interface RecurrenceFields {
+  customMode?: CustomRecurrenceMode | null
+  intervalCount?: number | null
+  intervalUnit?: RecurrenceUnit | null
+  weekdays: Weekday[]
+  daysOfMonth: number[]
+  months: number[]
+  frequencyCount?: number | null
+  frequencyPeriod?: FrequencyPeriod | null
+}
+
+export interface Chore extends RecurrenceFields {
   id: string
   name: string
   description?: string | null
   emoji?: string | null
   points: number
   repeatType: RepeatType
-  weekdays: Weekday[]
+  assignmentStrategy: AssignmentStrategy
+  schedulingPreference: SchedulingPreference
   startDate: string
   dueAt?: string | null
   currentAssignee?: User | null
   assignees: User[]
   tags: string[]
   lastCompletion?: ChoreCompletion | null
+  /** Completions in the current period (frequency chores only). */
+  frequencyProgress?: number | null
   createdAt: string
 }
 
-export interface ChoreRequest {
+export interface ChoreRequest extends RecurrenceFields {
   name: string
   description?: string | null
   emoji?: string | null
   points: number
   repeatType: RepeatType
-  weekdays: Weekday[]
+  assignmentStrategy: AssignmentStrategy
+  schedulingPreference: SchedulingPreference
   startDate: string
   assigneeIds: string[]
   currentAssigneeId: string

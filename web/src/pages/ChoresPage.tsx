@@ -3,16 +3,21 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { choresApi, tagsApi, usersApi, ApiError } from '@/lib/api'
 import { useAuthStore } from '@/store/auth'
 import type {
+  AssignmentStrategy,
   Chore,
   ChoreRequest,
+  RecurrenceFields,
   RepeatType,
+  SchedulingPreference,
   User,
+  Weekday,
 } from '@/lib/types'
 import { Button } from '@/components/ui/Button'
 import { Badge } from '@/components/ui/Badge'
 import { Card } from '@/components/ui/Card'
 import { Input, Label, Select } from '@/components/ui/Field'
 import { Modal, Avatar } from '@/components/ui/Modal'
+import { RecurrenceEditor } from '@/components/RecurrenceEditor'
 
 const REPEAT_OPTIONS: { value: RepeatType; label: string }[] = [
   { value: 'OneTime', label: 'One-time' },
@@ -20,10 +25,56 @@ const REPEAT_OPTIONS: { value: RepeatType; label: string }[] = [
   { value: 'Weekly', label: 'Weekly' },
   { value: 'Monthly', label: 'Monthly' },
   { value: 'Yearly', label: 'Yearly' },
+  { value: 'Custom', label: 'Custom' },
 ]
 
+const STRATEGY_OPTIONS: { value: AssignmentStrategy; label: string }[] = [
+  { value: 'KeepLastAssigned', label: 'Keep last assigned' },
+  { value: 'RoundRobin', label: 'Round robin' },
+  { value: 'Random', label: 'Random' },
+  { value: 'RandomExceptLastAssigned', label: 'Random (except last)' },
+  { value: 'LeastAssigned', label: 'Least assigned' },
+  { value: 'LeastCompleted', label: 'Least completed' },
+]
+
+const SCHEDULING_OPTIONS: { value: SchedulingPreference; label: string }[] = [
+  { value: 'FromScheduledDate', label: 'From scheduled date' },
+  { value: 'FromCompletionDate', label: 'From completion date' },
+  { value: 'ToFirstNextRepeat', label: 'To first next repeat' },
+]
+
+const WEEKDAY_SHORT: Record<Weekday, string> = {
+  Sunday: 'Sun', Monday: 'Mon', Tuesday: 'Tue', Wednesday: 'Wed',
+  Thursday: 'Thu', Friday: 'Fri', Saturday: 'Sat',
+}
+const WEEKDAY_ORDER: Weekday[] = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+const MONTH_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+
 function repeatLabel(chore: Chore): string {
-  return REPEAT_OPTIONS.find((o) => o.value === chore.repeatType)?.label ?? chore.repeatType
+  if (chore.repeatType !== 'Custom')
+    return REPEAT_OPTIONS.find((o) => o.value === chore.repeatType)?.label ?? chore.repeatType
+
+  switch (chore.customMode) {
+    case 'Interval': {
+      const unit = (chore.intervalUnit ?? 'Week').toLowerCase()
+      const n = chore.intervalCount ?? 1
+      return n === 1 ? `Every ${unit}` : `Every ${n} ${unit}s`
+    }
+    case 'DaysOfWeek':
+      return [...chore.weekdays]
+        .sort((a, b) => WEEKDAY_ORDER.indexOf(a) - WEEKDAY_ORDER.indexOf(b))
+        .map((d) => WEEKDAY_SHORT[d])
+        .join(', ') || 'Days of week'
+    case 'DaysOfMonth': {
+      const days = [...chore.daysOfMonth].sort((a, b) => a - b).join(', ')
+      const months = [...chore.months].sort((a, b) => a - b).map((m) => MONTH_SHORT[m - 1]).join(', ')
+      return `Days ${days}${months ? ` · ${months}` : ''}`
+    }
+    case 'Frequency':
+      return `${chore.frequencyCount ?? 1}×/${(chore.frequencyPeriod ?? 'Week').toLowerCase()}`
+    default:
+      return 'Custom'
+  }
 }
 
 function formatDate(iso?: string | null): string {
@@ -77,6 +128,11 @@ export function ChoresPage() {
                 <Badge tone="amber" className="border border-warning bg-card">Due {formatDate(chore.dueAt)}</Badge>
               )}
               <Badge tone="blue" className="border border-info bg-card">{repeatLabel(chore)}</Badge>
+              {chore.customMode === 'Frequency' && (
+                <Badge tone="violet" className="border border-primary bg-card">
+                  {chore.frequencyProgress ?? 0}/{chore.frequencyCount ?? 1} this {(chore.frequencyPeriod ?? 'Week').toLowerCase()}
+                </Badge>
+              )}
             </div>
             <Card className="min-w-0 p-4">
               <div className="space-y-2">
@@ -315,6 +371,22 @@ function ChoreFormModal({ title, chore, onClose, onSaved }: ChoreFormModalProps)
   const [emoji, setEmoji] = useState(chore?.emoji ?? '')
   const [points, setPoints] = useState(String(chore?.points ?? 0))
   const [repeatType, setRepeatType] = useState<RepeatType>(chore?.repeatType ?? 'OneTime')
+  const [recurrence, setRecurrence] = useState<RecurrenceFields>({
+    customMode: chore?.customMode ?? 'Interval',
+    intervalCount: chore?.intervalCount ?? 1,
+    intervalUnit: chore?.intervalUnit ?? 'Week',
+    weekdays: chore?.weekdays ?? [],
+    daysOfMonth: chore?.daysOfMonth ?? [],
+    months: chore?.months ?? [],
+    frequencyCount: chore?.frequencyCount ?? 1,
+    frequencyPeriod: chore?.frequencyPeriod ?? 'Week',
+  })
+  const [assignmentStrategy, setAssignmentStrategy] = useState<AssignmentStrategy>(
+    chore?.assignmentStrategy ?? 'KeepLastAssigned',
+  )
+  const [schedulingPreference, setSchedulingPreference] = useState<SchedulingPreference>(
+    chore?.schedulingPreference ?? 'FromScheduledDate',
+  )
   const [startDate, setStartDate] = useState(
     (chore?.startDate ?? new Date().toISOString()).slice(0, 10),
   )
@@ -341,7 +413,9 @@ function ChoreFormModal({ title, chore, onClose, onSaved }: ChoreFormModalProps)
         emoji: emoji.trim() || null,
         points: Number(points) || 0,
         repeatType,
-        weekdays: [],
+        ...recurrence,
+        assignmentStrategy,
+        schedulingPreference,
         startDate: new Date(startDate).toISOString(),
         assigneeIds,
         currentAssigneeId,
@@ -397,7 +471,40 @@ function ChoreFormModal({ title, chore, onClose, onSaved }: ChoreFormModalProps)
             <Input id="start" type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} required />
           </div>
         </div>
-<div>
+        {repeatType === 'Custom' && (
+          <RecurrenceEditor value={recurrence} onChange={setRecurrence} />
+        )}
+        {repeatType !== 'OneTime' && (
+          <div className="flex gap-3">
+            <div className="flex-1">
+              <Label htmlFor="strategy">Assignment</Label>
+              <Select
+                id="strategy"
+                value={assignmentStrategy}
+                onChange={(e) => setAssignmentStrategy(e.target.value as AssignmentStrategy)}
+              >
+                {STRATEGY_OPTIONS.map((o) => (
+                  <option key={o.value} value={o.value}>{o.label}</option>
+                ))}
+              </Select>
+            </div>
+            {!(repeatType === 'Custom' && recurrence.customMode === 'Frequency') && (
+              <div className="flex-1">
+                <Label htmlFor="scheduling">Next due</Label>
+                <Select
+                  id="scheduling"
+                  value={schedulingPreference}
+                  onChange={(e) => setSchedulingPreference(e.target.value as SchedulingPreference)}
+                >
+                  {SCHEDULING_OPTIONS.map((o) => (
+                    <option key={o.value} value={o.value}>{o.label}</option>
+                  ))}
+                </Select>
+              </div>
+            )}
+          </div>
+        )}
+        <div>
           <Label>Assignees</Label>
           <div className="flex flex-wrap gap-1">
             {(allUsers ?? []).map((u) => (

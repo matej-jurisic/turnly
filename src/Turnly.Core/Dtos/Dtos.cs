@@ -46,23 +46,62 @@ public record ChoreDto(
     string? Emoji,
     int Points,
     RepeatType RepeatType,
+    CustomRecurrenceMode? CustomMode,
+    int? IntervalCount,
+    RecurrenceUnit? IntervalUnit,
     DayOfWeek[] Weekdays,
+    int[] DaysOfMonth,
+    int[] Months,
+    int? FrequencyCount,
+    FrequencyPeriod? FrequencyPeriod,
+    AssignmentStrategy AssignmentStrategy,
+    SchedulingPreference SchedulingPreference,
     DateTimeOffset StartDate,
     DateTimeOffset? DueAt,
     UserDto? CurrentAssignee,
     UserDto[] Assignees,
     string[] Tags,
     ChoreCompletionDto? LastCompletion,
+    int? FrequencyProgress,
     DateTimeOffset CreatedAt)
 {
-    public static ChoreDto FromEntity(Chore c, ChoreCompletion? lastCompletion = null) =>
+    public static ChoreDto FromEntity(Chore c, ChoreCompletion? lastCompletion = null, int? frequencyProgress = null) =>
         new(c.Id, c.Name, c.Description, c.Emoji, c.Points, c.RepeatType,
-            c.Weekdays.ToArray(), c.StartDate, c.DueAt,
+            c.CustomMode, c.IntervalCount, c.IntervalUnit,
+            c.Weekdays.ToArray(), c.DaysOfMonth.ToArray(), c.Months.ToArray(),
+            c.FrequencyCount, c.FrequencyPeriod, c.AssignmentStrategy, c.SchedulingPreference,
+            c.StartDate, c.DueAt,
             c.CurrentAssignee is null ? null : UserDto.FromEntity(c.CurrentAssignee),
             c.Assignees.Select(UserDto.FromEntity).OrderBy(u => u.DisplayName).ToArray(),
             c.Tags.Select(t => t.Name).OrderBy(n => n).ToArray(),
             lastCompletion is null ? null : ChoreCompletionDto.FromEntity(lastCompletion),
+            frequencyProgress,
             c.CreatedAt);
+}
+
+/// <summary>The shared shape of a chore create/update request, so the service can validate and
+/// apply both through one code path.</summary>
+public interface IChoreInput
+{
+    string Name { get; }
+    string? Description { get; }
+    string? Emoji { get; }
+    int Points { get; }
+    RepeatType RepeatType { get; }
+    CustomRecurrenceMode? CustomMode { get; }
+    int? IntervalCount { get; }
+    RecurrenceUnit? IntervalUnit { get; }
+    DayOfWeek[]? Weekdays { get; }
+    int[]? DaysOfMonth { get; }
+    int[]? Months { get; }
+    int? FrequencyCount { get; }
+    FrequencyPeriod? FrequencyPeriod { get; }
+    AssignmentStrategy AssignmentStrategy { get; }
+    SchedulingPreference SchedulingPreference { get; }
+    DateTimeOffset StartDate { get; }
+    Guid[] AssigneeIds { get; }
+    Guid CurrentAssigneeId { get; }
+    string[]? TagNames { get; }
 }
 
 public record CreateChoreRequest(
@@ -71,11 +110,20 @@ public record CreateChoreRequest(
     string? Emoji,
     int Points,
     RepeatType RepeatType,
+    CustomRecurrenceMode? CustomMode,
+    int? IntervalCount,
+    RecurrenceUnit? IntervalUnit,
     DayOfWeek[]? Weekdays,
+    int[]? DaysOfMonth,
+    int[]? Months,
+    int? FrequencyCount,
+    FrequencyPeriod? FrequencyPeriod,
+    AssignmentStrategy AssignmentStrategy,
+    SchedulingPreference SchedulingPreference,
     DateTimeOffset StartDate,
     Guid[] AssigneeIds,
     Guid CurrentAssigneeId,
-    string[]? TagNames);
+    string[]? TagNames) : IChoreInput;
 
 public record UpdateChoreRequest(
     string Name,
@@ -83,11 +131,20 @@ public record UpdateChoreRequest(
     string? Emoji,
     int Points,
     RepeatType RepeatType,
+    CustomRecurrenceMode? CustomMode,
+    int? IntervalCount,
+    RecurrenceUnit? IntervalUnit,
     DayOfWeek[]? Weekdays,
+    int[]? DaysOfMonth,
+    int[]? Months,
+    int? FrequencyCount,
+    FrequencyPeriod? FrequencyPeriod,
+    AssignmentStrategy AssignmentStrategy,
+    SchedulingPreference SchedulingPreference,
     DateTimeOffset StartDate,
     Guid[] AssigneeIds,
     Guid CurrentAssigneeId,
-    string[]? TagNames);
+    string[]? TagNames) : IChoreInput;
 
 public record CompleteChoreRequest(string? Notes);
 

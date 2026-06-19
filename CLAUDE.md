@@ -5,12 +5,15 @@ and 8-phase roadmap, and `README.md` for user-facing setup.
 
 ## What this is
 
-Self-hosted family chore-management web app (PWA). **Phases 1–2 are complete.** Phase 1
+Self-hosted family chore-management web app (PWA). **Phases 1–3 are complete.** Phase 1
 (Foundation): auth, user CRUD + roles, password management, DB schema, Docker. Phase 2
 (Chores – Core): chore CRUD (name, description, emoji, tags, assignees, points), basic
 recurrence (one-time/daily/weekly/monthly/yearly + start date), mark complete + undo, and a
-per-user points log. Phases 3–8 (advanced recurrence + assignment strategies + scheduling
-prefs, dashboard, notifications, history, awards, PWA) are not started.
+per-user points log. Phase 3 (Chores – Advanced): custom recurrence (`Custom` repeat type with
+Interval / DaysOfWeek / DaysOfMonth / Frequency modes — day granularity, hourly deferred to
+Phase 5), six assignment strategies that rotate the current assignee on each new occurrence, and
+three scheduling preferences for the next due date. Phases 4–8 (dashboard, notifications,
+history, awards, PWA) are not started.
 
 ## Stack & layout
 
@@ -33,12 +36,16 @@ copy the nearest existing example. Paths are under `src/` / `web/src/` / `tests/
 
 **Backend (`Turnly.Core`)**
 - `Entities/` — POCOs; convention is `Guid Id = Guid.NewGuid()` + `DateTimeOffset CreatedAt`,
-  no base class. `User, RefreshToken, Chore, Tag, ChoreCompletion, PointsLogEntry`.
-- `Enums/` — `UserRole, RepeatType, PointsLogType`; **stored as strings** (`HasConversion<string>`)
-  and serialized as strings in JSON.
+  no base class. `User, RefreshToken, Chore, Tag, ChoreCompletion, ChoreAssignment, PointsLogEntry`.
+  `ChoreAssignment` logs every assignment (initial + each rotation) — backs `LeastAssigned` and
+  lets undo reverse a rotation via its `ChoreCompletionId` link.
+- `Enums/` — `UserRole, RepeatType, PointsLogType` + Phase 3's `CustomRecurrenceMode,
+  RecurrenceUnit, FrequencyPeriod, AssignmentStrategy, SchedulingPreference`; **stored as strings**
+  (`HasConversion<string>`) and serialized as strings in JSON.
 - `Data/TurnlyDbContext.cs` — DbSets + fluent config in `OnModelCreating`. Many-to-many via
-  skip navs (`Chore.Assignees`, `Chore.Tags`). `Chore.Weekdays` (`List<DayOfWeek>`) is stored
-  via a CSV `ValueConverter` + `ValueComparer`.
+  skip navs (`Chore.Assignees`, `Chore.Tags`). `Chore.Weekdays` (`List<DayOfWeek>`, custom
+  DaysOfWeek mode) and `Chore.DaysOfMonth`/`Chore.Months` (`List<int>`) are stored via CSV
+  `ValueConverter` + `ValueComparer` (`WeekdaysConverter` / `IntListConverter`).
 - `Common/Result.cs` — `Result`/`Result<T>` + `Error(ErrorType, msg)` (Validation/NotFound/
   Conflict/Unauthorized/Forbidden). **Expected failures return Results, not exceptions.**
 - `Common/Validators.cs` — shared static rules returning `Error?` (`Username`, `Password`,
@@ -48,7 +55,12 @@ copy the nearest existing example. Paths are under `src/` / `web/src/` / `tests/
 - `Services/*Service.cs` — ctor-inject `TurnlyDbContext` (+ deps); methods return `Result`/
   `Result<T>`. `AuthService, UserService, SetupService, TagService, ChoreService`. Registered
   in `ServiceCollectionExtensions.AddTurnlyCore`.
-- `Recurrence/RecurrenceCalculator.cs` — pure `Next(type, weekdays, current)`; unit-tested.
+- `Recurrence/` — pure, unit-tested. `RecurrenceCalculator` works off a `RecurrenceRule` record
+  (`FromChore`): `FirstOccurrence(rule, start)` + `NextDue(rule, pref, scheduledDue, completedAt,
+  now)` (interval stepping, fixed-slot scanning, scheduling prefs) plus `PeriodStart/PeriodEnd`
+  for frequency. `AssignmentPicker.Pick(...)` implements the six strategies (inject `Random`).
+  **Frequency is NOT in `NextDue`** — it needs completion counts, so `ChoreService` handles its
+  period rollover (and computes `FrequencyProgress` for the DTO) client-side.
 - ⚠️ **SQLite can't `ORDER BY` a `DateTimeOffset`** — order date fields client-side after
   `ToListAsync` (see `ChoreService.ListAsync`, `LatestCompletionsAsync`, `GetPointsLogAsync`).
 

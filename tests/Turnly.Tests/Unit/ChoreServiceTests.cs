@@ -23,8 +23,20 @@ public class ChoreServiceTests
         RepeatType repeat = RepeatType.Daily,
         int points = 10,
         DayOfWeek[]? weekdays = null,
-        string[]? tags = null) =>
-        new("Dishes", null, "🍽️", points, repeat, weekdays, Start, assignees, currentAssignee, tags);
+        string[]? tags = null,
+        CustomRecurrenceMode? customMode = null,
+        int? intervalCount = null,
+        RecurrenceUnit? intervalUnit = null,
+        int[]? daysOfMonth = null,
+        int[]? months = null,
+        int? frequencyCount = null,
+        FrequencyPeriod? frequencyPeriod = null,
+        AssignmentStrategy strategy = AssignmentStrategy.KeepLastAssigned,
+        SchedulingPreference scheduling = SchedulingPreference.FromScheduledDate,
+        DateTimeOffset? start = null) =>
+        new("Dishes", null, "🍽️", points, repeat, customMode, intervalCount, intervalUnit,
+            weekdays, daysOfMonth, months, frequencyCount, frequencyPeriod,
+            strategy, scheduling, start ?? Start, assignees, currentAssignee, tags);
 
     [Fact]
     public async Task CreateAsync_rejects_blank_name()
@@ -163,5 +175,129 @@ public class ChoreServiceTests
 
         Assert.False(result.Succeeded);
         Assert.Equal(ErrorType.Forbidden, result.Error!.Type);
+    }
+
+    [Fact]
+    public async Task CreateAsync_rejects_custom_interval_without_count()
+    {
+        using var ctx = new TestContext();
+        var (_, member) = await SeedUsersAsync(ctx);
+
+        var result = await ctx.Chores.CreateAsync(NewChore(member, [member], RepeatType.Custom,
+            customMode: CustomRecurrenceMode.Interval, intervalUnit: RecurrenceUnit.Week));
+
+        Assert.False(result.Succeeded);
+        Assert.Equal(ErrorType.Validation, result.Error!.Type);
+    }
+
+    [Fact]
+    public async Task CreateAsync_rejects_day_that_never_occurs_in_selected_months()
+    {
+        using var ctx = new TestContext();
+        var (_, member) = await SeedUsersAsync(ctx);
+
+        // Day 31 in February only — can never happen.
+        var result = await ctx.Chores.CreateAsync(NewChore(member, [member], RepeatType.Custom,
+            customMode: CustomRecurrenceMode.DaysOfMonth, daysOfMonth: [31], months: [2]));
+
+        Assert.False(result.Succeeded);
+        Assert.Equal(ErrorType.Validation, result.Error!.Type);
+    }
+
+    [Fact]
+    public async Task CreateAsync_allows_day_31_when_a_selected_month_supports_it()
+    {
+        using var ctx = new TestContext();
+        var (_, member) = await SeedUsersAsync(ctx);
+
+        // Jan has 31 days, so day 31 + {Jan, Feb} is valid (February is simply skipped).
+        var result = await ctx.Chores.CreateAsync(NewChore(member, [member], RepeatType.Custom,
+            customMode: CustomRecurrenceMode.DaysOfMonth, daysOfMonth: [31], months: [1, 2]));
+
+        Assert.True(result.Succeeded);
+    }
+
+    [Fact]
+    public async Task CompleteAsync_keep_last_assigned_does_not_rotate()
+    {
+        using var ctx = new TestContext();
+        var (admin, member) = await SeedUsersAsync(ctx);
+        var chore = (await ctx.Chores.CreateAsync(
+            NewChore(member, [admin, member], strategy: AssignmentStrategy.KeepLastAssigned))).Value!;
+
+        var result = await ctx.Chores.CompleteAsync(chore.Id, member, new CompleteChoreRequest(null));
+
+        Assert.Equal(member, result.Value!.CurrentAssignee!.Id);
+    }
+
+    [Fact]
+    public async Task CompleteAsync_round_robin_rotates_to_next_assignee()
+    {
+        using var ctx = new TestContext();
+        var (admin, member) = await SeedUsersAsync(ctx);
+        // admin was created first, so the stable order is [admin, member].
+        var chore = (await ctx.Chores.CreateAsync(
+            NewChore(admin, [admin, member], strategy: AssignmentStrategy.RoundRobin))).Value!;
+
+        var afterFirst = await ctx.Chores.CompleteAsync(chore.Id, admin, new CompleteChoreRequest(null));
+        Assert.Equal(member, afterFirst.Value!.CurrentAssignee!.Id);
+
+        var afterSecond = await ctx.Chores.CompleteAsync(chore.Id, member, new CompleteChoreRequest(null));
+        Assert.Equal(admin, afterSecond.Value!.CurrentAssignee!.Id); // wraps around
+    }
+
+    [Fact]
+    public async Task CompleteAsync_from_completion_date_schedules_from_now()
+    {
+        using var ctx = new TestContext();
+        var (_, member) = await SeedUsersAsync(ctx);
+        var chore = (await ctx.Chores.CreateAsync(NewChore(member, [member], RepeatType.Daily,
+            scheduling: SchedulingPreference.FromCompletionDate))).Value!;
+
+        var before = DateTimeOffset.UtcNow;
+        var result = await ctx.Chores.CompleteAsync(chore.Id, member, new CompleteChoreRequest(null));
+
+        // Next due is ~1 day after the actual completion time, not after the scheduled Start.
+        Assert.True(result.Value!.DueAt! >= before.AddDays(1).AddSeconds(-5));
+        Assert.True(result.Value!.DueAt! <= DateTimeOffset.UtcNow.AddDays(1).AddSeconds(5));
+    }
+
+    [Fact]
+    public async Task CompleteAsync_frequency_tracks_progress_then_rolls_over()
+    {
+        using var ctx = new TestContext();
+        var (_, member) = await SeedUsersAsync(ctx);
+        var chore = (await ctx.Chores.CreateAsync(NewChore(member, [member], RepeatType.Custom,
+            customMode: CustomRecurrenceMode.Frequency, frequencyCount: 2,
+            frequencyPeriod: FrequencyPeriod.Week, start: DateTimeOffset.UtcNow))).Value!;
+
+        var periodEnd = chore.DueAt;
+
+        var first = await ctx.Chores.CompleteAsync(chore.Id, member, new CompleteChoreRequest(null));
+        Assert.Equal(1, first.Value!.FrequencyProgress);
+        Assert.Equal(periodEnd, first.Value!.DueAt); // still due this period
+
+        var second = await ctx.Chores.CompleteAsync(chore.Id, member, new CompleteChoreRequest(null));
+        Assert.True(second.Value!.DueAt > periodEnd); // rolled into the next period
+        Assert.Equal(2, second.Value!.FrequencyProgress); // quota met for the current period
+    }
+
+    [Fact]
+    public async Task UndoCompletion_restores_previous_assignee()
+    {
+        using var ctx = new TestContext();
+        var (admin, member) = await SeedUsersAsync(ctx);
+        var chore = (await ctx.Chores.CreateAsync(
+            NewChore(admin, [admin, member], strategy: AssignmentStrategy.RoundRobin))).Value!;
+        await ctx.Chores.CompleteAsync(chore.Id, admin, new CompleteChoreRequest(null));
+        var completionId = await ctx.Db.ChoreCompletions.Select(c => c.Id).SingleAsync();
+
+        var result = await ctx.Chores.UndoCompletionAsync(completionId, admin);
+
+        Assert.True(result.Succeeded);
+        var reloaded = await ctx.Db.Chores.FindAsync(chore.Id);
+        Assert.Equal(admin, reloaded!.CurrentAssigneeId); // rotation reversed
+        // Only the initial assignment row remains.
+        Assert.Equal(1, await ctx.Db.ChoreAssignments.CountAsync(a => a.ChoreId == chore.Id));
     }
 }

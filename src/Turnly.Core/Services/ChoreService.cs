@@ -30,10 +30,11 @@ public class ChoreService
             .ToList();
 
         var ids = chores.Select(c => c.Id).ToList();
-        var lastByChore = await LatestCompletionsAsync(ids, ct);
+        var completionsByChore = await CompletionsByChoreAsync(ids, ct);
+        var now = DateTimeOffset.UtcNow;
 
         return chores
-            .Select(c => ChoreDto.FromEntity(c, lastByChore.GetValueOrDefault(c.Id)))
+            .Select(c => ToDto(c, completionsByChore.GetValueOrDefault(c.Id), now))
             .ToList();
     }
 
@@ -43,24 +44,24 @@ public class ChoreService
         if (chore is null)
             return Result.Fail<ChoreDto>(Error.NotFound("Chore not found."));
 
-        var lastByChore = await LatestCompletionsAsync([id], ct);
-        return Result.Success(ChoreDto.FromEntity(chore, lastByChore.GetValueOrDefault(id)));
+        var completionsByChore = await CompletionsByChoreAsync([id], ct);
+        return Result.Success(ToDto(chore, completionsByChore.GetValueOrDefault(id), DateTimeOffset.UtcNow));
     }
 
     public async Task<Result<ChoreDto>> CreateAsync(CreateChoreRequest req, CancellationToken ct = default)
     {
-        var validation = await ValidateAsync(req.Name, req.Points, req.RepeatType, req.Weekdays,
-            req.AssigneeIds, req.CurrentAssigneeId, ct);
+        var validation = await ValidateAsync(req, ct);
         if (!validation.Succeeded)
             return Result.Fail<ChoreDto>(validation.Error!);
 
         var chore = new Chore { Name = req.Name.Trim(), StartDate = req.StartDate };
-        Apply(chore, req.Name, req.Description, req.Emoji, req.Points, req.RepeatType, req.Weekdays,
-            req.StartDate, req.CurrentAssigneeId, validation.Value!);
+        Apply(chore, req, validation.Value!);
         chore.Tags = await _tags.ResolveAsync(req.TagNames, ct);
-        chore.DueAt = req.StartDate; // first occurrence
+        chore.DueAt = RecurrenceCalculator.FirstOccurrence(RecurrenceRule.FromChore(chore), req.StartDate);
 
         _db.Chores.Add(chore);
+        // Record the initial assignment so Least-Assigned counts and undo work from the start.
+        _db.ChoreAssignments.Add(new ChoreAssignment { ChoreId = chore.Id, UserId = req.CurrentAssigneeId });
         await _db.SaveChangesAsync(ct);
 
         return await GetAsync(chore.Id, ct);
@@ -68,8 +69,7 @@ public class ChoreService
 
     public async Task<Result<ChoreDto>> UpdateAsync(Guid id, UpdateChoreRequest req, CancellationToken ct = default)
     {
-        var validation = await ValidateAsync(req.Name, req.Points, req.RepeatType, req.Weekdays,
-            req.AssigneeIds, req.CurrentAssigneeId, ct);
+        var validation = await ValidateAsync(req, ct);
         if (!validation.Succeeded)
             return Result.Fail<ChoreDto>(validation.Error!);
 
@@ -80,8 +80,13 @@ public class ChoreService
         if (chore is null)
             return Result.Fail<ChoreDto>(Error.NotFound("Chore not found."));
 
-        Apply(chore, req.Name, req.Description, req.Emoji, req.Points, req.RepeatType, req.Weekdays,
-            req.StartDate, req.CurrentAssigneeId, validation.Value!);
+        var previousAssignee = chore.CurrentAssigneeId;
+        Apply(chore, req, validation.Value!);
+        chore.DueAt = RecurrenceCalculator.FirstOccurrence(RecurrenceRule.FromChore(chore), req.StartDate);
+
+        // Reassigning via edit is itself an assignment event (keeps Least-Assigned honest).
+        if (chore.CurrentAssigneeId != previousAssignee)
+            _db.ChoreAssignments.Add(new ChoreAssignment { ChoreId = chore.Id, UserId = req.CurrentAssigneeId });
 
         var resolvedTags = await _tags.ResolveAsync(req.TagNames, ct);
         chore.Tags.Clear();
@@ -97,7 +102,7 @@ public class ChoreService
         if (chore is null)
             return Result.Fail(Error.NotFound("Chore not found."));
 
-        _db.Chores.Remove(chore); // completions cascade-delete
+        _db.Chores.Remove(chore); // completions + assignments cascade-delete
         await _db.SaveChangesAsync(ct);
         return Result.Success();
     }
@@ -112,14 +117,16 @@ public class ChoreService
         if (user is null)
             return Result.Fail<ChoreDto>(Error.NotFound("User not found."));
 
+        var now = DateTimeOffset.UtcNow;
         var completion = new ChoreCompletion
         {
             ChoreId = chore.Id,
             CompletedByUserId = userId,
-            CompletedAt = DateTimeOffset.UtcNow,
+            CompletedAt = now,
             Notes = string.IsNullOrWhiteSpace(req.Notes) ? null : req.Notes.Trim(),
             PointsAwarded = chore.Points,
-            OccurrenceDueAt = chore.DueAt
+            OccurrenceDueAt = chore.DueAt,
+            PreviousAssigneeId = chore.CurrentAssigneeId
         };
         _db.ChoreCompletions.Add(completion);
 
@@ -136,10 +143,11 @@ public class ChoreService
             user.Points += chore.Points;
         }
 
-        // Advance to the next occurrence (null for one-time → nothing scheduled).
-        chore.DueAt = chore.DueAt is { } due
-            ? RecurrenceCalculator.Next(chore.RepeatType, chore.Weekdays, due)
-            : null;
+        // Advance the schedule and decide whether this completion opened a new occurrence (which
+        // is what triggers an assignee rotation).
+        var advancedToNewOccurrence = await AdvanceScheduleAsync(chore, completion, now, ct);
+        if (advancedToNewOccurrence)
+            await RotateAssigneeAsync(chore, completion, now, ct);
 
         await _db.SaveChangesAsync(ct);
         return await GetAsync(chore.Id, ct);
@@ -171,9 +179,14 @@ public class ChoreService
             _db.PointsLog.Remove(logEntry);
         }
 
-        // Restore the occurrence that was completed.
+        // Restore the occurrence that was completed, including the assignee any rotation moved away.
         if (completion.Chore is { } chore)
+        {
             chore.DueAt = completion.OccurrenceDueAt;
+            chore.CurrentAssigneeId = completion.PreviousAssigneeId;
+        }
+        var rotationLog = await _db.ChoreAssignments.Where(a => a.ChoreCompletionId == completionId).ToListAsync(ct);
+        _db.ChoreAssignments.RemoveRange(rotationLog);
 
         _db.ChoreCompletions.Remove(completion);
         await _db.SaveChangesAsync(ct);
@@ -186,14 +199,85 @@ public class ChoreService
         .Include(c => c.Tags)
         .AsSplitQuery();
 
-    /// <summary>The most recent completion (with completer + chore name) per chore id, for undo
-    /// affordances. Phase 6 (history) can optimize this; for now it loads the relevant
-    /// completions and picks the latest per chore in memory.</summary>
-    private async Task<Dictionary<Guid, ChoreCompletion>> LatestCompletionsAsync(
+    /// <summary>Advances <c>chore.DueAt</c> to the next occurrence and returns whether a brand-new
+    /// occurrence was opened (true → rotate the assignee). For frequency chores the period only
+    /// rolls over — and thus rotates — once the required count is met.</summary>
+    private async Task<bool> AdvanceScheduleAsync(Chore chore, ChoreCompletion completion, DateTimeOffset now, CancellationToken ct)
+    {
+        if (chore is { RepeatType: RepeatType.Custom, CustomMode: CustomRecurrenceMode.Frequency, FrequencyPeriod: { } period })
+        {
+            var start = RecurrenceCalculator.PeriodStart(period, now);
+            var end = RecurrenceCalculator.PeriodEnd(period, now);
+            // SQLite can't compare DateTimeOffset in SQL, so count client-side. +1 for the
+            // completion we just added but haven't saved yet.
+            var completedAts = await _db.ChoreCompletions
+                .Where(x => x.ChoreId == chore.Id)
+                .Select(x => x.CompletedAt)
+                .ToListAsync(ct);
+            var doneThisPeriod = completedAts.Count(t => t >= start && t < end) + 1;
+
+            if (doneThisPeriod >= (chore.FrequencyCount ?? 1))
+            {
+                chore.DueAt = RecurrenceCalculator.PeriodEnd(period, end); // roll into the next period
+                return true;
+            }
+
+            chore.DueAt = end; // still due this period; same occupant keeps it
+            return false;
+        }
+
+        var rule = RecurrenceRule.FromChore(chore);
+        var scheduledDue = completion.OccurrenceDueAt ?? now;
+        chore.DueAt = RecurrenceCalculator.NextDue(rule, chore.SchedulingPreference, scheduledDue, now, now);
+        return chore.DueAt is not null;
+    }
+
+    /// <summary>Picks the next current assignee per the chore's strategy and records the assignment
+    /// (linked to <paramref name="completion"/> so undo can reverse it).</summary>
+    private async Task RotateAssigneeAsync(Chore chore, ChoreCompletion completion, DateTimeOffset now, CancellationToken ct)
+    {
+        var ordered = chore.Assignees
+            .OrderBy(u => u.CreatedAt).ThenBy(u => u.Id)
+            .Select(u => u.Id)
+            .ToList();
+        if (ordered.Count == 0) return;
+
+        var assignedCounts = (await _db.ChoreAssignments
+                .Where(a => a.ChoreId == chore.Id)
+                .ToListAsync(ct))
+            .GroupBy(a => a.UserId)
+            .ToDictionary(g => g.Key, g => g.Count());
+
+        var completedCounts = (await _db.ChoreCompletions
+                .Where(x => x.ChoreId == chore.Id)
+                .ToListAsync(ct))
+            .GroupBy(x => x.CompletedByUserId)
+            .ToDictionary(g => g.Key, g => g.Count());
+        // Count the just-added (unsaved) completion too.
+        completedCounts[completion.CompletedByUserId] = completedCounts.GetValueOrDefault(completion.CompletedByUserId) + 1;
+
+        var next = AssignmentPicker.Pick(
+            chore.AssignmentStrategy, ordered, chore.CurrentAssigneeId,
+            assignedCounts, completedCounts, Random.Shared);
+
+        chore.CurrentAssigneeId = next;
+        _db.ChoreAssignments.Add(new ChoreAssignment
+        {
+            ChoreId = chore.Id,
+            UserId = next,
+            AssignedAt = now,
+            ChoreCompletionId = completion.Id
+        });
+    }
+
+    /// <summary>All completions per chore id (newest-first within each chore), for both the
+    /// last-completion affordance and frequency-progress counting. SQLite can't ORDER BY a
+    /// DateTimeOffset, so ordering happens client-side.</summary>
+    private async Task<Dictionary<Guid, List<ChoreCompletion>>> CompletionsByChoreAsync(
         List<Guid> choreIds, CancellationToken ct)
     {
         if (choreIds.Count == 0)
-            return new Dictionary<Guid, ChoreCompletion>();
+            return new Dictionary<Guid, List<ChoreCompletion>>();
 
         var completions = await _db.ChoreCompletions
             .Include(x => x.CompletedBy)
@@ -201,23 +285,36 @@ public class ChoreService
             .Where(x => choreIds.Contains(x.ChoreId))
             .ToListAsync(ct);
 
-        // Order client-side: SQLite can't ORDER BY DateTimeOffset.
         return completions
-            .OrderByDescending(x => x.CompletedAt)
             .GroupBy(x => x.ChoreId)
-            .ToDictionary(g => g.Key, g => g.First());
+            .ToDictionary(g => g.Key, g => g.OrderByDescending(x => x.CompletedAt).ToList());
+    }
+
+    private static ChoreDto ToDto(Chore chore, List<ChoreCompletion>? completions, DateTimeOffset now)
+    {
+        var latest = completions?.FirstOrDefault();
+        int? progress = null;
+        if (chore is { RepeatType: RepeatType.Custom, CustomMode: CustomRecurrenceMode.Frequency, FrequencyPeriod: { } period })
+        {
+            var start = RecurrenceCalculator.PeriodStart(period, now);
+            var end = RecurrenceCalculator.PeriodEnd(period, now);
+            progress = completions?.Count(x => x.CompletedAt >= start && x.CompletedAt < end) ?? 0;
+        }
+        return ChoreDto.FromEntity(chore, latest, progress);
     }
 
     /// <summary>Validates the request and returns the resolved assignee entities.</summary>
-    private async Task<Result<List<User>>> ValidateAsync(string name, int points, RepeatType repeatType,
-        DayOfWeek[]? weekdays, Guid[] assigneeIds, Guid currentAssigneeId, CancellationToken ct)
+    private async Task<Result<List<User>>> ValidateAsync(IChoreInput req, CancellationToken ct)
     {
-        if (Validators.ChoreName(name) is { } nameError)
+        if (Validators.ChoreName(req.Name) is { } nameError)
             return Result.Fail<List<User>>(nameError);
-        if (Validators.Points(points) is { } pointsError)
+        if (Validators.Points(req.Points) is { } pointsError)
             return Result.Fail<List<User>>(pointsError);
+        if (Validators.Recurrence(req.RepeatType, req.CustomMode, req.IntervalCount, req.IntervalUnit,
+                req.Weekdays, req.DaysOfMonth, req.Months, req.FrequencyCount, req.FrequencyPeriod) is { } recurrenceError)
+            return Result.Fail<List<User>>(recurrenceError);
 
-        var ids = (assigneeIds ?? []).Distinct().ToList();
+        var ids = (req.AssigneeIds ?? []).Distinct().ToList();
         if (ids.Count == 0)
             return Result.Fail<List<User>>(Error.Validation("A chore must have at least one assignee."));
 
@@ -225,27 +322,44 @@ public class ChoreService
         if (assignees.Count != ids.Count)
             return Result.Fail<List<User>>(Error.Validation("One or more assignees do not exist."));
 
-        if (!ids.Contains(currentAssigneeId))
+        if (!ids.Contains(req.CurrentAssigneeId))
             return Result.Fail<List<User>>(Error.Validation("The current assignee must be one of the assignees."));
 
         return Result.Success(assignees);
     }
 
-    private static void Apply(Chore chore, string name, string? description, string? emoji, int points,
-        RepeatType repeatType, DayOfWeek[]? weekdays, DateTimeOffset startDate, Guid currentAssigneeId,
-        List<User> assignees)
+    private static void Apply(Chore chore, IChoreInput req, List<User> assignees)
     {
-        chore.Name = name.Trim();
-        chore.Description = string.IsNullOrWhiteSpace(description) ? null : description.Trim();
-        chore.Emoji = string.IsNullOrWhiteSpace(emoji) ? null : emoji.Trim();
-        chore.Points = points;
-        chore.RepeatType = repeatType;
-        chore.Weekdays = repeatType == RepeatType.Weekly
-            ? (weekdays ?? []).Distinct().OrderBy(d => d).ToList()
+        chore.Name = req.Name.Trim();
+        chore.Description = string.IsNullOrWhiteSpace(req.Description) ? null : req.Description.Trim();
+        chore.Emoji = string.IsNullOrWhiteSpace(req.Emoji) ? null : req.Emoji.Trim();
+        chore.Points = req.Points;
+        chore.RepeatType = req.RepeatType;
+        chore.StartDate = req.StartDate;
+        chore.AssignmentStrategy = req.AssignmentStrategy;
+        chore.SchedulingPreference = req.SchedulingPreference;
+        chore.CurrentAssigneeId = req.CurrentAssigneeId;
+
+        // Keep only the recurrence parameters relevant to the chosen mode; null/clear the rest so
+        // stale values can't leak into the recurrence math.
+        var isCustom = req.RepeatType == RepeatType.Custom;
+        chore.CustomMode = isCustom ? req.CustomMode : null;
+
+        var mode = isCustom ? req.CustomMode : null;
+        chore.IntervalCount = mode == CustomRecurrenceMode.Interval ? req.IntervalCount : null;
+        chore.IntervalUnit = mode == CustomRecurrenceMode.Interval ? req.IntervalUnit : null;
+        chore.Weekdays = mode == CustomRecurrenceMode.DaysOfWeek
+            ? (req.Weekdays ?? []).Distinct().OrderBy(d => d).ToList()
             : new List<DayOfWeek>();
-        chore.StartDate = startDate;
-        chore.DueAt = startDate;
-        chore.CurrentAssigneeId = currentAssigneeId;
+        chore.DaysOfMonth = mode == CustomRecurrenceMode.DaysOfMonth
+            ? (req.DaysOfMonth ?? []).Distinct().OrderBy(d => d).ToList()
+            : new List<int>();
+        chore.Months = mode == CustomRecurrenceMode.DaysOfMonth
+            ? (req.Months ?? []).Distinct().OrderBy(m => m).ToList()
+            : new List<int>();
+        chore.FrequencyCount = mode == CustomRecurrenceMode.Frequency ? req.FrequencyCount : null;
+        chore.FrequencyPeriod = mode == CustomRecurrenceMode.Frequency ? req.FrequencyPeriod : null;
+
         chore.Assignees.Clear();
         foreach (var a in assignees) chore.Assignees.Add(a);
     }

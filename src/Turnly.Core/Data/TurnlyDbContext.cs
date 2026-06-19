@@ -16,6 +16,7 @@ public class TurnlyDbContext : DbContext
     public DbSet<Chore> Chores => Set<Chore>();
     public DbSet<Tag> Tags => Set<Tag>();
     public DbSet<ChoreCompletion> ChoreCompletions => Set<ChoreCompletion>();
+    public DbSet<ChoreAssignment> ChoreAssignments => Set<ChoreAssignment>();
     public DbSet<PointsLogEntry> PointsLog => Set<PointsLogEntry>();
 
     protected override void OnModelCreating(ModelBuilder b)
@@ -55,7 +56,14 @@ public class TurnlyDbContext : DbContext
             e.Property(x => x.Description).HasMaxLength(1024);
             e.Property(x => x.Emoji).HasMaxLength(16);
             e.Property(x => x.RepeatType).HasConversion<string>().HasMaxLength(16);
+            e.Property(x => x.CustomMode).HasConversion<string>().HasMaxLength(16);
+            e.Property(x => x.IntervalUnit).HasConversion<string>().HasMaxLength(16);
+            e.Property(x => x.FrequencyPeriod).HasConversion<string>().HasMaxLength(16);
+            e.Property(x => x.AssignmentStrategy).HasConversion<string>().HasMaxLength(32);
+            e.Property(x => x.SchedulingPreference).HasConversion<string>().HasMaxLength(32);
             e.Property(x => x.Weekdays).HasConversion(WeekdaysConverter, WeekdaysComparer);
+            e.Property(x => x.DaysOfMonth).HasConversion(IntListConverter, IntListComparer);
+            e.Property(x => x.Months).HasConversion(IntListConverter, IntListComparer);
 
             e.HasOne(x => x.CurrentAssignee)
                 .WithMany()
@@ -66,6 +74,11 @@ public class TurnlyDbContext : DbContext
             e.HasMany(x => x.Tags).WithMany(t => t.Chores);
 
             e.HasMany(x => x.Completions)
+                .WithOne(x => x.Chore!)
+                .HasForeignKey(x => x.ChoreId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            e.HasMany(x => x.Assignments)
                 .WithOne(x => x.Chore!)
                 .HasForeignKey(x => x.ChoreId)
                 .OnDelete(DeleteBehavior.Cascade);
@@ -89,6 +102,16 @@ public class TurnlyDbContext : DbContext
                 .OnDelete(DeleteBehavior.Restrict);
         });
 
+        b.Entity<ChoreAssignment>(e =>
+        {
+            e.HasKey(x => x.Id);
+
+            e.HasOne(x => x.User)
+                .WithMany()
+                .HasForeignKey(x => x.UserId)
+                .OnDelete(DeleteBehavior.Restrict);
+        });
+
         b.Entity<PointsLogEntry>(e =>
         {
             e.HasKey(x => x.Id);
@@ -107,5 +130,17 @@ public class TurnlyDbContext : DbContext
     private static readonly ValueComparer<List<DayOfWeek>> WeekdaysComparer = new(
         (a, b) => (a ?? new List<DayOfWeek>()).SequenceEqual(b ?? new List<DayOfWeek>()),
         v => v.Aggregate(0, (hash, d) => HashCode.Combine(hash, (int)d)),
+        v => v.ToList());
+
+    /// <summary>Stores an int list (days of month / months) as a comma-separated string.</summary>
+    private static readonly ValueConverter<List<int>, string> IntListConverter = new(
+        v => string.Join(',', v),
+        v => string.IsNullOrEmpty(v)
+            ? new List<int>()
+            : v.Split(',', StringSplitOptions.RemoveEmptyEntries).Select(int.Parse).ToList());
+
+    private static readonly ValueComparer<List<int>> IntListComparer = new(
+        (a, b) => (a ?? new List<int>()).SequenceEqual(b ?? new List<int>()),
+        v => v.Aggregate(0, HashCode.Combine),
         v => v.ToList());
 }

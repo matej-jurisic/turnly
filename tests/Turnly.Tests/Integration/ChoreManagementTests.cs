@@ -22,7 +22,9 @@ public class ChoreManagementTests : IDisposable
     }
 
     private static CreateChoreRequest NewChore(Guid assignee, string[]? tags = null) =>
-        new("Dishes", "Wash up", "🍽️", 10, RepeatType.Daily, null, Start, [assignee], assignee, tags);
+        new("Dishes", "Wash up", "🍽️", 10, RepeatType.Daily, null, null, null, null, null, null, null, null,
+            AssignmentStrategy.KeepLastAssigned, SchedulingPreference.FromScheduledDate,
+            Start, [assignee], assignee, tags);
 
     [Fact]
     public async Task Admin_can_create_get_update_and_delete_a_chore()
@@ -106,6 +108,33 @@ public class ChoreManagementTests : IDisposable
 
         var response = await member.GetAsync($"/api/users/{adminAuth.User.Id}/points-log");
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Custom_recurrence_round_trips_and_rotates_assignee_on_completion()
+    {
+        var (admin, adminAuth) = await AdminClientAsync();
+        await admin.PostJsonAsync("/api/users",
+            new CreateUserRequest("kid", "Kid", "kidpass1", UserRole.Member, null));
+        var member = _factory.CreateClient();
+        var memberAuth = await member.LoginAsync("kid", "kidpass1");
+
+        // Custom days-of-week chore, round robin across both users (admin created first).
+        var request = new CreateChoreRequest(
+            "Trash", null, "🗑️", 5, RepeatType.Custom, CustomRecurrenceMode.DaysOfWeek,
+            null, null, [DayOfWeek.Monday, DayOfWeek.Thursday], null, null, null, null,
+            AssignmentStrategy.RoundRobin, SchedulingPreference.FromScheduledDate,
+            Start, [adminAuth.User.Id, memberAuth.User.Id], adminAuth.User.Id, null);
+
+        var created = await (await admin.PostJsonAsync("/api/chores", request)).ReadAsync<ChoreDto>();
+        Assert.Equal(CustomRecurrenceMode.DaysOfWeek, created.CustomMode);
+        Assert.Equal(AssignmentStrategy.RoundRobin, created.AssignmentStrategy);
+        Assert.Equal(2, created.Weekdays.Length);
+        Assert.Equal(adminAuth.User.Id, created.CurrentAssignee!.Id);
+
+        var completed = await (await admin.PostJsonAsync($"/api/chores/{created.Id}/complete",
+            new CompleteChoreRequest(null))).ReadAsync<ChoreDto>();
+        Assert.Equal(memberAuth.User.Id, completed.CurrentAssignee!.Id); // rotated
     }
 
     [Fact]
