@@ -11,10 +11,10 @@ Self-hosted family chore-management web app (PWA). **Phases 1–4 are complete.*
 recurrence (one-time/daily/weekly/monthly/yearly + start date), mark complete + undo, and a
 per-user points log. Phase 3 (Chores – Advanced): custom recurrence (`Custom` repeat type with
 Interval / DaysOfWeek / DaysOfMonth / Frequency modes — day granularity, hourly deferred to
-Phase 5), six assignment strategies that rotate the current assignee on each new occurrence, and
+a later phase), six assignment strategies that rotate the current assignee on each new occurrence, and
 three scheduling preferences for the next due date. Phase 4 (Dashboard): today / overdue /
 upcoming chore views, per-user point totals, filtering by tag and assignee, and global search
-(chores by name/description/tags). Phases 5–8 (notifications, history, awards, PWA) are not started.
+(chores by name/description/tags). Phases 5–8 (history, awards, notifications, PWA) are not started.
 
 ## Stack & layout
 

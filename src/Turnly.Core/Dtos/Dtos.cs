@@ -162,12 +162,13 @@ public record ChoreCompletionDto(
     string ChoreName,
     UserDto CompletedBy,
     DateTimeOffset CompletedAt,
+    DateTimeOffset? OccurrenceDueAt,
     string? Notes,
     int PointsAwarded)
 {
     public static ChoreCompletionDto FromEntity(ChoreCompletion c) =>
         new(c.Id, c.ChoreId, c.Chore?.Name ?? string.Empty,
-            UserDto.FromEntity(c.CompletedBy!), c.CompletedAt, c.Notes, c.PointsAwarded);
+            UserDto.FromEntity(c.CompletedBy!), c.CompletedAt, c.OccurrenceDueAt, c.Notes, c.PointsAwarded);
 }
 
 public record PointsLogEntryDto(
@@ -188,3 +189,28 @@ public record TagDto(Guid Id, string Name)
 {
     public static TagDto FromEntity(Tag t) => new(t.Id, t.Name);
 }
+
+public record UserStatsDto(
+    Guid UserId,
+    string DisplayName,
+    string AvatarColor,
+    int WeeklyCount,
+    int MonthlyCount,
+    int AllTimeCount,
+    int OnTimeCount,
+    int OverdueCount);
+
+public record UserWeeklyCountDto(
+    Guid UserId,
+    string DisplayName,
+    string AvatarColor,
+    int Count);
+
+public record ChartWeekDto(
+    string Label,
+    DateTimeOffset WeekStart,
+    IEnumerable<UserWeeklyCountDto> UserCounts);
+
+public record StatsDto(
+    IEnumerable<UserStatsDto> UserStats,
+    IEnumerable<ChartWeekDto> Chart);

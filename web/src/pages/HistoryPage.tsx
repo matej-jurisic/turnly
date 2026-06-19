@@ -1,0 +1,405 @@
+import { useState } from 'react'
+import { keepPreviousData, useQuery } from '@tanstack/react-query'
+import { choresApi, historyApi, tagsApi, usersApi } from '@/lib/api'
+import type { ChartWeek, UserStats } from '@/lib/types'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
+import { Avatar } from '@/components/ui/Modal'
+import { cn } from '@/lib/utils'
+
+interface Segment {
+  label: string
+  count: number
+  color: string
+}
+
+export function HistoryPage() {
+  const [filterTag, setFilterTag] = useState('')
+  const [filterUserId, setFilterUserId] = useState('')
+  const [filterChoreId, setFilterChoreId] = useState('')
+
+  const { data: tags = [] } = useQuery({ queryKey: ['tags'], queryFn: tagsApi.list })
+  const { data: members = [] } = useQuery({ queryKey: ['leaderboard'], queryFn: usersApi.leaderboard })
+  const { data: chores = [] } = useQuery({ queryKey: ['chores'], queryFn: choresApi.list })
+  const { data: stats } = useQuery({ queryKey: ['stats'], queryFn: historyApi.stats })
+
+  const filters = {
+    ...(filterTag ? { tag: filterTag } : {}),
+    ...(filterUserId ? { userId: filterUserId } : {}),
+    ...(filterChoreId ? { choreId: filterChoreId } : {}),
+  }
+  const { data: history = [] } = useQuery({
+    queryKey: ['history', filters],
+    queryFn: () => historyApi.list(filters),
+    placeholderData: keepPreviousData,
+  })
+
+  const hasFilter = filterTag || filterUserId || filterChoreId
+
+  // Donut chart 1: completion timing (all-time, from stats)
+  const totalOnTime = stats?.userStats.reduce((s, u) => s + u.onTimeCount, 0) ?? 0
+  const totalLate = stats?.userStats.reduce((s, u) => s + u.overdueCount, 0) ?? 0
+
+  // Donut chart 2: currently assigned tasks per member
+  const assigneeMap = new Map<string, Segment>()
+  for (const chore of chores) {
+    if (!chore.currentAssignee) continue
+    const { id, displayName, avatarColor } = chore.currentAssignee
+    const entry = assigneeMap.get(id) ?? { label: displayName, count: 0, color: avatarColor }
+    assigneeMap.set(id, { ...entry, count: entry.count + 1 })
+  }
+  const assigneeSegments = [...assigneeMap.values()].sort((a, b) => b.count - a.count)
+
+  // Donut chart 3: active task status breakdown
+  const now = new Date()
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+  const tomorrowStart = new Date(todayStart.getTime() + 86_400_000)
+  let overdueTasks = 0, todayTasks = 0, upcomingTasks = 0
+  for (const chore of chores) {
+    if (!chore.dueAt) continue
+    const due = new Date(chore.dueAt)
+    if (due < todayStart) overdueTasks++
+    else if (due < tomorrowStart) todayTasks++
+    else upcomingTasks++
+  }
+
+  return (
+    <div className="space-y-8">
+      <h1 className="text-2xl font-semibold text-foreground">History</h1>
+
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+        <DonutChart
+          title="Completion timing"
+          segments={[
+            { label: 'On time', count: totalOnTime, color: 'var(--success)' },
+            { label: 'Late', count: totalLate, color: 'var(--destructive)' },
+          ]}
+        />
+        <DonutChart
+          title="Tasks by assignee"
+          segments={assigneeSegments}
+        />
+        <DonutChart
+          title="Task status"
+          segments={[
+            { label: 'Overdue', count: overdueTasks, color: 'var(--destructive)' },
+            { label: 'Due today', count: todayTasks, color: 'var(--warning)' },
+            { label: 'Upcoming', count: upcomingTasks, color: 'var(--primary)' },
+          ]}
+        />
+      </div>
+
+      {stats && (
+        <div className="space-y-6">
+          <CompletionChart chart={stats.chart} />
+          <UserStatsTable userStats={stats.userStats} />
+        </div>
+      )}
+
+      <section className="space-y-4">
+        <div className="flex flex-wrap items-center gap-3">
+          <h2 className="text-base font-semibold text-foreground">Completion log</h2>
+          <div className="flex flex-1 flex-wrap gap-2">
+            <select
+              value={filterTag}
+              onChange={(e) => setFilterTag(e.target.value)}
+              className="rounded-lg border border-border bg-card px-3 py-1.5 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+            >
+              <option value="">All tags</option>
+              {tags.map((t) => (
+                <option key={t.id} value={t.name}>{t.name}</option>
+              ))}
+            </select>
+            <select
+              value={filterUserId}
+              onChange={(e) => setFilterUserId(e.target.value)}
+              className="rounded-lg border border-border bg-card px-3 py-1.5 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+            >
+              <option value="">All members</option>
+              {members.map((u) => (
+                <option key={u.id} value={u.id}>{u.displayName}</option>
+              ))}
+            </select>
+            <select
+              value={filterChoreId}
+              onChange={(e) => setFilterChoreId(e.target.value)}
+              className="rounded-lg border border-border bg-card px-3 py-1.5 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+            >
+              <option value="">All chores</option>
+              {chores.map((c) => (
+                <option key={c.id} value={c.id}>{c.emoji ? `${c.emoji} ${c.name}` : c.name}</option>
+              ))}
+            </select>
+            {hasFilter && (
+              <button
+                type="button"
+                onClick={() => { setFilterTag(''); setFilterUserId(''); setFilterChoreId('') }}
+                className="rounded-lg px-3 py-1.5 text-sm text-muted-foreground hover:bg-accent hover:text-foreground"
+              >
+                Clear
+              </button>
+            )}
+          </div>
+        </div>
+
+        {history.length === 0 ? (
+          <Card>
+            <CardContent>
+              <p className="py-4 text-sm text-muted-foreground">No completions found.</p>
+            </CardContent>
+          </Card>
+        ) : (
+          <Card>
+            <ul className="divide-y divide-border">
+              {history.map((entry) => (
+                <li key={entry.id} className="flex items-start gap-3 px-5 py-3">
+                  <Avatar
+                    color={entry.completedBy.avatarColor}
+                    name={entry.completedBy.displayName}
+                    size={32}
+                  />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-baseline gap-x-2">
+                      <span className="text-sm font-medium text-foreground">
+                        {entry.choreName}
+                      </span>
+                      <span className="text-xs text-muted-foreground">
+                        by {entry.completedBy.displayName}
+                      </span>
+                    </div>
+                    {entry.notes && (
+                      <p className="mt-0.5 text-xs text-muted-foreground">{entry.notes}</p>
+                    )}
+                  </div>
+                  <div className="flex shrink-0 items-center gap-2 text-xs">
+                    <time
+                      dateTime={entry.completedAt}
+                      title={new Date(entry.completedAt).toLocaleString()}
+                      className="text-muted-foreground"
+                    >
+                      {formatRelative(entry.completedAt)}
+                    </time>
+                    {entry.occurrenceDueAt && (
+                      <span className={cn(
+                        new Date(entry.completedAt) <= new Date(entry.occurrenceDueAt)
+                          ? 'text-success'
+                          : 'text-destructive',
+                      )}>
+                        {new Date(entry.completedAt) <= new Date(entry.occurrenceDueAt) ? 'on time' : 'late'}
+                      </span>
+                    )}
+                    {entry.pointsAwarded > 0 && (
+                      <span className="text-success">+{entry.pointsAwarded} pts</span>
+                    )}
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </Card>
+        )}
+      </section>
+    </div>
+  )
+}
+
+function DonutChart({ title, segments }: { title: string; segments: Segment[] }) {
+  const r = 38
+  const strokeWidth = 14
+  const circumference = 2 * Math.PI * r
+  const total = segments.reduce((s, seg) => s + seg.count, 0)
+
+  // Pre-compute arc geometry so we don't mutate inside JSX.
+  let cumulative = 0
+  const arcs = segments
+    .filter((seg) => seg.count > 0)
+    .map((seg) => {
+      const dashLen = (seg.count / total) * circumference
+      const offset = circumference - cumulative
+      cumulative += dashLen
+      return { ...seg, dashLen, offset }
+    })
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>{title}</CardTitle>
+      </CardHeader>
+      <CardContent className="flex flex-col items-center gap-4">
+        {/* SVG is rotated so arc rendering starts at 12 o'clock; the overlay is not rotated. */}
+        <div className="relative">
+          <svg viewBox="0 0 100 100" className="-rotate-90 h-28 w-28">
+            {arcs.length === 0 ? (
+              <circle
+                cx="50" cy="50" r={r}
+                fill="none"
+                stroke="var(--border)"
+                strokeWidth={strokeWidth}
+              />
+            ) : arcs.map((arc) => (
+              <circle
+                key={arc.label}
+                cx="50" cy="50" r={r}
+                fill="none"
+                stroke={arc.color}
+                strokeWidth={strokeWidth}
+                strokeDasharray={`${arc.dashLen} ${circumference - arc.dashLen}`}
+                strokeDashoffset={arc.offset}
+              />
+            ))}
+          </svg>
+          <div className="absolute inset-0 flex flex-col items-center justify-center">
+            <span className="text-xl font-semibold text-foreground">{total}</span>
+          </div>
+        </div>
+
+        <ul className="w-full space-y-1.5">
+          {segments.map((seg) => (
+            <li key={seg.label} className="flex items-center gap-2 text-sm">
+              <span
+                className="h-2.5 w-2.5 shrink-0 rounded-full"
+                style={{ backgroundColor: seg.color, opacity: seg.count === 0 ? 0.25 : 1 }}
+              />
+              <span className="flex-1 text-muted-foreground">{seg.label}</span>
+              <span className="font-medium text-foreground">{seg.count}</span>
+            </li>
+          ))}
+        </ul>
+      </CardContent>
+    </Card>
+  )
+}
+
+function CompletionChart({ chart }: { chart: ChartWeek[] }) {
+  const maxCount = Math.max(
+    1,
+    ...chart.flatMap((w) => w.userCounts.map((u) => u.count)),
+  )
+  const hasAnyData = chart.some((w) => w.userCounts.some((u) => u.count > 0))
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Completions per week</CardTitle>
+      </CardHeader>
+      <CardContent>
+        {!hasAnyData ? (
+          <p className="text-sm text-muted-foreground">No completions yet.</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <div className="flex min-w-max items-end gap-4 pb-2 pt-2">
+              {chart.map((week) => (
+                <div key={week.weekStart} className="flex flex-col items-center gap-1">
+                  <div className="flex items-end gap-0.5" style={{ height: 80 }}>
+                    {week.userCounts
+                      .filter((u) => u.count > 0 || week.userCounts.every((u2) => u2.count === 0))
+                      .map((u) => (
+                        <div
+                          key={u.userId}
+                          title={`${u.displayName}: ${u.count}`}
+                          className="w-5 rounded-t transition-all"
+                          style={{
+                            height: `${Math.max(2, (u.count / maxCount) * 76)}px`,
+                            backgroundColor: u.count > 0 ? u.avatarColor : 'transparent',
+                            opacity: u.count > 0 ? 0.85 : 0,
+                          }}
+                        />
+                      ))}
+                  </div>
+                  <span className="w-20 text-center text-[10px] leading-tight text-muted-foreground">
+                    {week.label}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
+function UserStatsTable({ userStats }: { userStats: UserStats[] }) {
+  type Period = 'weekly' | 'monthly' | 'allTime'
+  const [period, setPeriod] = useState<Period>('weekly')
+
+  const sorted = [...userStats].sort((a, b) => {
+    const va = period === 'weekly' ? a.weeklyCount : period === 'monthly' ? a.monthlyCount : a.allTimeCount
+    const vb = period === 'weekly' ? b.weeklyCount : period === 'monthly' ? b.monthlyCount : b.allTimeCount
+    return vb - va
+  })
+
+  const periodLabel: Record<Period, string> = {
+    weekly: 'This week',
+    monthly: 'This month',
+    allTime: 'All time',
+  }
+
+  return (
+    <Card>
+      <CardHeader className="flex items-center justify-between">
+        <CardTitle>Completions by member</CardTitle>
+        <div className="flex rounded-lg border border-border text-sm">
+          {(['weekly', 'monthly', 'allTime'] as Period[]).map((p, i) => (
+            <button
+              key={p}
+              type="button"
+              onClick={() => setPeriod(p)}
+              className={cn(
+                'px-3 py-1 transition-colors',
+                i === 0 && 'rounded-l-lg',
+                i === 2 && 'rounded-r-lg',
+                period === p
+                  ? 'bg-primary text-primary-foreground'
+                  : 'text-muted-foreground hover:bg-accent',
+              )}
+            >
+              {periodLabel[p]}
+            </button>
+          ))}
+        </div>
+      </CardHeader>
+      <CardContent>
+        {sorted.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No members yet.</p>
+        ) : (
+          <ul className="divide-y divide-border">
+            {sorted.map((u, index) => {
+              const count =
+                period === 'weekly' ? u.weeklyCount
+                : period === 'monthly' ? u.monthlyCount
+                : u.allTimeCount
+              return (
+                <li key={u.userId} className="flex items-center gap-3 py-2.5">
+                  <span className="w-5 text-center text-xs text-muted-foreground">{index + 1}</span>
+                  <Avatar color={u.avatarColor} name={u.displayName} size={28} />
+                  <span className="flex-1 text-sm text-foreground">{u.displayName}</span>
+                  <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                    {u.onTimeCount + u.overdueCount > 0 && (
+                      <span title="On time / late (all time)">
+                        <span className="text-success">{u.onTimeCount} on time</span>
+                        <span className="mx-1">·</span>
+                        <span className="text-destructive">{u.overdueCount} late</span>
+                      </span>
+                    )}
+                  </div>
+                  <span className="w-6 text-right text-sm font-medium text-foreground">{count}</span>
+                </li>
+              )
+            })}
+          </ul>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
+function formatRelative(iso: string): string {
+  const diff = Date.now() - new Date(iso).getTime()
+  const mins = Math.floor(diff / 60_000)
+  if (mins < 1) return 'just now'
+  if (mins < 60) return `${mins}m ago`
+  const hours = Math.floor(mins / 60)
+  if (hours < 24) return `${hours}h ago`
+  const days = Math.floor(hours / 24)
+  if (days < 7) return `${days}d ago`
+  return new Date(iso).toLocaleDateString()
+}

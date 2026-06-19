@@ -200,6 +200,37 @@ public class ChoreService
         return Result.Success();
     }
 
+    public async Task<List<ChoreCompletionDto>> GetHistoryAsync(
+        string? tag, Guid? completedByUserId, Guid? choreId, CancellationToken ct = default)
+    {
+        var query = _db.ChoreCompletions
+            .Include(c => c.Chore)
+            .Include(c => c.CompletedBy)
+            .AsQueryable();
+
+        if (choreId.HasValue)
+            query = query.Where(c => c.ChoreId == choreId);
+
+        if (completedByUserId.HasValue)
+            query = query.Where(c => c.CompletedByUserId == completedByUserId);
+
+        if (tag is not null)
+        {
+            var choreIds = await _db.Chores
+                .Where(c => c.Tags.Any(t => t.Name == tag))
+                .Select(c => c.Id)
+                .ToListAsync(ct);
+            query = query.Where(c => choreIds.Contains(c.ChoreId));
+        }
+
+        // Order client-side: SQLite can't ORDER BY DateTimeOffset.
+        var completions = (await query.ToListAsync(ct))
+            .OrderByDescending(c => c.CompletedAt)
+            .ToList();
+
+        return completions.Select(ChoreCompletionDto.FromEntity).ToList();
+    }
+
     private IQueryable<Chore> Query() => _db.Chores
         .Include(c => c.Assignees)
         .Include(c => c.CurrentAssignee)

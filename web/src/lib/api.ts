@@ -2,12 +2,14 @@ import { useAuthStore } from '@/store/auth'
 import type {
   AuthResponse,
   Chore,
+  ChoreCompletion,
   CompleteChoreRequest,
   CreateChoreRequest,
   CreateUserRequest,
   LeaderboardEntry,
   PointsLogEntry,
   SetupRequest,
+  Stats,
   Tag,
   UpdateChoreRequest,
   UpdateUserRequest,
@@ -133,4 +135,13 @@ export const tagsApi = {
   list: () => request<Tag[]>('/tags'),
   create: (name: string) => request<Tag>('/tags', { method: 'POST', body: json({ name }) }),
   remove: (id: string) => request<void>(`/tags/${id}`, { method: 'DELETE' }),
+}
+
+export const historyApi = {
+  list: (params?: { tag?: string; userId?: string; choreId?: string }) => {
+    const entries = Object.entries(params ?? {}).filter(([, v]) => v != null && v !== '')
+    const qs = entries.length > 0 ? '?' + new URLSearchParams(entries as [string, string][]) : ''
+    return request<ChoreCompletion[]>(`/history${qs}`)
+  },
+  stats: () => request<Stats>('/stats'),
 }

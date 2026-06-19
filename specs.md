@@ -202,14 +202,14 @@ Custom recurrence (all 4 modes), assignment strategies, scheduling preferences o
 ### Phase 4 — Dashboard
 Today / overdue / upcoming views, per-user point totals, filtering by tag and assignee, global search.
 
-### Phase 5 — Notifications
-Web Push / VAPID setup, per-chore notification schedule, stop-on-completion logic.
-
-### Phase 6 — History & Stats
+### Phase 5 — History & Stats
 Completion log with filters, per-user stats, bar chart.
 
-### Phase 7 — Awards & Redemption
+### Phase 6 — Awards & Redemption
 Award CRUD (admin), redemption flow, fulfillment tracking, points deduction.
+
+### Phase 7 — Notifications
+Web Push / VAPID setup, per-chore notification schedule, stop-on-completion logic.
 
 ### Phase 8 — PWA
 Service worker, offline read + completion queue, installability, app shell / icons.

@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
-import { usersApi } from '@/lib/api'
+import { historyApi } from '@/lib/api'
 import { Modal, Avatar } from '@/components/ui/Modal'
 import { Badge } from '@/components/ui/Badge'
 
@@ -12,10 +12,6 @@ interface UserDetailsModalProps {
   onClose: () => void
 }
 
-function formatDate(iso: string): string {
-  return new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
-}
-
 export function UserDetailsModal({
   userId,
   displayName,
@@ -24,9 +20,9 @@ export function UserDetailsModal({
   weeklyPoints,
   onClose,
 }: UserDetailsModalProps) {
-  const { data: log } = useQuery({
-    queryKey: ['points-log', userId],
-    queryFn: () => usersApi.pointsLog(userId),
+  const { data: completions } = useQuery({
+    queryKey: ['history', { userId }],
+    queryFn: () => historyApi.list({ userId }),
   })
 
   const title = (
@@ -44,24 +40,59 @@ export function UserDetailsModal({
           <Badge tone="blue">{weeklyPoints} pts this week</Badge>
         </div>
 
-        {!log || log.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No points activity yet.</p>
+        {!completions || completions.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No completions yet.</p>
         ) : (
           <ul className="divide-y divide-border">
-            {log.map((entry) => (
-              <li key={entry.id} className="flex items-center justify-between py-2 text-sm">
-                <span className="text-muted-foreground">
-                  {entry.description ?? entry.type}
-                  <span className="ml-2 text-xs">{formatDate(entry.createdAt)}</span>
-                </span>
-                <span className={entry.delta >= 0 ? 'text-success' : 'text-destructive'}>
-                  {entry.delta >= 0 ? '+' : ''}{entry.delta}
-                </span>
-              </li>
-            ))}
+            {completions.map((entry) => {
+              const onTime = entry.occurrenceDueAt
+                ? new Date(entry.completedAt) <= new Date(entry.occurrenceDueAt)
+                : null
+              return (
+                <li key={entry.id} className="flex items-start gap-3 py-2.5">
+                  <div className="min-w-0 flex-1">
+                    <span className="text-sm text-foreground">
+                      {entry.choreName}
+                    </span>
+                    {entry.notes && (
+                      <p className="mt-0.5 text-xs text-muted-foreground">{entry.notes}</p>
+                    )}
+                  </div>
+                  <div className="flex shrink-0 items-center gap-2 text-xs">
+                    <time
+                      dateTime={entry.completedAt}
+                      title={new Date(entry.completedAt).toLocaleString()}
+                      className="text-muted-foreground"
+                    >
+                      {formatRelative(entry.completedAt)}
+                    </time>
+                    {onTime !== null && (
+                      <span className={onTime ? 'text-success' : 'text-destructive'}>
+                        {onTime ? 'on time' : 'late'}
+                      </span>
+                    )}
+                    {entry.pointsAwarded > 0 && (
+                      <span className="text-success">+{entry.pointsAwarded} pts</span>
+                    )}
+                  </div>
+                </li>
+              )
+            })}
           </ul>
         )}
       </div>
     </Modal>
   )
+}
+
+function formatRelative(iso: string): string {
+  const diff = Date.now() - new Date(iso).getTime()
+  const mins = Math.floor(diff / 60_000)
+  if (mins < 1) return 'just now'
+  if (mins < 60) return `${mins}m ago`
+  const hours = Math.floor(mins / 60)
+  if (hours < 24) return `${hours}h ago`
+  const days = Math.floor(hours / 24)
+  if (days < 7) return `${days}d ago`
+  return new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
 }

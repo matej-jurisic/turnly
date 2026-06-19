@@ -61,6 +61,47 @@ public class UserService
         return new DateTimeOffset(now.AddDays(-daysToMonday).Date, TimeSpan.Zero);
     }
 
+    public async Task<StatsDto> GetStatsAsync(CancellationToken ct = default)
+    {
+        var users = await _db.Users.OrderBy(u => u.DisplayName).ToListAsync(ct);
+        var allCompletions = await _db.ChoreCompletions
+            .Select(c => new { c.CompletedByUserId, c.CompletedAt, c.OccurrenceDueAt })
+            .ToListAsync(ct);
+
+        var weekStart = GetCurrentWeekStart();
+        var now = DateTimeOffset.UtcNow;
+        var monthStart = new DateTimeOffset(now.Year, now.Month, 1, 0, 0, 0, TimeSpan.Zero);
+
+        var userStats = users.Select(u => new UserStatsDto(
+            u.Id, u.DisplayName, u.AvatarColor,
+            allCompletions.Count(c => c.CompletedByUserId == u.Id && c.CompletedAt >= weekStart),
+            allCompletions.Count(c => c.CompletedByUserId == u.Id && c.CompletedAt >= monthStart),
+            allCompletions.Count(c => c.CompletedByUserId == u.Id),
+            allCompletions.Count(c => c.CompletedByUserId == u.Id
+                && c.OccurrenceDueAt.HasValue && c.CompletedAt <= c.OccurrenceDueAt.Value),
+            allCompletions.Count(c => c.CompletedByUserId == u.Id
+                && c.OccurrenceDueAt.HasValue && c.CompletedAt > c.OccurrenceDueAt.Value)
+        )).ToList();
+
+        // Last 8 weeks oldest-first so the chart reads left-to-right chronologically.
+        var chart = Enumerable.Range(0, 8).Reverse().Select(weeksAgo =>
+        {
+            var ws = weekStart.AddDays(-7 * weeksAgo);
+            var we = ws.AddDays(7);
+            var end = we.AddDays(-1);
+            var label = ws.Month == end.Month
+                ? $"{ws:MMM d}–{end.Day}"
+                : $"{ws:MMM d}–{end:MMM d}";
+            var userCounts = users.Select(u => new UserWeeklyCountDto(
+                u.Id, u.DisplayName, u.AvatarColor,
+                allCompletions.Count(c => c.CompletedByUserId == u.Id && c.CompletedAt >= ws && c.CompletedAt < we)
+            )).ToList();
+            return new ChartWeekDto(label, ws, userCounts);
+        }).ToList();
+
+        return new StatsDto(userStats, chart);
+    }
+
     public async Task<Result<List<PointsLogEntryDto>>> GetPointsLogAsync(Guid userId, CancellationToken ct = default)
     {
         if (!await _db.Users.AnyAsync(u => u.Id == userId, ct))

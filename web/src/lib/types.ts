@@ -79,6 +79,7 @@ export interface ChoreCompletion {
   choreName: string
   completedBy: User
   completedAt: string
+  occurrenceDueAt?: string | null
   notes?: string | null
   pointsAwarded: number
 }
@@ -150,4 +151,33 @@ export interface PointsLogEntry {
   description?: string | null
   choreCompletionId?: string | null
   createdAt: string
+}
+
+export interface UserStats {
+  userId: string
+  displayName: string
+  avatarColor: string
+  weeklyCount: number
+  monthlyCount: number
+  allTimeCount: number
+  onTimeCount: number
+  overdueCount: number
+}
+
+export interface UserWeeklyCount {
+  userId: string
+  displayName: string
+  avatarColor: string
+  count: number
+}
+
+export interface ChartWeek {
+  label: string
+  weekStart: string
+  userCounts: UserWeeklyCount[]
+}
+
+export interface Stats {
+  userStats: UserStats[]
+  chart: ChartWeek[]
 }
