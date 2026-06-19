@@ -160,6 +160,80 @@ public class ChoreService
         return await GetAsync(chore.Id, ct);
     }
 
+    /// <summary>Skips the current occurrence of a recurring chore: advances the schedule to the
+    /// next due date without awarding points or rotating the assignee. Logged as a points-less
+    /// <see cref="ChoreCompletion"/> (<c>IsSkip</c>) so it shares the undo path. One-time chores,
+    /// and chores with nothing scheduled, cannot be skipped.</summary>
+    public async Task<Result<ChoreDto>> SkipAsync(Guid id, Guid userId, SkipChoreRequest req, CancellationToken ct = default)
+    {
+        var chore = await Query().FirstOrDefaultAsync(c => c.Id == id, ct);
+        if (chore is null)
+            return Result.Fail<ChoreDto>(Error.NotFound("Chore not found."));
+
+        if (chore.RepeatType == RepeatType.OneTime)
+            return Result.Fail<ChoreDto>(Error.Validation("One-time chores cannot be skipped."));
+        if (chore.DueAt is null)
+            return Result.Fail<ChoreDto>(Error.Validation("This chore has nothing scheduled to skip."));
+
+        var user = await _db.Users.FindAsync([userId], ct);
+        if (user is null)
+            return Result.Fail<ChoreDto>(Error.NotFound("User not found."));
+
+        var now = DateTimeOffset.UtcNow;
+        var skip = new ChoreCompletion
+        {
+            ChoreId = chore.Id,
+            CompletedByUserId = userId,
+            CompletedAt = now,
+            Notes = string.IsNullOrWhiteSpace(req.Notes) ? null : req.Notes.Trim(),
+            PointsAwarded = 0,
+            IsSkip = true,
+            OccurrenceDueAt = chore.DueAt,
+            PreviousAssigneeId = chore.CurrentAssigneeId
+        };
+        _db.ChoreCompletions.Add(skip);
+
+        // Advance the schedule, but keep the same assignee (a skip is not a completion, so it
+        // neither awards points nor rotates). Frequency chores roll straight to the next period.
+        if (chore is { RepeatType: RepeatType.Custom, CustomMode: CustomRecurrenceMode.Frequency, FrequencyPeriod: { } period })
+        {
+            chore.DueAt = RecurrenceCalculator.PeriodEnd(period, RecurrenceCalculator.PeriodEnd(period, now));
+        }
+        else
+        {
+            var rule = RecurrenceRule.FromChore(chore);
+            var scheduledDue = chore.DueAt ?? now;
+            chore.DueAt = RecurrenceCalculator.NextDue(rule, chore.SchedulingPreference, scheduledDue, now, now);
+        }
+
+        await _db.SaveChangesAsync(ct);
+        return await GetAsync(chore.Id, ct);
+    }
+
+    /// <summary>One-off reassignment of the current occurrence to another eligible assignee. The
+    /// chore's strategy still drives future rotations; this just sets the current occupant and logs
+    /// the assignment (keeping <see cref="AssignmentStrategy.LeastAssigned"/> honest).</summary>
+    public async Task<Result<ChoreDto>> ReassignAsync(Guid id, Guid userId, ReassignChoreRequest req, CancellationToken ct = default)
+    {
+        var chore = await _db.Chores
+            .Include(c => c.Assignees)
+            .FirstOrDefaultAsync(c => c.Id == id, ct);
+        if (chore is null)
+            return Result.Fail<ChoreDto>(Error.NotFound("Chore not found."));
+
+        if (chore.Assignees.All(a => a.Id != req.AssigneeId))
+            return Result.Fail<ChoreDto>(Error.Validation("The new assignee must be one of the chore's assignees."));
+
+        if (chore.CurrentAssigneeId != req.AssigneeId)
+        {
+            chore.CurrentAssigneeId = req.AssigneeId;
+            _db.ChoreAssignments.Add(new ChoreAssignment { ChoreId = chore.Id, UserId = req.AssigneeId });
+            await _db.SaveChangesAsync(ct);
+        }
+
+        return await GetAsync(chore.Id, ct);
+    }
+
     public async Task<Result> UndoCompletionAsync(Guid completionId, Guid actingUserId, CancellationToken ct = default)
     {
         var completion = await _db.ChoreCompletions
@@ -249,7 +323,7 @@ public class ChoreService
             // SQLite can't compare DateTimeOffset in SQL, so count client-side. +1 for the
             // completion we just added but haven't saved yet.
             var completedAts = await _db.ChoreCompletions
-                .Where(x => x.ChoreId == chore.Id)
+                .Where(x => x.ChoreId == chore.Id && !x.IsSkip)
                 .Select(x => x.CompletedAt)
                 .ToListAsync(ct);
             var doneThisPeriod = completedAts.Count(t => t >= start && t < end) + 1;
@@ -287,7 +361,7 @@ public class ChoreService
             .ToDictionaryAsync(x => x.UserId, x => x.Count, ct);
 
         var completedCounts = await _db.ChoreCompletions
-            .Where(x => x.ChoreId == chore.Id)
+            .Where(x => x.ChoreId == chore.Id && !x.IsSkip)
             .GroupBy(x => x.CompletedByUserId)
             .Select(g => new { UserId = g.Key, Count = g.Count() })
             .ToDictionaryAsync(x => x.UserId, x => x.Count, ct);
@@ -335,7 +409,7 @@ public class ChoreService
         {
             var start = RecurrenceCalculator.PeriodStart(period, now);
             var end = RecurrenceCalculator.PeriodEnd(period, now);
-            progress = completions?.Count(x => x.CompletedAt >= start && x.CompletedAt < end) ?? 0;
+            progress = completions?.Count(x => !x.IsSkip && x.CompletedAt >= start && x.CompletedAt < end) ?? 0;
         }
         return ChoreDto.FromEntity(chore, latest, progress);
     }

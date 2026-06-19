@@ -82,6 +82,7 @@ export interface ChoreCompletion {
   occurrenceDueAt?: string | null
   notes?: string | null
   pointsAwarded: number
+  isSkip: boolean
 }
 
 /** Custom-recurrence parameters; which fields apply depends on `customMode`. */
@@ -135,6 +136,14 @@ export type UpdateChoreRequest = ChoreRequest
 
 export interface CompleteChoreRequest {
   notes?: string | null
+}
+
+export interface SkipChoreRequest {
+  notes?: string | null
+}
+
+export interface ReassignChoreRequest {
+  assigneeId: string
 }
 
 export interface Tag {

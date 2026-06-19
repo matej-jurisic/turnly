@@ -1,11 +1,11 @@
 # CLAUDE.md
 
 Guidance for working in the Turnly repository. See `specs.md` for the full product spec
-and 8-phase roadmap, and `README.md` for user-facing setup.
+and 9-phase roadmap, and `README.md` for user-facing setup.
 
 ## What this is
 
-Self-hosted family chore-management web app (PWA). **Phases 1–6 are complete.** Phase 1
+Self-hosted family chore-management web app (PWA). **Phases 1–7 are complete.** Phase 1
 (Foundation): auth, user CRUD + roles, password management, DB schema, Docker. Phase 2
 (Chores – Core): chore CRUD (name, description, emoji, tags, assignees, points), basic
 recurrence (one-time/daily/weekly/monthly/yearly + start date), mark complete + undo, and a
@@ -18,7 +18,11 @@ upcoming chore views, per-user point totals, filtering by tag and assignee, and 
 per-user stats, completions-per-week bar chart. Phase 6 (Awards & Redemption): admin award CRUD
 (name, description, emoji, point cost), member redemption that spends points and logs a
 `Redemption`, admin fulfill (mark delivered) + cancel-with-refund of a pending redemption (a
-redemption snapshots the award's name/emoji/cost so it survives award edits/deletion). Phases 7–8
+redemption snapshots the award's name/emoji/cost so it survives award edits/deletion). Phase 7
+(Skip & Reassign): skip a recurring chore's current occurrence (advances the schedule without
+awarding points or rotating the assignee — logged as a points-less `ChoreCompletion` with `IsSkip`,
+undoable like a completion; one-time chores can't be skipped — **admin only**), and one-off
+reassignment of the current occurrence to another eligible assignee (open to any member). Phases 8–9
 (notifications, PWA) are not started.
 
 ## Stack & layout
@@ -44,7 +48,9 @@ copy the nearest existing example. Paths are under `src/` / `web/src/` / `tests/
 - `Entities/` — POCOs; convention is `Guid Id = Guid.NewGuid()` + `DateTimeOffset CreatedAt`,
   no base class. `User, RefreshToken, Chore, Tag, ChoreCompletion, ChoreAssignment, PointsLogEntry,
   Award, Redemption`. `ChoreAssignment` logs every assignment (initial + each rotation) — backs
-  `LeastAssigned` and lets undo reverse a rotation via its `ChoreCompletionId` link. `Redemption`
+  `LeastAssigned` and lets undo reverse a rotation via its `ChoreCompletionId` link. A skipped
+  occurrence is a `ChoreCompletion` with `IsSkip = true` (zero points, no `PointsLogEntry`) —
+  excluded from completion stats/counts but undoable on the same path. `Redemption`
   snapshots `AwardName`/`AwardEmoji`/`PointsSpent` (so it outlives the award; FK is `SetNull`) and
   `PointsLogEntry` carries both a `ChoreCompletionId` and a `RedemptionId` link so undo/cancel can
   reverse the matching deduction the same way.
@@ -65,7 +71,9 @@ copy the nearest existing example. Paths are under `src/` / `web/src/` / `tests/
   `Result<T>`. `AuthService, UserService, SetupService, TagService, ChoreService, AwardService,
   RedemptionService`. Registered in `ServiceCollectionExtensions.AddTurnlyCore`. `RedemptionService`
   mirrors `ChoreService`'s points-award path: `RedeemAsync` writes a negative `PointsLogEntry` +
-  decrements `User.Points`; `CancelAsync` reverses it like `UndoCompletionAsync`.
+  decrements `User.Points`; `CancelAsync` reverses it like `UndoCompletionAsync`. `ChoreService.SkipAsync`
+  mirrors `CompleteAsync` minus points/rotation (advances the schedule, writes an `IsSkip` completion);
+  `ReassignAsync` sets `CurrentAssigneeId` + logs a `ChoreAssignment` (same as the edit path).
 - `Recurrence/` — pure, unit-tested. `RecurrenceCalculator` works off a `RecurrenceRule` record
   (`FromChore`): `FirstOccurrence(rule, start)` + `NextDue(rule, pref, scheduledDue, completedAt,
   now)` (interval stepping, fixed-slot scanning, scheduling prefs) plus `PeriodStart/PeriodEnd`
@@ -81,7 +89,9 @@ copy the nearest existing example. Paths are under `src/` / `web/src/` / `tests/
 - `Endpoints/*Endpoints.cs` — `MapGroup(...).RequireAuthorization()`; thin handlers:
   parse → call service → `result.Succeeded ? Results.Ok/... : result.Error!.ToProblem()`.
   Per-endpoint `.RequireAuthorization("Admin")` for admin-only ops (e.g. chore create/edit/
-  delete). Chores/complete + completions/undo are open to any member. `AwardEndpoints` follows the
+  delete, and chores/skip). Chores/complete + chores/reassign + completions/undo are open to any
+  member; chores/skip is admin-only (skipping advances past the due date with no points).
+  `AwardEndpoints` follows the
   same split: listing awards + redeeming (`POST /api/awards/{id}/redeem`) and `GET /api/redemptions`
   (own for members, all for admins) are member-open; award create/edit/delete and redemption
   fulfill/cancel are admin-only.

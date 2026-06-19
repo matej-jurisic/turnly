@@ -138,6 +138,77 @@ public class ChoreManagementTests : IDisposable
     }
 
     [Fact]
+    public async Task Admin_can_skip_a_recurring_occurrence_without_points()
+    {
+        var (admin, _) = await AdminClientAsync();
+        await admin.PostJsonAsync("/api/users",
+            new CreateUserRequest("kid", "Kid", "kidpass1", UserRole.Member, null));
+        var member = _factory.CreateClient();
+        var memberAuth = await member.LoginAsync("kid", "kidpass1");
+
+        var chore = await (await admin.PostJsonAsync("/api/chores", NewChore(memberAuth.User.Id)))
+            .ReadAsync<ChoreDto>();
+
+        var skipped = await (await admin.PostJsonAsync($"/api/chores/{chore.Id}/skip",
+            new SkipChoreRequest("away this week"))).ReadAsync<ChoreDto>();
+        Assert.Equal(Start.AddDays(1), skipped.DueAt); // advanced
+        Assert.NotNull(skipped.LastCompletion);
+        Assert.True(skipped.LastCompletion!.IsSkip);
+
+        // No points were awarded for the skip.
+        var log = await (await member.GetAsync($"/api/users/{memberAuth.User.Id}/points-log"))
+            .ReadAsync<List<PointsLogEntryDto>>();
+        Assert.Empty(log);
+    }
+
+    [Fact]
+    public async Task Member_cannot_skip_a_chore()
+    {
+        var (admin, _) = await AdminClientAsync();
+        await admin.PostJsonAsync("/api/users",
+            new CreateUserRequest("kid", "Kid", "kidpass1", UserRole.Member, null));
+        var member = _factory.CreateClient();
+        var memberAuth = await member.LoginAsync("kid", "kidpass1");
+
+        var chore = await (await admin.PostJsonAsync("/api/chores", NewChore(memberAuth.User.Id)))
+            .ReadAsync<ChoreDto>();
+
+        var forbidden = await member.PostJsonAsync($"/api/chores/{chore.Id}/skip", new SkipChoreRequest(null));
+        Assert.Equal(HttpStatusCode.Forbidden, forbidden.StatusCode);
+    }
+
+    [Fact]
+    public async Task Skipping_a_one_time_chore_is_rejected()
+    {
+        var (admin, adminAuth) = await AdminClientAsync();
+        var chore = await (await admin.PostJsonAsync("/api/chores",
+            NewChore(adminAuth.User.Id) with { RepeatType = RepeatType.OneTime })).ReadAsync<ChoreDto>();
+
+        var response = await admin.PostJsonAsync($"/api/chores/{chore.Id}/skip", new SkipChoreRequest(null));
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Member_can_reassign_the_current_occurrence()
+    {
+        var (admin, adminAuth) = await AdminClientAsync();
+        await admin.PostJsonAsync("/api/users",
+            new CreateUserRequest("kid", "Kid", "kidpass1", UserRole.Member, null));
+        var member = _factory.CreateClient();
+        var memberAuth = await member.LoginAsync("kid", "kidpass1");
+
+        var request = NewChore(memberAuth.User.Id) with
+        {
+            AssigneeIds = [adminAuth.User.Id, memberAuth.User.Id],
+        };
+        var chore = await (await admin.PostJsonAsync("/api/chores", request)).ReadAsync<ChoreDto>();
+
+        var reassigned = await (await member.PostJsonAsync($"/api/chores/{chore.Id}/reassign",
+            new ReassignChoreRequest(adminAuth.User.Id))).ReadAsync<ChoreDto>();
+        Assert.Equal(adminAuth.User.Id, reassigned.CurrentAssignee!.Id);
+    }
+
+    [Fact]
     public async Task Tags_are_listed_after_being_used_on_a_chore()
     {
         var (admin, adminAuth) = await AdminClientAsync();

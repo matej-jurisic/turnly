@@ -283,6 +283,99 @@ public class ChoreServiceTests
     }
 
     [Fact]
+    public async Task SkipAsync_advances_due_without_points_and_keeps_assignee()
+    {
+        using var ctx = new TestContext();
+        var (admin, member) = await SeedUsersAsync(ctx);
+        var chore = (await ctx.Chores.CreateAsync(
+            NewChore(member, [admin, member], points: 10, strategy: AssignmentStrategy.RoundRobin))).Value!;
+
+        var result = await ctx.Chores.SkipAsync(chore.Id, member, new SkipChoreRequest("away"));
+
+        Assert.True(result.Succeeded);
+        Assert.Equal(Start.AddDays(1), result.Value!.DueAt); // daily advanced
+        Assert.Equal(member, result.Value!.CurrentAssignee!.Id); // no rotation
+        Assert.Equal(0, (await ctx.Db.Users.FindAsync(member))!.Points); // no points
+        Assert.Empty(ctx.Db.PointsLog);
+        var skip = await ctx.Db.ChoreCompletions.SingleAsync();
+        Assert.True(skip.IsSkip);
+        Assert.Equal(0, skip.PointsAwarded);
+    }
+
+    [Fact]
+    public async Task SkipAsync_rejects_one_time_chore()
+    {
+        using var ctx = new TestContext();
+        var (_, member) = await SeedUsersAsync(ctx);
+        var chore = (await ctx.Chores.CreateAsync(
+            NewChore(member, [member], RepeatType.OneTime))).Value!;
+
+        var result = await ctx.Chores.SkipAsync(chore.Id, member, new SkipChoreRequest(null));
+
+        Assert.False(result.Succeeded);
+        Assert.Equal(ErrorType.Validation, result.Error!.Type);
+    }
+
+    [Fact]
+    public async Task SkipAsync_is_undoable_and_restores_due()
+    {
+        using var ctx = new TestContext();
+        var (_, member) = await SeedUsersAsync(ctx);
+        var chore = (await ctx.Chores.CreateAsync(NewChore(member, [member]))).Value!;
+        await ctx.Chores.SkipAsync(chore.Id, member, new SkipChoreRequest(null));
+        var skipId = await ctx.Db.ChoreCompletions.Select(c => c.Id).SingleAsync();
+
+        var result = await ctx.Chores.UndoCompletionAsync(skipId, member);
+
+        Assert.True(result.Succeeded);
+        Assert.Empty(ctx.Db.ChoreCompletions);
+        Assert.Equal(Start, (await ctx.Db.Chores.FindAsync(chore.Id))!.DueAt); // restored
+    }
+
+    [Fact]
+    public async Task SkipAsync_does_not_count_toward_frequency_progress()
+    {
+        using var ctx = new TestContext();
+        var (_, member) = await SeedUsersAsync(ctx);
+        var chore = (await ctx.Chores.CreateAsync(NewChore(member, [member], RepeatType.Custom,
+            customMode: CustomRecurrenceMode.Frequency, frequencyCount: 2,
+            frequencyPeriod: FrequencyPeriod.Week, start: DateTimeOffset.UtcNow))).Value!;
+
+        var skipped = await ctx.Chores.SkipAsync(chore.Id, member, new SkipChoreRequest(null));
+
+        Assert.True(skipped.Succeeded);
+        Assert.Equal(0, skipped.Value!.FrequencyProgress); // skip is not a completion
+    }
+
+    [Fact]
+    public async Task ReassignAsync_sets_assignee_and_logs_assignment()
+    {
+        using var ctx = new TestContext();
+        var (admin, member) = await SeedUsersAsync(ctx);
+        var chore = (await ctx.Chores.CreateAsync(NewChore(member, [admin, member]))).Value!;
+
+        var result = await ctx.Chores.ReassignAsync(chore.Id, member, new ReassignChoreRequest(admin));
+
+        Assert.True(result.Succeeded);
+        Assert.Equal(admin, result.Value!.CurrentAssignee!.Id);
+        // Initial assignment + the reassignment.
+        Assert.Equal(2, await ctx.Db.ChoreAssignments.CountAsync(a => a.ChoreId == chore.Id));
+    }
+
+    [Fact]
+    public async Task ReassignAsync_rejects_non_assignee()
+    {
+        using var ctx = new TestContext();
+        var (admin, member) = await SeedUsersAsync(ctx);
+        var chore = (await ctx.Chores.CreateAsync(NewChore(member, [member]))).Value!;
+
+        var result = await ctx.Chores.ReassignAsync(chore.Id, member, new ReassignChoreRequest(admin));
+
+        Assert.False(result.Succeeded);
+        Assert.Equal(ErrorType.Validation, result.Error!.Type);
+    }
+
+    [Fact]
     public async Task UndoCompletion_restores_previous_assignee()
     {
         using var ctx = new TestContext();

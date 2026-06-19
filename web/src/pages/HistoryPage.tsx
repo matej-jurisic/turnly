@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import { choresApi, historyApi, tagsApi, usersApi } from '@/lib/api'
 import type { ChartWeek, UserStats } from '@/lib/types'
+import { Badge } from '@/components/ui/Badge'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { Avatar } from '@/components/ui/Modal'
 import { cn } from '@/lib/utils'
@@ -163,8 +164,9 @@ export function HistoryPage() {
                         {entry.choreName}
                       </span>
                       <span className="text-xs text-muted-foreground">
-                        by {entry.completedBy.displayName}
+                        {entry.isSkip ? 'skipped' : 'by'} {entry.completedBy.displayName}
                       </span>
+                      {entry.isSkip && <Badge tone="neutral">Skipped</Badge>}
                     </div>
                     {entry.notes && (
                       <p className="mt-0.5 text-xs text-muted-foreground">{entry.notes}</p>
@@ -178,7 +180,7 @@ export function HistoryPage() {
                     >
                       {formatRelative(entry.completedAt)}
                     </time>
-                    {entry.occurrenceDueAt && (
+                    {!entry.isSkip && entry.occurrenceDueAt && (
                       <span className={cn(
                         new Date(entry.completedAt) <= new Date(entry.occurrenceDueAt)
                           ? 'text-success'

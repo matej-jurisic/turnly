@@ -50,6 +50,27 @@ public static class ChoreEndpoints
             return result.Succeeded ? Results.Ok(result.Value) : result.Error!.ToProblem();
         });
 
+        // Skip the current occurrence of a recurring chore (admin only — skipping advances a
+        // chore past its due date with no points, so it's not a self-service member action).
+        group.MapPost("/{id:guid}/skip", async (Guid id, SkipChoreRequest req,
+            ClaimsPrincipal principal, ChoreService chores, CancellationToken ct) =>
+        {
+            if (principal.GetUserId() is not { } userId)
+                return Results.Unauthorized();
+            var result = await chores.SkipAsync(id, userId, req, ct);
+            return result.Succeeded ? Results.Ok(result.Value) : result.Error!.ToProblem();
+        }).RequireAuthorization("Admin");
+
+        // One-off reassignment of the current occurrence (any member).
+        group.MapPost("/{id:guid}/reassign", async (Guid id, ReassignChoreRequest req,
+            ClaimsPrincipal principal, ChoreService chores, CancellationToken ct) =>
+        {
+            if (principal.GetUserId() is not { } userId)
+                return Results.Unauthorized();
+            var result = await chores.ReassignAsync(id, userId, req, ct);
+            return result.Succeeded ? Results.Ok(result.Value) : result.Error!.ToProblem();
+        });
+
         // Undo a completion (any member may undo their own; admins may undo any).
         var completions = app.MapGroup("/api/completions").RequireAuthorization();
         completions.MapDelete("/{id:guid}", async (Guid id, ClaimsPrincipal principal,

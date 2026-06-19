@@ -65,6 +65,7 @@ public class UserService
     {
         var users = await _db.Users.OrderBy(u => u.DisplayName).ToListAsync(ct);
         var allCompletions = await _db.ChoreCompletions
+            .Where(c => !c.IsSkip) // skips are not real completions — exclude from stats
             .Select(c => new { c.CompletedByUserId, c.CompletedAt, c.OccurrenceDueAt })
             .ToListAsync(ct);
 

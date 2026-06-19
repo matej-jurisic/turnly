@@ -10,8 +10,10 @@ import type {
   CreateUserRequest,
   LeaderboardEntry,
   PointsLogEntry,
+  ReassignChoreRequest,
   Redemption,
   SetupRequest,
+  SkipChoreRequest,
   Stats,
   Tag,
   UpdateAwardRequest,
@@ -131,6 +133,10 @@ export const choresApi = {
   remove: (id: string) => request<void>(`/chores/${id}`, { method: 'DELETE' }),
   complete: (id: string, body: CompleteChoreRequest) =>
     request<Chore>(`/chores/${id}/complete`, { method: 'POST', body: json(body) }),
+  skip: (id: string, body: SkipChoreRequest) =>
+    request<Chore>(`/chores/${id}/skip`, { method: 'POST', body: json(body) }),
+  reassign: (id: string, body: ReassignChoreRequest) =>
+    request<Chore>(`/chores/${id}/reassign`, { method: 'POST', body: json(body) }),
   undoCompletion: (completionId: string) =>
     request<void>(`/completions/${completionId}`, { method: 'DELETE' }),
 }

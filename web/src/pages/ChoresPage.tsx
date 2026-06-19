@@ -116,6 +116,7 @@ export function ChoresPage() {
   const [editing, setEditing] = useState<Chore | null>(null)
   const [creating, setCreating] = useState(false)
   const [completing, setCompleting] = useState<Chore | null>(null)
+  const [reassigning, setReassigning] = useState<Chore | null>(null)
   const [details, setDetails] = useState<Chore | null>(null)
   const [tagFilter, setTagFilter] = useState('')
   const [assigneeFilter, setAssigneeFilter] = useState('')
@@ -132,6 +133,12 @@ export function ChoresPage() {
     mutationFn: (completionId: string) => choresApi.undoCompletion(completionId),
     onSuccess: invalidate,
     onError: (err) => alert(err instanceof ApiError ? err.message : 'Undo failed'),
+  })
+
+  const skipMutation = useMutation({
+    mutationFn: (id: string) => choresApi.skip(id, { notes: null }),
+    onSuccess: invalidate,
+    onError: (err) => alert(err instanceof ApiError ? err.message : 'Skip failed'),
   })
 
   const allTags = useMemo(
@@ -165,12 +172,21 @@ export function ChoresPage() {
     chore,
     isAdmin,
     undoPending: undoMutation.isPending,
+    skipPending: skipMutation.isPending,
     deletePending: deleteMutation.isPending,
     onComplete: () => setCompleting(chore),
     onUndo: () => {
-      if (confirm('Undo the last completion? Points will be reversed.'))
-        undoMutation.mutate(chore.lastCompletion!.id)
+      const wasSkip = chore.lastCompletion?.isSkip
+      const message = wasSkip
+        ? 'Undo the last skip? The chore returns to its previous due date.'
+        : 'Undo the last completion? Points will be reversed.'
+      if (confirm(message)) undoMutation.mutate(chore.lastCompletion!.id)
     },
+    onSkip: () => {
+      if (confirm(`Skip this occurrence of "${chore.name}"? It advances to the next due date without awarding points.`))
+        skipMutation.mutate(chore.id)
+    },
+    onReassign: () => setReassigning(chore),
     onEdit: () => setEditing(chore),
     onDelete: () => {
       if (confirm(`Delete "${chore.name}"? This wipes its completion history.`))
@@ -301,6 +317,17 @@ export function ChoresPage() {
         />
       )}
 
+      {reassigning && (
+        <ReassignModal
+          chore={reassigning}
+          onClose={() => setReassigning(null)}
+          onDone={() => {
+            setReassigning(null)
+            invalidate()
+          }}
+        />
+      )}
+
       {details && (
         <ChoreDetailsModal
           chore={details}
@@ -309,6 +336,46 @@ export function ChoresPage() {
         />
       )}
     </div>
+  )
+}
+
+// ── reassign modal ─────────────────────────────────────────────────────────
+
+function ReassignModal({ chore, onClose, onDone }: { chore: Chore; onClose: () => void; onDone: () => void }) {
+  const [assigneeId, setAssigneeId] = useState(chore.currentAssignee?.id ?? chore.assignees[0]?.id ?? '')
+
+  const mutation = useMutation({
+    mutationFn: () => choresApi.reassign(chore.id, { assigneeId }),
+    onSuccess: onDone,
+    onError: (err) => alert(err instanceof ApiError ? err.message : 'Reassign failed'),
+  })
+
+  return (
+    <Modal title="Reassign chore" onClose={onClose}>
+      <form
+        className="space-y-4"
+        onSubmit={(e) => { e.preventDefault(); mutation.mutate() }}
+      >
+        <p className="text-sm text-muted-foreground">
+          Reassign the current occurrence of <span className="font-semibold text-foreground">{chore.name}</span> to
+          another member. Future occurrences still follow the chore's assignment strategy.
+        </p>
+        <div className="space-y-1.5">
+          <Label htmlFor="reassign-assignee">Assignee</Label>
+          <Select id="reassign-assignee" value={assigneeId} onChange={(e) => setAssigneeId(e.target.value)}>
+            {chore.assignees.map((u) => (
+              <option key={u.id} value={u.id}>{u.displayName}</option>
+            ))}
+          </Select>
+        </div>
+        <div className="flex justify-end gap-2">
+          <Button type="button" variant="secondary" onClick={onClose}>Cancel</Button>
+          <Button type="submit" disabled={mutation.isPending || !assigneeId}>
+            {mutation.isPending ? 'Saving…' : 'Reassign'}
+          </Button>
+        </div>
+      </form>
+    </Modal>
   )
 }
 
@@ -350,9 +417,12 @@ function ChoreListItem({
   chore,
   isAdmin,
   undoPending,
+  skipPending,
   deletePending,
   onComplete,
   onUndo,
+  onSkip,
+  onReassign,
   onEdit,
   onDelete,
   onDetails,
@@ -360,9 +430,12 @@ function ChoreListItem({
   chore: Chore
   isAdmin: boolean
   undoPending: boolean
+  skipPending: boolean
   deletePending: boolean
   onComplete: () => void
   onUndo: () => void
+  onSkip: () => void
+  onReassign: () => void
   onEdit: () => void
   onDelete: () => void
   onDetails: () => void
@@ -402,9 +475,12 @@ function ChoreListItem({
                 chore={chore}
                 isAdmin={isAdmin}
                 undoPending={undoPending}
+                skipPending={skipPending}
                 deletePending={deletePending}
                 onDetails={onDetails}
                 onUndo={onUndo}
+                onSkip={onSkip}
+                onReassign={onReassign}
                 onEdit={onEdit}
                 onDelete={onDelete}
               />
@@ -438,18 +514,24 @@ interface ChoreMenuProps {
   chore: Chore
   isAdmin: boolean
   undoPending: boolean
+  skipPending: boolean
   deletePending: boolean
   onDetails: () => void
   onUndo: () => void
+  onSkip: () => void
+  onReassign: () => void
   onEdit: () => void
   onDelete: () => void
 }
 
-function ChoreMenu({ chore, isAdmin, undoPending, deletePending, onDetails, onUndo, onEdit, onDelete }: ChoreMenuProps) {
+function ChoreMenu({ chore, isAdmin, undoPending, skipPending, deletePending, onDetails, onUndo, onSkip, onReassign, onEdit, onDelete }: ChoreMenuProps) {
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
 
   const hasUndo = Boolean(chore.lastCompletion)
+  const undoLabel = chore.lastCompletion?.isSkip ? 'Undo skip' : 'Undo'
+  const canSkip = isAdmin && chore.repeatType !== 'OneTime' && Boolean(chore.dueAt)
+  const canReassign = chore.assignees.length > 1
 
   useEffect(() => {
     if (!open) return
@@ -482,6 +564,27 @@ function ChoreMenu({ chore, isAdmin, undoPending, deletePending, onDetails, onUn
             <InfoIcon />
             Details
           </button>
+          {canSkip && (
+            <button
+              type="button"
+              disabled={skipPending}
+              onClick={() => { setOpen(false); onSkip() }}
+              className="flex w-full items-center gap-2 px-3 py-2 text-sm text-foreground transition-colors hover:bg-accent disabled:opacity-50"
+            >
+              <SkipIcon />
+              Skip
+            </button>
+          )}
+          {canReassign && (
+            <button
+              type="button"
+              onClick={() => { setOpen(false); onReassign() }}
+              className="flex w-full items-center gap-2 px-3 py-2 text-sm text-foreground transition-colors hover:bg-accent"
+            >
+              <ReassignIcon />
+              Reassign
+            </button>
+          )}
           {hasUndo && (
             <button
               type="button"
@@ -490,7 +593,7 @@ function ChoreMenu({ chore, isAdmin, undoPending, deletePending, onDetails, onUn
               className="flex w-full items-center gap-2 px-3 py-2 text-sm text-foreground transition-colors hover:bg-accent disabled:opacity-50"
             >
               <UndoIcon />
-              Undo
+              {undoLabel}
             </button>
           )}
           {isAdmin && (
@@ -555,6 +658,26 @@ function UndoIcon() {
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       <path d="M3 7v6h6" />
       <path d="M3 13C5.33 8.67 9.5 6 14 6c4.42 0 8 3.58 8 8s-3.58 8-8 8c-2.42 0-4.6-1.08-6.1-2.8" />
+    </svg>
+  )
+}
+
+function SkipIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <polygon points="5 4 15 12 5 20 5 4" />
+      <line x1="19" y1="5" x2="19" y2="19" />
+    </svg>
+  )
+}
+
+function ReassignIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <polyline points="17 1 21 5 17 9" />
+      <path d="M3 11V9a4 4 0 0 1 4-4h14" />
+      <polyline points="7 23 3 19 7 15" />
+      <path d="M21 13v2a4 4 0 0 1-4 4H3" />
     </svg>
   )
 }

@@ -156,6 +156,10 @@ public record UpdateChoreRequest(
 
 public record CompleteChoreRequest(string? Notes);
 
+public record SkipChoreRequest(string? Notes);
+
+public record ReassignChoreRequest(Guid AssigneeId);
+
 public record ChoreCompletionDto(
     Guid Id,
     Guid ChoreId,
@@ -164,11 +168,12 @@ public record ChoreCompletionDto(
     DateTimeOffset CompletedAt,
     DateTimeOffset? OccurrenceDueAt,
     string? Notes,
-    int PointsAwarded)
+    int PointsAwarded,
+    bool IsSkip)
 {
     public static ChoreCompletionDto FromEntity(ChoreCompletion c) =>
         new(c.Id, c.ChoreId, c.Chore?.Name ?? string.Empty,
-            UserDto.FromEntity(c.CompletedBy!), c.CompletedAt, c.OccurrenceDueAt, c.Notes, c.PointsAwarded);
+            UserDto.FromEntity(c.CompletedBy!), c.CompletedAt, c.OccurrenceDueAt, c.Notes, c.PointsAwarded, c.IsSkip);
 }
 
 public record PointsLogEntryDto(
