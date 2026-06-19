@@ -23,6 +23,8 @@ public sealed class TestContext : IDisposable
     public SetupService Setup { get; }
     public TagService Tags { get; }
     public ChoreService Chores { get; }
+    public AwardService Awards { get; }
+    public RedemptionService Redemptions { get; }
 
     public TestContext()
     {
@@ -49,6 +51,8 @@ public sealed class TestContext : IDisposable
         Setup = new SetupService(Db, Hasher, Auth);
         Tags = new TagService(Db);
         Chores = new ChoreService(Db, Tags);
+        Awards = new AwardService(Db);
+        Redemptions = new RedemptionService(Db);
     }
 
     public void Dispose()

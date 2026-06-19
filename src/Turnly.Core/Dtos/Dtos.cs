@@ -177,10 +177,43 @@ public record PointsLogEntryDto(
     PointsLogType Type,
     string? Description,
     Guid? ChoreCompletionId,
+    Guid? RedemptionId,
     DateTimeOffset CreatedAt)
 {
     public static PointsLogEntryDto FromEntity(PointsLogEntry e) =>
-        new(e.Id, e.Delta, e.Type, e.Description, e.ChoreCompletionId, e.CreatedAt);
+        new(e.Id, e.Delta, e.Type, e.Description, e.ChoreCompletionId, e.RedemptionId, e.CreatedAt);
+}
+
+public record AwardDto(
+    Guid Id,
+    string Name,
+    string? Description,
+    string? Emoji,
+    int Cost,
+    DateTimeOffset CreatedAt)
+{
+    public static AwardDto FromEntity(Award a) =>
+        new(a.Id, a.Name, a.Description, a.Emoji, a.Cost, a.CreatedAt);
+}
+
+public record CreateAwardRequest(string Name, string? Description, string? Emoji, int Cost);
+
+public record UpdateAwardRequest(string Name, string? Description, string? Emoji, int Cost);
+
+public record RedemptionDto(
+    Guid Id,
+    Guid? AwardId,
+    string AwardName,
+    string? AwardEmoji,
+    UserDto User,
+    int PointsSpent,
+    RedemptionStatus Status,
+    DateTimeOffset RedeemedAt,
+    DateTimeOffset? FulfilledAt)
+{
+    public static RedemptionDto FromEntity(Redemption r) =>
+        new(r.Id, r.AwardId, r.AwardName, r.AwardEmoji,
+            UserDto.FromEntity(r.User!), r.PointsSpent, r.Status, r.RedeemedAt, r.FulfilledAt);
 }
 
 public record CreateTagRequest(string Name);

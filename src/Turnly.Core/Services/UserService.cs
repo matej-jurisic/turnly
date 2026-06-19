@@ -112,7 +112,7 @@ public class UserService
                 .Where(e => e.UserId == userId)
                 .ToListAsync(ct))
             .OrderByDescending(e => e.CreatedAt)
-            .Select(e => new PointsLogEntryDto(e.Id, e.Delta, e.Type, e.Description, e.ChoreCompletionId, e.CreatedAt))
+            .Select(PointsLogEntryDto.FromEntity)
             .ToList();
 
         return Result.Success(entries);

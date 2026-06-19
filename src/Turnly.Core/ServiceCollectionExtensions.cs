@@ -35,6 +35,8 @@ public static class ServiceCollectionExtensions
         services.AddScoped<SetupService>();
         services.AddScoped<TagService>();
         services.AddScoped<ChoreService>();
+        services.AddScoped<AwardService>();
+        services.AddScoped<RedemptionService>();
 
         return services;
     }

@@ -18,6 +18,8 @@ public class TurnlyDbContext : DbContext
     public DbSet<ChoreCompletion> ChoreCompletions => Set<ChoreCompletion>();
     public DbSet<ChoreAssignment> ChoreAssignments => Set<ChoreAssignment>();
     public DbSet<PointsLogEntry> PointsLog => Set<PointsLogEntry>();
+    public DbSet<Award> Awards => Set<Award>();
+    public DbSet<Redemption> Redemptions => Set<Redemption>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
@@ -117,6 +119,33 @@ public class TurnlyDbContext : DbContext
             e.HasKey(x => x.Id);
             e.Property(x => x.Type).HasConversion<string>().HasMaxLength(16);
             e.Property(x => x.Description).HasMaxLength(256);
+        });
+
+        b.Entity<Award>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Name).IsRequired().HasMaxLength(128);
+            e.Property(x => x.Description).HasMaxLength(1024);
+            e.Property(x => x.Emoji).HasMaxLength(16);
+
+            // Deleting an award keeps its redemption history (snapshotted on the redemption).
+            e.HasMany(x => x.Redemptions)
+                .WithOne(x => x.Award!)
+                .HasForeignKey(x => x.AwardId)
+                .OnDelete(DeleteBehavior.SetNull);
+        });
+
+        b.Entity<Redemption>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.AwardName).IsRequired().HasMaxLength(128);
+            e.Property(x => x.AwardEmoji).HasMaxLength(16);
+            e.Property(x => x.Status).HasConversion<string>().HasMaxLength(16);
+
+            e.HasOne(x => x.User)
+                .WithMany()
+                .HasForeignKey(x => x.UserId)
+                .OnDelete(DeleteBehavior.Restrict);
         });
     }
 

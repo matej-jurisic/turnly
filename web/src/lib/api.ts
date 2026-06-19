@@ -1,16 +1,20 @@
 import { useAuthStore } from '@/store/auth'
 import type {
   AuthResponse,
+  Award,
   Chore,
   ChoreCompletion,
   CompleteChoreRequest,
+  CreateAwardRequest,
   CreateChoreRequest,
   CreateUserRequest,
   LeaderboardEntry,
   PointsLogEntry,
+  Redemption,
   SetupRequest,
   Stats,
   Tag,
+  UpdateAwardRequest,
   UpdateChoreRequest,
   UpdateUserRequest,
   User,
@@ -135,6 +139,21 @@ export const tagsApi = {
   list: () => request<Tag[]>('/tags'),
   create: (name: string) => request<Tag>('/tags', { method: 'POST', body: json({ name }) }),
   remove: (id: string) => request<void>(`/tags/${id}`, { method: 'DELETE' }),
+}
+
+export const awardsApi = {
+  list: () => request<Award[]>('/awards'),
+  create: (body: CreateAwardRequest) => request<Award>('/awards', { method: 'POST', body: json(body) }),
+  update: (id: string, body: UpdateAwardRequest) =>
+    request<Award>(`/awards/${id}`, { method: 'PUT', body: json(body) }),
+  remove: (id: string) => request<void>(`/awards/${id}`, { method: 'DELETE' }),
+  redeem: (id: string) => request<Redemption>(`/awards/${id}/redeem`, { method: 'POST', body: json({}) }),
+}
+
+export const redemptionsApi = {
+  list: () => request<Redemption[]>('/redemptions'),
+  fulfill: (id: string) => request<Redemption>(`/redemptions/${id}/fulfill`, { method: 'POST', body: json({}) }),
+  cancel: (id: string) => request<void>(`/redemptions/${id}/cancel`, { method: 'POST', body: json({}) }),
 }
 
 export const historyApi = {

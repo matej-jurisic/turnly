@@ -10,6 +10,7 @@ import { ChoresPage } from '@/pages/ChoresPage'
 import { SettingsPage } from '@/pages/SettingsPage'
 import { PointsPage } from '@/pages/PointsPage'
 import { HistoryPage } from '@/pages/HistoryPage'
+import { AwardsPage } from '@/pages/AwardsPage'
 
 export default function App() {
   const status = useAuthStore((s) => s.status)
@@ -61,6 +62,7 @@ export default function App() {
             element={user?.role === 'Admin' ? <UsersPage /> : <Navigate to="/chores" replace />}
           />
           <Route path="/points" element={<PointsPage />} />
+          <Route path="/awards" element={<AwardsPage />} />
           <Route path="/history" element={<HistoryPage />} />
           <Route path="/settings" element={<SettingsPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />

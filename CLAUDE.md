@@ -5,7 +5,7 @@ and 8-phase roadmap, and `README.md` for user-facing setup.
 
 ## What this is
 
-Self-hosted family chore-management web app (PWA). **Phases 1–4 are complete.** Phase 1
+Self-hosted family chore-management web app (PWA). **Phases 1–6 are complete.** Phase 1
 (Foundation): auth, user CRUD + roles, password management, DB schema, Docker. Phase 2
 (Chores – Core): chore CRUD (name, description, emoji, tags, assignees, points), basic
 recurrence (one-time/daily/weekly/monthly/yearly + start date), mark complete + undo, and a
@@ -14,7 +14,12 @@ Interval / DaysOfWeek / DaysOfMonth / Frequency modes — day granularity, hourl
 a later phase), six assignment strategies that rotate the current assignee on each new occurrence, and
 three scheduling preferences for the next due date. Phase 4 (Dashboard): today / overdue /
 upcoming chore views, per-user point totals, filtering by tag and assignee, and global search
-(chores by name/description/tags). Phases 5–8 (history, awards, notifications, PWA) are not started.
+(chores by name/description/tags). Phase 5 (History & Stats): completion log with filters,
+per-user stats, completions-per-week bar chart. Phase 6 (Awards & Redemption): admin award CRUD
+(name, description, emoji, point cost), member redemption that spends points and logs a
+`Redemption`, admin fulfill (mark delivered) + cancel-with-refund of a pending redemption (a
+redemption snapshots the award's name/emoji/cost so it survives award edits/deletion). Phases 7–8
+(notifications, PWA) are not started.
 
 ## Stack & layout
 
@@ -37,10 +42,13 @@ copy the nearest existing example. Paths are under `src/` / `web/src/` / `tests/
 
 **Backend (`Turnly.Core`)**
 - `Entities/` — POCOs; convention is `Guid Id = Guid.NewGuid()` + `DateTimeOffset CreatedAt`,
-  no base class. `User, RefreshToken, Chore, Tag, ChoreCompletion, ChoreAssignment, PointsLogEntry`.
-  `ChoreAssignment` logs every assignment (initial + each rotation) — backs `LeastAssigned` and
-  lets undo reverse a rotation via its `ChoreCompletionId` link.
-- `Enums/` — `UserRole, RepeatType, PointsLogType` + Phase 3's `CustomRecurrenceMode,
+  no base class. `User, RefreshToken, Chore, Tag, ChoreCompletion, ChoreAssignment, PointsLogEntry,
+  Award, Redemption`. `ChoreAssignment` logs every assignment (initial + each rotation) — backs
+  `LeastAssigned` and lets undo reverse a rotation via its `ChoreCompletionId` link. `Redemption`
+  snapshots `AwardName`/`AwardEmoji`/`PointsSpent` (so it outlives the award; FK is `SetNull`) and
+  `PointsLogEntry` carries both a `ChoreCompletionId` and a `RedemptionId` link so undo/cancel can
+  reverse the matching deduction the same way.
+- `Enums/` — `UserRole, RepeatType, PointsLogType, RedemptionStatus` + Phase 3's `CustomRecurrenceMode,
   RecurrenceUnit, FrequencyPeriod, AssignmentStrategy, SchedulingPreference`; **stored as strings**
   (`HasConversion<string>`) and serialized as strings in JSON.
 - `Data/TurnlyDbContext.cs` — DbSets + fluent config in `OnModelCreating`. Many-to-many via
@@ -54,8 +62,10 @@ copy the nearest existing example. Paths are under `src/` / `web/src/` / `tests/
 - `Dtos/Dtos.cs` — request/response records, each domain DTO has a static `FromEntity`.
   `ChoreDto.FromEntity(chore, lastCompletion?)` embeds the latest completion for undo.
 - `Services/*Service.cs` — ctor-inject `TurnlyDbContext` (+ deps); methods return `Result`/
-  `Result<T>`. `AuthService, UserService, SetupService, TagService, ChoreService`. Registered
-  in `ServiceCollectionExtensions.AddTurnlyCore`.
+  `Result<T>`. `AuthService, UserService, SetupService, TagService, ChoreService, AwardService,
+  RedemptionService`. Registered in `ServiceCollectionExtensions.AddTurnlyCore`. `RedemptionService`
+  mirrors `ChoreService`'s points-award path: `RedeemAsync` writes a negative `PointsLogEntry` +
+  decrements `User.Points`; `CancelAsync` reverses it like `UndoCompletionAsync`.
 - `Recurrence/` — pure, unit-tested. `RecurrenceCalculator` works off a `RecurrenceRule` record
   (`FromChore`): `FirstOccurrence(rule, start)` + `NextDue(rule, pref, scheduledDue, completedAt,
   now)` (interval stepping, fixed-slot scanning, scheduling prefs) plus `PeriodStart/PeriodEnd`
@@ -71,7 +81,10 @@ copy the nearest existing example. Paths are under `src/` / `web/src/` / `tests/
 - `Endpoints/*Endpoints.cs` — `MapGroup(...).RequireAuthorization()`; thin handlers:
   parse → call service → `result.Succeeded ? Results.Ok/... : result.Error!.ToProblem()`.
   Per-endpoint `.RequireAuthorization("Admin")` for admin-only ops (e.g. chore create/edit/
-  delete). Chores/complete + completions/undo are open to any member.
+  delete). Chores/complete + completions/undo are open to any member. `AwardEndpoints` follows the
+  same split: listing awards + redeeming (`POST /api/awards/{id}/redeem`) and `GET /api/redemptions`
+  (own for members, all for admins) are member-open; award create/edit/delete and redemption
+  fulfill/cancel are admin-only.
 - `Endpoints/ApiResults.cs` — `Error.ToProblem()` (status mapping) and
   `principal.GetUserId()` (reads the `sub` claim).
 
@@ -80,6 +93,9 @@ copy the nearest existing example. Paths are under `src/` / `web/src/` / `tests/
   sidebar from a `tabs` array (Chores for all, Users admin-only) + `navItemClass`.
 - `pages/` — `UsersPage` and `ChoresPage` are the canonical CRUD-with-modal examples
   (lift modal state to the page, `useQuery`/`useMutation`, `invalidateQueries` after writes).
+  `AwardsPage` (visible to all, admin-only CRUD controls) is the canonical "browse + member action +
+  admin management on one page" example; after redeem/cancel it invalidates `['me']`/`['leaderboard']`/
+  `['points-log', id]` so balances refresh. `awardsApi`/`redemptionsApi` live in `lib/api.ts`.
 - `lib/api.ts` — `request<T>` (bearer + one-shot 401 refresh); per-resource objects
   (`usersApi`, `choresApi`, `tagsApi`). `lib/types.ts` mirrors the backend DTOs.
 - `store/auth.ts` — Zustand; `useAuthStore(s => s.user)`, role via `user.role === 'Admin'`.

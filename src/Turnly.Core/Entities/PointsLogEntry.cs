@@ -19,6 +19,9 @@ public class PointsLogEntry
     /// <summary>Links an earning to the completion that produced it, so undo can reverse it.</summary>
     public Guid? ChoreCompletionId { get; set; }
 
+    /// <summary>Links a deduction to the redemption that produced it, so cancel can reverse it.</summary>
+    public Guid? RedemptionId { get; set; }
+
     /// <summary>Human-readable context, e.g. a snapshot of the chore name.</summary>
     public string? Description { get; set; }
 

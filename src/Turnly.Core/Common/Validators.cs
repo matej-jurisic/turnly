@@ -9,6 +9,7 @@ public static class Validators
     public const int MaxUsernameLength = 64;
     public const int MinPasswordLength = 6;
     public const int MaxChoreNameLength = 128;
+    public const int MaxAwardNameLength = 128;
     public const int MaxPoints = 100_000;
     public const int MaxInterval = 365;
     public const int MaxFrequency = 100;
@@ -53,6 +54,25 @@ public static class Validators
             return Error.Validation("Points cannot be negative.");
         if (points > MaxPoints)
             return Error.Validation($"Points must be at most {MaxPoints}.");
+        return null;
+    }
+
+    public static Error? AwardName(string? name)
+    {
+        var value = name?.Trim() ?? string.Empty;
+        if (value.Length == 0)
+            return Error.Validation("Award name is required.");
+        if (value.Length > MaxAwardNameLength)
+            return Error.Validation($"Award name must be at most {MaxAwardNameLength} characters.");
+        return null;
+    }
+
+    public static Error? AwardCost(int cost)
+    {
+        if (cost < 1)
+            return Error.Validation("Award cost must be at least 1 point.");
+        if (cost > MaxPoints)
+            return Error.Validation($"Award cost must be at most {MaxPoints}.");
         return null;
     }
 

@@ -150,7 +150,41 @@ export interface PointsLogEntry {
   type: PointsLogType
   description?: string | null
   choreCompletionId?: string | null
+  redemptionId?: string | null
   createdAt: string
+}
+
+export interface Award {
+  id: string
+  name: string
+  description?: string | null
+  emoji?: string | null
+  cost: number
+  createdAt: string
+}
+
+export interface AwardRequest {
+  name: string
+  description?: string | null
+  emoji?: string | null
+  cost: number
+}
+
+export type CreateAwardRequest = AwardRequest
+export type UpdateAwardRequest = AwardRequest
+
+export type RedemptionStatus = 'Pending' | 'Fulfilled'
+
+export interface Redemption {
+  id: string
+  awardId?: string | null
+  awardName: string
+  awardEmoji?: string | null
+  user: User
+  pointsSpent: number
+  status: RedemptionStatus
+  redeemedAt: string
+  fulfilledAt?: string | null
 }
 
 export interface UserStats {
