@@ -96,13 +96,13 @@ export function HistoryPage() {
       )}
 
       <section className="space-y-4">
-        <div className="flex flex-wrap items-center gap-3">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
           <h2 className="text-base font-semibold text-foreground">Completion log</h2>
-          <div className="flex flex-1 flex-wrap gap-2">
+          <div className="flex flex-1 gap-2">
             <select
               value={filterTag}
               onChange={(e) => setFilterTag(e.target.value)}
-              className="rounded-lg border border-border bg-card px-3 py-1.5 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+              className="min-w-0 flex-1 rounded-lg border border-border bg-card px-3 py-1.5 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring sm:flex-none"
             >
               <option value="">All tags</option>
               {tags.map((t) => (
@@ -112,7 +112,7 @@ export function HistoryPage() {
             <select
               value={filterUserId}
               onChange={(e) => setFilterUserId(e.target.value)}
-              className="rounded-lg border border-border bg-card px-3 py-1.5 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+              className="min-w-0 flex-1 rounded-lg border border-border bg-card px-3 py-1.5 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring sm:flex-none"
             >
               <option value="">All members</option>
               {members.map((u) => (
@@ -122,7 +122,7 @@ export function HistoryPage() {
             <select
               value={filterChoreId}
               onChange={(e) => setFilterChoreId(e.target.value)}
-              className="rounded-lg border border-border bg-card px-3 py-1.5 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+              className="min-w-0 flex-1 rounded-lg border border-border bg-card px-3 py-1.5 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring sm:flex-none"
             >
               <option value="">All chores</option>
               {chores.map((c) => (
@@ -133,7 +133,7 @@ export function HistoryPage() {
               <button
                 type="button"
                 onClick={() => { setFilterTag(''); setFilterUserId(''); setFilterChoreId('') }}
-                className="rounded-lg px-3 py-1.5 text-sm text-muted-foreground hover:bg-accent hover:text-foreground"
+                className="shrink-0 rounded-lg px-3 py-1.5 text-sm text-muted-foreground hover:bg-accent hover:text-foreground"
               >
                 Clear
               </button>

@@ -24,6 +24,7 @@
 - **Tags** — freeform labels for grouping/filtering chores
 - **Assignees** — list of users eligible to be assigned this chore; must include at least one user
 - **Current assignee** — the specific user currently assigned to this chore instance; must be selected from the assignees list on creation
+- **Reassign occurrence** — the current assignee for a single occurrence can be manually overridden (e.g. "you take today's") without changing the chore's assignment strategy; the override applies only to the current occurrence and the strategy resumes on the next recurrence
 - **Assignment strategy** — determines how the next assignee is picked on each recurrence:
   - `Random` — pick any assignee at random
   - `Least Assigned` — pick the assignee who has been assigned this chore fewest times
@@ -76,6 +77,7 @@ Per-chore notification schedule — a list of notification entries, each with:
 - Any household member can mark a chore complete
 - Completing a chore logs: who, when, notes (optional)
 - Completions can be undone; points are reversed on undo
+- **Skip occurrence** — a recurring chore's current occurrence can be skipped instead of completed: it advances the recurrence to the next due date (per the chore's scheduling preference) without awarding points or flagging it overdue; skips are logged and can be undone (one-time chores cannot be skipped)
 - Points awarded on completion (fixed value set per chore)
 - Points are per-user, accumulated over time
 - **Points log** — each user has a full history of point changes: earnings (per completion) and deductions (per redemption)
@@ -208,10 +210,13 @@ Completion log with filters, per-user stats, bar chart.
 ### Phase 6 — Awards & Redemption
 Award CRUD (admin), redemption flow, fulfillment tracking, points deduction.
 
-### Phase 7 — Notifications
+### Phase 7 — Skip & Reassign
+Skip an occurrence (advance recurrence without awarding points - with logs), one-off reassignment of the current assignee for a single occurrence.
+
+### Phase 8 — Notifications
 Web Push / VAPID setup, per-chore notification schedule, stop-on-completion logic.
 
-### Phase 8 — PWA
+### Phase 9 — PWA
 Service worker, offline read + completion queue, installability, app shell / icons.
 
 ---
