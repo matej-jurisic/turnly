@@ -117,6 +117,8 @@ public record PointsLogEntryDto(
         new(e.Id, e.Delta, e.Type, e.Description, e.ChoreCompletionId, e.CreatedAt);
 }
 
+public record CreateTagRequest(string Name);
+
 public record TagDto(Guid Id, string Name)
 {
     public static TagDto FromEntity(Tag t) => new(t.Id, t.Name);

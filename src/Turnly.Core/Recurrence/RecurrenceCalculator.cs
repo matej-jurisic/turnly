@@ -17,26 +17,9 @@ public static class RecurrenceCalculator
         {
             RepeatType.OneTime => null,
             RepeatType.Daily => current.AddDays(1),
-            RepeatType.Weekly => NextWeekday(weekdays, current),
+            RepeatType.Weekly => current.AddDays(7),
             RepeatType.Monthly => current.AddMonths(1),
             RepeatType.Yearly => current.AddYears(1),
             _ => null
         };
-
-    /// <summary>The next selected weekday strictly after <paramref name="current"/>,
-    /// preserving the time of day. Falls back to +7 days when no weekdays are selected.</summary>
-    private static DateTimeOffset NextWeekday(IReadOnlyCollection<DayOfWeek> weekdays, DateTimeOffset current)
-    {
-        if (weekdays is null || weekdays.Count == 0)
-            return current.AddDays(7);
-
-        for (var offset = 1; offset <= 7; offset++)
-        {
-            var candidate = current.AddDays(offset);
-            if (weekdays.Contains(candidate.DayOfWeek))
-                return candidate;
-        }
-
-        return current.AddDays(7);
-    }
 }

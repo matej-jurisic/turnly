@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Turnly.Core.Common;
 using Turnly.Core.Data;
 using Turnly.Core.Dtos;
 using Turnly.Core.Entities;
@@ -19,6 +20,35 @@ public class TagService
             .OrderBy(t => t.Name)
             .Select(t => new TagDto(t.Id, t.Name))
             .ToListAsync(ct);
+
+    public async Task<Result<TagDto>> CreateAsync(string name, CancellationToken ct = default)
+    {
+        var trimmed = name?.Trim() ?? string.Empty;
+        if (string.IsNullOrEmpty(trimmed))
+            return Result.Fail<TagDto>(Error.Validation("Tag name is required."));
+        if (trimmed.Length > 50)
+            return Result.Fail<TagDto>(Error.Validation("Tag name must be 50 characters or fewer."));
+
+        var existing = await _db.Tags.ToListAsync(ct);
+        if (existing.Any(t => string.Equals(t.Name, trimmed, StringComparison.OrdinalIgnoreCase)))
+            return Result.Fail<TagDto>(Error.Conflict("A tag with that name already exists."));
+
+        var tag = new Tag { Name = trimmed };
+        _db.Tags.Add(tag);
+        await _db.SaveChangesAsync(ct);
+        return Result.Success(TagDto.FromEntity(tag));
+    }
+
+    public async Task<Result> DeleteAsync(Guid id, CancellationToken ct = default)
+    {
+        var tag = await _db.Tags.FindAsync([id], ct);
+        if (tag is null)
+            return Result.Fail(Error.NotFound("Tag not found."));
+
+        _db.Tags.Remove(tag);
+        await _db.SaveChangesAsync(ct);
+        return Result.Success();
+    }
 
     /// <summary>Resolves a set of tag names to entities, reusing existing tags (case-insensitive)
     /// and creating any that don't exist yet. Caller is responsible for SaveChanges.</summary>

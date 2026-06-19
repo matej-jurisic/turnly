@@ -82,7 +82,10 @@ public class ChoreService
 
         Apply(chore, req.Name, req.Description, req.Emoji, req.Points, req.RepeatType, req.Weekdays,
             req.StartDate, req.CurrentAssigneeId, validation.Value!);
-        chore.Tags = await _tags.ResolveAsync(req.TagNames, ct);
+
+        var resolvedTags = await _tags.ResolveAsync(req.TagNames, ct);
+        chore.Tags.Clear();
+        foreach (var tag in resolvedTags) chore.Tags.Add(tag);
 
         await _db.SaveChangesAsync(ct);
         return await GetAsync(chore.Id, ct);
@@ -225,9 +228,6 @@ public class ChoreService
         if (!ids.Contains(currentAssigneeId))
             return Result.Fail<List<User>>(Error.Validation("The current assignee must be one of the assignees."));
 
-        if (repeatType == RepeatType.Weekly && (weekdays is null || weekdays.Length == 0))
-            return Result.Fail<List<User>>(Error.Validation("Weekly chores must have at least one weekday selected."));
-
         return Result.Success(assignees);
     }
 
@@ -246,6 +246,7 @@ public class ChoreService
         chore.StartDate = startDate;
         chore.DueAt = startDate;
         chore.CurrentAssigneeId = currentAssigneeId;
-        chore.Assignees = assignees;
+        chore.Assignees.Clear();
+        foreach (var a in assignees) chore.Assignees.Add(a);
     }
 }

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { choresApi, tagsApi, usersApi, ApiError } from '@/lib/api'
 import { useAuthStore } from '@/store/auth'
@@ -7,7 +7,6 @@ import type {
   ChoreRequest,
   RepeatType,
   User,
-  Weekday,
 } from '@/lib/types'
 import { Button } from '@/components/ui/Button'
 import { Badge } from '@/components/ui/Badge'
@@ -23,19 +22,7 @@ const REPEAT_OPTIONS: { value: RepeatType; label: string }[] = [
   { value: 'Yearly', label: 'Yearly' },
 ]
 
-const WEEKDAYS: Weekday[] = [
-  'Monday',
-  'Tuesday',
-  'Wednesday',
-  'Thursday',
-  'Friday',
-  'Saturday',
-  'Sunday',
-]
-
 function repeatLabel(chore: Chore): string {
-  if (chore.repeatType === 'Weekly' && chore.weekdays.length > 0)
-    return `Weekly · ${chore.weekdays.map((d) => d.slice(0, 3)).join(', ')}`
   return REPEAT_OPTIONS.find((o) => o.value === chore.repeatType)?.label ?? chore.repeatType
 }
 
@@ -82,71 +69,69 @@ export function ChoresPage() {
         <p className="text-muted-foreground">No chores yet{isAdmin ? ' — add one to get started.' : '.'}</p>
       )}
 
-      <div className="grid gap-4">
+      <div className="grid gap-6">
         {chores?.map((chore) => (
-          <Card key={chore.id} className="p-4">
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-              <div className="min-w-0 space-y-2">
-                <div className="flex items-center gap-2">
-                  {chore.emoji && <span className="text-xl">{chore.emoji}</span>}
-                  <span className="truncate font-semibold text-foreground">{chore.name}</span>
-                  <Badge tone="violet">{chore.points} pts</Badge>
+          <div key={chore.id} className="relative">
+            <div className="absolute left-4 top-0 z-10 flex -translate-y-1/2 items-center gap-2">
+              {chore.dueAt && (
+                <Badge tone="amber" className="border border-warning bg-card">Due {formatDate(chore.dueAt)}</Badge>
+              )}
+              <Badge tone="blue" className="border border-info bg-card">{repeatLabel(chore)}</Badge>
+            </div>
+            <Card className="min-w-0 p-4">
+              <div className="space-y-2">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex min-w-0 items-start gap-2">
+                    {chore.emoji && <span className="shrink-0 text-xl leading-tight">{chore.emoji}</span>}
+                    <span className="line-clamp-2 font-semibold text-foreground">{chore.name}</span>
+                  </div>
+
+                  <div className="flex shrink-0 items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => setCompleting(chore)}
+                      disabled={!chore.dueAt}
+                      aria-label="Mark complete"
+                      className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-primary text-primary-foreground transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-30"
+                    >
+                      <CheckIcon />
+                    </button>
+                    <ChoreMenu
+                      chore={chore}
+                      isAdmin={isAdmin}
+                      undoPending={undoMutation.isPending}
+                      deletePending={deleteMutation.isPending}
+                      onUndo={() => {
+                        if (confirm('Undo the last completion? Points will be reversed.'))
+                          undoMutation.mutate(chore.lastCompletion!.id)
+                      }}
+                      onEdit={() => setEditing(chore)}
+                      onDelete={() => {
+                        if (confirm(`Delete "${chore.name}"? This wipes its completion history.`))
+                          deleteMutation.mutate(chore.id)
+                      }}
+                    />
+                  </div>
                 </div>
+
                 {chore.description && (
                   <p className="text-sm text-muted-foreground">{chore.description}</p>
                 )}
                 <div className="flex flex-wrap items-center gap-2">
-                  <Badge tone="blue">{repeatLabel(chore)}</Badge>
-                  <Badge tone={chore.dueAt ? 'amber' : 'neutral'}>Due {formatDate(chore.dueAt)}</Badge>
+                  {chore.currentAssignee && (
+                    <>
+                      <Avatar color={chore.currentAssignee.avatarColor} name={chore.currentAssignee.displayName} size={24} />
+                      <span className="text-sm text-muted-foreground">{chore.currentAssignee.displayName}</span>
+                    </>
+                  )}
+                  <Badge tone="violet">{chore.points} pts</Badge>
                   {chore.tags.map((tag) => (
                     <Badge key={tag} tone="neutral">{tag}</Badge>
                   ))}
                 </div>
-                {chore.currentAssignee && (
-                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                    <Avatar color={chore.currentAssignee.avatarColor} name={chore.currentAssignee.displayName} size={24} />
-                    <span>{chore.currentAssignee.displayName}</span>
-                  </div>
-                )}
               </div>
-
-              <div className="flex shrink-0 flex-wrap gap-1">
-                <Button size="sm" onClick={() => setCompleting(chore)} disabled={!chore.dueAt}>
-                  Complete
-                </Button>
-                {chore.lastCompletion && (
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    disabled={undoMutation.isPending}
-                    onClick={() => {
-                      if (confirm('Undo the last completion? Points will be reversed.'))
-                        undoMutation.mutate(chore.lastCompletion!.id)
-                    }}
-                  >
-                    Undo
-                  </Button>
-                )}
-                {isAdmin && (
-                  <>
-                    <Button size="sm" variant="ghost" onClick={() => setEditing(chore)}>Edit</Button>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      className="text-destructive hover:bg-destructive/10"
-                      disabled={deleteMutation.isPending}
-                      onClick={() => {
-                        if (confirm(`Delete "${chore.name}"? This wipes its completion history.`))
-                          deleteMutation.mutate(chore.id)
-                      }}
-                    >
-                      Delete
-                    </Button>
-                  </>
-                )}
-              </div>
-            </div>
-          </Card>
+            </Card>
+          </div>
         ))}
       </div>
 
@@ -187,6 +172,132 @@ export function ChoresPage() {
   )
 }
 
+interface ChoreMenuProps {
+  chore: Chore
+  isAdmin: boolean
+  undoPending: boolean
+  deletePending: boolean
+  onUndo: () => void
+  onEdit: () => void
+  onDelete: () => void
+}
+
+function ChoreMenu({ chore, isAdmin, undoPending, deletePending, onUndo, onEdit, onDelete }: ChoreMenuProps) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+
+  const hasUndo = Boolean(chore.lastCompletion)
+  const hasItems = hasUndo || isAdmin
+  if (!hasItems) return null
+
+  useEffect(() => {
+    if (!open) return
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [open])
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-label="More options"
+        aria-expanded={open}
+        className="inline-flex h-9 w-9 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      >
+        <DotsIcon />
+      </button>
+
+      {open && (
+        <div className="absolute right-0 top-full z-20 mt-1 min-w-[140px] rounded-lg border border-border bg-card py-1 shadow-pop">
+          {hasUndo && (
+            <button
+              type="button"
+              disabled={undoPending}
+              onClick={() => { setOpen(false); onUndo() }}
+              className="flex w-full items-center gap-2 px-3 py-2 text-sm text-foreground transition-colors hover:bg-accent disabled:opacity-50"
+            >
+              <UndoIcon />
+              Undo
+            </button>
+          )}
+          {isAdmin && (
+            <>
+              <button
+                type="button"
+                onClick={() => { setOpen(false); onEdit() }}
+                className="flex w-full items-center gap-2 px-3 py-2 text-sm text-foreground transition-colors hover:bg-accent"
+              >
+                <EditIcon />
+                Edit
+              </button>
+              <button
+                type="button"
+                disabled={deletePending}
+                onClick={() => { setOpen(false); onDelete() }}
+                className="flex w-full items-center gap-2 px-3 py-2 text-sm text-destructive transition-colors hover:bg-destructive/10 disabled:opacity-50"
+              >
+                <TrashIcon />
+                Delete
+              </button>
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function CheckIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M20 6 9 17l-5-5" />
+    </svg>
+  )
+}
+
+function DotsIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <circle cx="12" cy="5" r="1" fill="currentColor" />
+      <circle cx="12" cy="12" r="1" fill="currentColor" />
+      <circle cx="12" cy="19" r="1" fill="currentColor" />
+    </svg>
+  )
+}
+
+function UndoIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M3 7v6h6" />
+      <path d="M3 13C5.33 8.67 9.5 6 14 6c4.42 0 8 3.58 8 8s-3.58 8-8 8c-2.42 0-4.6-1.08-6.1-2.8" />
+    </svg>
+  )
+}
+
+function EditIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+      <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+    </svg>
+  )
+}
+
+function TrashIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <polyline points="3 6 5 6 21 6" />
+      <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+      <path d="M10 11v6M14 11v6" />
+      <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" />
+    </svg>
+  )
+}
+
 interface ChoreFormModalProps {
   title: string
   chore?: Chore
@@ -204,7 +315,6 @@ function ChoreFormModal({ title, chore, onClose, onSaved }: ChoreFormModalProps)
   const [emoji, setEmoji] = useState(chore?.emoji ?? '')
   const [points, setPoints] = useState(String(chore?.points ?? 0))
   const [repeatType, setRepeatType] = useState<RepeatType>(chore?.repeatType ?? 'OneTime')
-  const [weekdays, setWeekdays] = useState<Weekday[]>(chore?.weekdays ?? [])
   const [startDate, setStartDate] = useState(
     (chore?.startDate ?? new Date().toISOString()).slice(0, 10),
   )
@@ -212,7 +322,7 @@ function ChoreFormModal({ title, chore, onClose, onSaved }: ChoreFormModalProps)
     chore?.assignees.map((a) => a.id) ?? [],
   )
   const [currentAssigneeId, setCurrentAssigneeId] = useState(chore?.currentAssignee?.id ?? '')
-  const [tags, setTags] = useState(chore?.tags.join(', ') ?? '')
+  const [selectedTags, setSelectedTags] = useState<string[]>(chore?.tags ?? [])
   const [error, setError] = useState<string | null>(null)
 
   const toggleAssignee = (id: string) => {
@@ -223,9 +333,6 @@ function ChoreFormModal({ title, chore, onClose, onSaved }: ChoreFormModalProps)
     })
   }
 
-  const toggleWeekday = (day: Weekday) =>
-    setWeekdays((prev) => (prev.includes(day) ? prev.filter((d) => d !== day) : [...prev, day]))
-
   const mutation = useMutation({
     mutationFn: () => {
       const body: ChoreRequest = {
@@ -234,11 +341,11 @@ function ChoreFormModal({ title, chore, onClose, onSaved }: ChoreFormModalProps)
         emoji: emoji.trim() || null,
         points: Number(points) || 0,
         repeatType,
-        weekdays: repeatType === 'Weekly' ? weekdays : [],
+        weekdays: [],
         startDate: new Date(startDate).toISOString(),
         assigneeIds,
         currentAssigneeId,
-        tagNames: tags.split(',').map((t) => t.trim()).filter(Boolean),
+        tagNames: selectedTags,
       }
       return isEdit && chore ? choresApi.update(chore.id, body) : choresApi.create(body)
     },
@@ -290,41 +397,24 @@ function ChoreFormModal({ title, chore, onClose, onSaved }: ChoreFormModalProps)
             <Input id="start" type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} required />
           </div>
         </div>
-        {repeatType === 'Weekly' && (
-          <div>
-            <Label>Weekdays</Label>
-            <div className="flex flex-wrap gap-1">
-              {WEEKDAYS.map((day) => (
-                <button
-                  key={day}
-                  type="button"
-                  onClick={() => toggleWeekday(day)}
-                  className={
-                    'rounded-md px-2 py-1 text-xs transition-colors ' +
-                    (weekdays.includes(day)
-                      ? 'bg-primary/10 text-primary'
-                      : 'bg-accent text-muted-foreground hover:text-foreground')
-                  }
-                >
-                  {day.slice(0, 3)}
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
-        <div>
+<div>
           <Label>Assignees</Label>
-          <div className="space-y-1">
+          <div className="flex flex-wrap gap-1">
             {(allUsers ?? []).map((u) => (
-              <label key={u.id} className="flex items-center gap-2 text-sm text-foreground">
-                <input
-                  type="checkbox"
-                  checked={assigneeIds.includes(u.id)}
-                  onChange={() => toggleAssignee(u.id)}
-                />
-                <Avatar color={u.avatarColor} name={u.displayName} size={20} />
+              <button
+                key={u.id}
+                type="button"
+                onClick={() => toggleAssignee(u.id)}
+                className={
+                  'flex items-center gap-1.5 rounded-md px-2 py-1 text-xs transition-colors ' +
+                  (assigneeIds.includes(u.id)
+                    ? 'bg-primary/10 text-primary ring-1 ring-primary'
+                    : 'bg-accent text-muted-foreground hover:text-foreground')
+                }
+              >
+                <Avatar color={u.avatarColor} name={u.displayName} size={16} />
                 {u.displayName}
-              </label>
+              </button>
             ))}
           </div>
         </div>
@@ -343,19 +433,30 @@ function ChoreFormModal({ title, chore, onClose, onSaved }: ChoreFormModalProps)
           </Select>
         </div>
         <div>
-          <Label htmlFor="tags">Tags (comma-separated)</Label>
-          <Input
-            id="tags"
-            value={tags}
-            onChange={(e) => setTags(e.target.value)}
-            list="tag-options"
-            placeholder="kitchen, weekly"
-          />
-          <datalist id="tag-options">
-            {(allTags ?? []).map((t) => (
-              <option key={t.id} value={t.name} />
-            ))}
-          </datalist>
+          <Label>Tags</Label>
+          {allTags && allTags.length > 0 ? (
+            <div className="flex flex-wrap gap-1">
+              {allTags.map((t) => (
+                <button
+                  key={t.id}
+                  type="button"
+                  onClick={() => setSelectedTags((prev) =>
+                    prev.includes(t.name) ? prev.filter((n) => n !== t.name) : [...prev, t.name]
+                  )}
+                  className={
+                    'rounded-md px-2 py-1 text-xs transition-colors ' +
+                    (selectedTags.includes(t.name)
+                      ? 'bg-primary/10 text-primary ring-1 ring-primary'
+                      : 'bg-accent text-muted-foreground hover:text-foreground')
+                  }
+                >
+                  {t.name}
+                </button>
+              ))}
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground">No tags yet — add them in Settings.</p>
+          )}
         </div>
         {error && <p className="text-sm text-destructive">{error}</p>}
         <div className="flex justify-end gap-2">

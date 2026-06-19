@@ -64,7 +64,7 @@ public class ChoreServiceTests
     }
 
     [Fact]
-    public async Task CreateAsync_requires_weekday_for_weekly()
+    public async Task CreateAsync_weekly_does_not_require_weekdays()
     {
         using var ctx = new TestContext();
         var (_, member) = await SeedUsersAsync(ctx);
@@ -72,8 +72,7 @@ public class ChoreServiceTests
         var result = await ctx.Chores.CreateAsync(
             NewChore(member, [member], RepeatType.Weekly, weekdays: []));
 
-        Assert.False(result.Succeeded);
-        Assert.Equal(ErrorType.Validation, result.Error!.Type);
+        Assert.True(result.Succeeded);
     }
 
     [Fact]

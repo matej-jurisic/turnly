@@ -38,7 +38,7 @@
 - **Repeat types:**
   - One-time
   - Daily
-  - Weekly (specific days of the week)
+  - Weekly
   - Monthly
   - Yearly
   - Custom — one of four modes:
@@ -215,13 +215,6 @@ Award CRUD (admin), redemption flow, fulfillment tracking, points deduction.
 Service worker, offline read + completion queue, installability, app shell / icons.
 
 ---
-
-## Next in line - changes / fixes before next phase
-
-- Move points to separate tab
-- Improve chore buttons UX, one checkmark button, menu dropdown for other options
-- Change assignees picker to be a list of on/off pills - similar to weekdays
-- Fix tags not updating
 
 ## Out of Scope (v1)
 

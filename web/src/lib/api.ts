@@ -129,4 +129,6 @@ export const choresApi = {
 
 export const tagsApi = {
   list: () => request<Tag[]>('/tags'),
+  create: (name: string) => request<Tag>('/tags', { method: 'POST', body: json({ name }) }),
+  remove: (id: string) => request<void>(`/tags/${id}`, { method: 'DELETE' }),
 }

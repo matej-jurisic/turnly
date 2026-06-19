@@ -1,15 +1,15 @@
 import { useState } from 'react'
 import type { FormEvent } from 'react'
-import { useQuery } from '@tanstack/react-query'
-import { authApi, usersApi, ApiError } from '@/lib/api'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { authApi, tagsApi, ApiError } from '@/lib/api'
 import { useAuthStore } from '@/store/auth'
 import { Button } from '@/components/ui/Button'
-import { Badge } from '@/components/ui/Badge'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { Input, Label } from '@/components/ui/Field'
 
 export function SettingsPage() {
   const user = useAuthStore((s) => s.user)
+  const isAdmin = user?.role === 'Admin'
   const [currentPassword, setCurrentPassword] = useState('')
   const [newPassword, setNewPassword] = useState('')
   const [message, setMessage] = useState<{ kind: 'ok' | 'error'; text: string } | null>(null)
@@ -45,7 +45,7 @@ export function SettingsPage() {
         </CardContent>
       </Card>
 
-      {user && <PointsCard userId={user.id} />}
+      {isAdmin && <TagsCard />}
 
       <Card>
         <CardHeader>
@@ -76,37 +76,71 @@ export function SettingsPage() {
   )
 }
 
-function PointsCard({ userId }: { userId: string }) {
-  const { data: me } = useQuery({ queryKey: ['me'], queryFn: authApi.me })
-  const { data: log } = useQuery({ queryKey: ['points-log', userId], queryFn: () => usersApi.pointsLog(userId) })
+function TagsCard() {
+  const queryClient = useQueryClient()
+  const { data: tags } = useQuery({ queryKey: ['tags'], queryFn: tagsApi.list })
+  const [name, setName] = useState('')
+  const [error, setError] = useState<string | null>(null)
+
+  const createMutation = useMutation({
+    mutationFn: (n: string) => tagsApi.create(n),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['tags'] })
+      setName('')
+      setError(null)
+    },
+    onError: (err) => setError(err instanceof ApiError ? err.message : 'Failed to create tag'),
+  })
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => tagsApi.remove(id),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['tags'] }),
+    onError: (err) => alert(err instanceof ApiError ? err.message : 'Failed to delete tag'),
+  })
 
   return (
     <Card>
-      <CardHeader className="flex items-center justify-between">
-        <CardTitle>Points</CardTitle>
-        <Badge tone="violet">{me?.points ?? 0} pts</Badge>
+      <CardHeader>
+        <CardTitle>Tags</CardTitle>
       </CardHeader>
-      <CardContent>
-        {!log || log.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No points activity yet.</p>
-        ) : (
-          <ul className="divide-y divide-border">
-            {log.map((entry) => (
-              <li key={entry.id} className="flex items-center justify-between py-2 text-sm">
-                <span className="text-muted-foreground">
-                  {entry.description ?? entry.type}
-                  <span className="ml-2 text-xs">
-                    {new Date(entry.createdAt).toLocaleDateString()}
-                  </span>
-                </span>
-                <span className={entry.delta >= 0 ? 'text-success' : 'text-destructive'}>
-                  {entry.delta >= 0 ? '+' : ''}{entry.delta}
-                </span>
-              </li>
+      <CardContent className="space-y-4">
+        {tags && tags.length > 0 ? (
+          <div className="flex flex-wrap gap-2">
+            {tags.map((tag) => (
+              <span key={tag.id} className="flex items-center gap-1 rounded-md bg-accent px-2 py-1 text-sm text-foreground">
+                {tag.name}
+                <button
+                  type="button"
+                  onClick={() => deleteMutation.mutate(tag.id)}
+                  disabled={deleteMutation.isPending}
+                  aria-label={`Delete ${tag.name}`}
+                  className="ml-0.5 text-muted-foreground transition-colors hover:text-destructive disabled:opacity-50"
+                >
+                  <XIcon />
+                </button>
+              </span>
             ))}
-          </ul>
+          </div>
+        ) : (
+          <p className="text-sm text-muted-foreground">No tags yet.</p>
         )}
+        <form
+          onSubmit={(e) => { e.preventDefault(); if (name.trim()) createMutation.mutate(name.trim()) }}
+          className="flex gap-2"
+        >
+          <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="New tag name" required />
+          <Button type="submit" variant="secondary" disabled={createMutation.isPending}>Add</Button>
+        </form>
+        {error && <p className="text-sm text-destructive">{error}</p>}
       </CardContent>
     </Card>
+  )
+}
+
+function XIcon() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" aria-hidden="true">
+      <path d="M18 6 6 18M6 6l12 12" />
+    </svg>
   )
 }

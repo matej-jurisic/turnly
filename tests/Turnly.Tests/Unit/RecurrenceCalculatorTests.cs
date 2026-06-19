@@ -34,27 +34,9 @@ public class RecurrenceCalculatorTests
     }
 
     [Fact]
-    public void Weekly_picks_next_selected_weekday()
+    public void Weekly_advances_seven_days()
     {
-        // From Wednesday, next selected day is Friday.
-        var next = RecurrenceCalculator.Next(RepeatType.Weekly, [DayOfWeek.Monday, DayOfWeek.Friday], Wed);
-        Assert.Equal(DayOfWeek.Friday, next!.Value.DayOfWeek);
-        Assert.Equal(Wed.AddDays(2), next);
-    }
-
-    [Fact]
-    public void Weekly_wraps_to_next_week_when_no_later_day_this_week()
-    {
-        // From Wednesday with only Monday selected, the next is the following Monday.
-        var next = RecurrenceCalculator.Next(RepeatType.Weekly, [DayOfWeek.Monday], Wed);
-        Assert.Equal(DayOfWeek.Monday, next!.Value.DayOfWeek);
-        Assert.Equal(Wed.AddDays(5), next);
-    }
-
-    [Fact]
-    public void Weekly_preserves_time_of_day()
-    {
-        var next = RecurrenceCalculator.Next(RepeatType.Weekly, [DayOfWeek.Friday], Wed);
-        Assert.Equal(Wed.TimeOfDay, next!.Value.TimeOfDay);
+        var next = RecurrenceCalculator.Next(RepeatType.Weekly, [], Wed);
+        Assert.Equal(Wed.AddDays(7), next);
     }
 }
