@@ -4,6 +4,7 @@ using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
+using Turnly.Api;
 using Turnly.Api.Auth;
 using Turnly.Api.Endpoints;
 using Turnly.Core;
@@ -21,6 +22,9 @@ builder.Services.ConfigureHttpJsonOptions(options =>
 
 builder.Services.Configure<RefreshCookieOptions>(builder.Configuration.GetSection("Auth:RefreshCookie"));
 builder.Services.AddSingleton<RefreshCookieManager>();
+
+// Background scheduler that fires due chore notifications (idle until VAPID keys are configured).
+builder.Services.AddHostedService<NotificationSchedulerService>();
 
 // Keep JWT claim types verbatim ("sub", "role") instead of the legacy SOAP mappings.
 JwtSecurityTokenHandler.DefaultMapInboundClaims = false;
@@ -82,6 +86,7 @@ app.MapChoreEndpoints();
 app.MapTagEndpoints();
 app.MapHistoryEndpoints();
 app.MapAwardEndpoints();
+app.MapNotificationEndpoints();
 
 // SPA fallback: any non-API route serves the built frontend.
 app.MapFallbackToFile("index.html");

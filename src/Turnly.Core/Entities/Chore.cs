@@ -60,4 +60,7 @@ public class Chore
     /// <summary>Assignment history — one row per assignment (initial + each rotation). Backs the
     /// <see cref="AssignmentStrategy.LeastAssigned"/> strategy and undo of rotations.</summary>
     public ICollection<ChoreAssignment> Assignments { get; set; } = new List<ChoreAssignment>();
+
+    /// <summary>Per-chore notification schedule (reminder/due/follow-up entries).</summary>
+    public ICollection<ChoreNotification> Notifications { get; set; } = new List<ChoreNotification>();
 }

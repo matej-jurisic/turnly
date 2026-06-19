@@ -3,6 +3,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Turnly.Core.Auth;
 using Turnly.Core.Data;
+using Turnly.Core.Notifications;
 using Turnly.Core.Services;
 
 namespace Turnly.Core;
@@ -16,6 +17,7 @@ public static class ServiceCollectionExtensions
     public static IServiceCollection AddTurnlyCore(this IServiceCollection services, IConfiguration config)
     {
         services.Configure<JwtOptions>(config.GetSection(JwtOptions.SectionName));
+        services.Configure<VapidOptions>(config.GetSection(VapidOptions.SectionName));
 
         var provider = (config["Database:Provider"] ?? "sqlite").Trim().ToLowerInvariant();
         var connectionString = config.GetConnectionString("Default");
@@ -37,6 +39,8 @@ public static class ServiceCollectionExtensions
         services.AddScoped<ChoreService>();
         services.AddScoped<AwardService>();
         services.AddScoped<RedemptionService>();
+        services.AddScoped<NotificationService>();
+        services.AddSingleton<IPushSender, WebPushSender>();
 
         return services;
     }

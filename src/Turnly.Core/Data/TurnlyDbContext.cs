@@ -20,6 +20,9 @@ public class TurnlyDbContext : DbContext
     public DbSet<PointsLogEntry> PointsLog => Set<PointsLogEntry>();
     public DbSet<Award> Awards => Set<Award>();
     public DbSet<Redemption> Redemptions => Set<Redemption>();
+    public DbSet<ChoreNotification> ChoreNotifications => Set<ChoreNotification>();
+    public DbSet<PushSubscription> PushSubscriptions => Set<PushSubscription>();
+    public DbSet<NotificationDelivery> NotificationDeliveries => Set<NotificationDelivery>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
@@ -81,6 +84,11 @@ public class TurnlyDbContext : DbContext
                 .OnDelete(DeleteBehavior.Cascade);
 
             e.HasMany(x => x.Assignments)
+                .WithOne(x => x.Chore!)
+                .HasForeignKey(x => x.ChoreId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            e.HasMany(x => x.Notifications)
                 .WithOne(x => x.Chore!)
                 .HasForeignKey(x => x.ChoreId)
                 .OnDelete(DeleteBehavior.Cascade);
@@ -146,6 +154,42 @@ public class TurnlyDbContext : DbContext
                 .WithMany()
                 .HasForeignKey(x => x.UserId)
                 .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        b.Entity<ChoreNotification>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Type).HasConversion<string>().HasMaxLength(16);
+            e.Property(x => x.Timing).HasConversion<string>().HasMaxLength(16);
+            e.Property(x => x.OffsetUnit).HasConversion<string>().HasMaxLength(16);
+            e.Property(x => x.Recipients).HasConversion<string>().HasMaxLength(16);
+        });
+
+        b.Entity<PushSubscription>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.HasIndex(x => x.Endpoint).IsUnique();
+            e.Property(x => x.Endpoint).IsRequired().HasMaxLength(2048);
+            e.Property(x => x.P256dh).IsRequired().HasMaxLength(256);
+            e.Property(x => x.Auth).IsRequired().HasMaxLength(256);
+            e.Property(x => x.DeviceLabel).HasMaxLength(128);
+
+            e.HasOne(x => x.User)
+                .WithMany()
+                .HasForeignKey(x => x.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        b.Entity<NotificationDelivery>(e =>
+        {
+            e.HasKey(x => x.Id);
+            // Each schedule entry fires at most once per occurrence.
+            e.HasIndex(x => new { x.ChoreNotificationId, x.OccurrenceDueAt }).IsUnique();
+
+            e.HasOne(x => x.ChoreNotification)
+                .WithMany()
+                .HasForeignKey(x => x.ChoreNotificationId)
+                .OnDelete(DeleteBehavior.Cascade);
         });
     }
 

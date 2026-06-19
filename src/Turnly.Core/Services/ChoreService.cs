@@ -76,6 +76,7 @@ public class ChoreService
         var chore = await _db.Chores
             .Include(c => c.Assignees)
             .Include(c => c.Tags)
+            .Include(c => c.Notifications)
             .FirstOrDefaultAsync(c => c.Id == id, ct);
         if (chore is null)
             return Result.Fail<ChoreDto>(Error.NotFound("Chore not found."));
@@ -309,6 +310,7 @@ public class ChoreService
         .Include(c => c.Assignees)
         .Include(c => c.CurrentAssignee)
         .Include(c => c.Tags)
+        .Include(c => c.Notifications)
         .AsSplitQuery();
 
     /// <summary>Advances <c>chore.DueAt</c> to the next occurrence and returns whether a brand-new
@@ -425,6 +427,15 @@ public class ChoreService
                 req.Weekdays, req.DaysOfMonth, req.Months, req.FrequencyCount, req.FrequencyPeriod) is { } recurrenceError)
             return Result.Fail<List<User>>(recurrenceError);
 
+        if (req.Notifications is { } notifications)
+        {
+            if (notifications.Length > Validators.MaxNotificationsPerChore)
+                return Result.Fail<List<User>>(Error.Validation($"A chore can have at most {Validators.MaxNotificationsPerChore} notifications."));
+            foreach (var n in notifications)
+                if (Validators.NotificationOffset(n.Timing, n.OffsetValue) is { } notificationError)
+                    return Result.Fail<List<User>>(notificationError);
+        }
+
         var ids = (req.AssigneeIds ?? []).Distinct().ToList();
         if (ids.Count == 0)
             return Result.Fail<List<User>>(Error.Validation("A chore must have at least one assignee."));
@@ -484,5 +495,20 @@ public class ChoreService
 
         chore.Assignees.Clear();
         foreach (var a in assignees) chore.Assignees.Add(a);
+
+        // Rebuild the notification schedule from the request (orphans cascade-delete). AtDue entries
+        // carry no offset.
+        chore.Notifications.Clear();
+        foreach (var n in req.Notifications ?? [])
+        {
+            chore.Notifications.Add(new ChoreNotification
+            {
+                Type = n.Type,
+                Timing = n.Timing,
+                OffsetValue = n.Timing == NotificationTiming.AtDue ? 0 : Math.Max(0, n.OffsetValue),
+                OffsetUnit = n.OffsetUnit,
+                Recipients = n.Recipients
+            });
+        }
     }
 }

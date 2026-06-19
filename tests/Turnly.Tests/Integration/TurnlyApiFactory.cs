@@ -26,6 +26,9 @@ public class TurnlyApiFactory : WebApplicationFactory<Program>
         builder.UseEnvironment("Testing");
         builder.UseSetting("Jwt:Secret", "integration-test-secret-key-long-enough-1234567890");
         builder.UseSetting("Auth:RefreshCookie:Secure", "false");
+        // A public key so /vapid-key has something to return. The private key stays empty, so the
+        // background notification scheduler stays idle during tests.
+        builder.UseSetting("Vapid:PublicKey", "test-vapid-public-key");
 
         builder.ConfigureServices(services =>
         {

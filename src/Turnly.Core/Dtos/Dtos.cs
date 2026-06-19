@@ -69,6 +69,7 @@ public record ChoreDto(
     UserDto? CurrentAssignee,
     UserDto[] Assignees,
     string[] Tags,
+    ChoreNotificationDto[] Notifications,
     ChoreCompletionDto? LastCompletion,
     int? FrequencyProgress,
     DateTimeOffset CreatedAt)
@@ -82,10 +83,31 @@ public record ChoreDto(
             c.CurrentAssignee is null ? null : UserDto.FromEntity(c.CurrentAssignee),
             c.Assignees.Select(UserDto.FromEntity).OrderBy(u => u.DisplayName).ToArray(),
             c.Tags.Select(t => t.Name).OrderBy(n => n).ToArray(),
+            c.Notifications.OrderBy(n => n.CreatedAt).Select(ChoreNotificationDto.FromEntity).ToArray(),
             lastCompletion is null ? null : ChoreCompletionDto.FromEntity(lastCompletion),
             frequencyProgress,
             c.CreatedAt);
 }
+
+public record ChoreNotificationDto(
+    Guid Id,
+    NotificationType Type,
+    NotificationTiming Timing,
+    int OffsetValue,
+    NotificationOffsetUnit OffsetUnit,
+    NotificationRecipients Recipients)
+{
+    public static ChoreNotificationDto FromEntity(ChoreNotification n) =>
+        new(n.Id, n.Type, n.Timing, n.OffsetValue, n.OffsetUnit, n.Recipients);
+}
+
+/// <summary>A notification schedule entry as supplied on chore create/update (no id).</summary>
+public record ChoreNotificationInput(
+    NotificationType Type,
+    NotificationTiming Timing,
+    int OffsetValue,
+    NotificationOffsetUnit OffsetUnit,
+    NotificationRecipients Recipients);
 
 /// <summary>The shared shape of a chore create/update request, so the service can validate and
 /// apply both through one code path.</summary>
@@ -110,6 +132,7 @@ public interface IChoreInput
     Guid[] AssigneeIds { get; }
     Guid CurrentAssigneeId { get; }
     string[]? TagNames { get; }
+    ChoreNotificationInput[]? Notifications { get; }
 }
 
 public record CreateChoreRequest(
@@ -131,7 +154,8 @@ public record CreateChoreRequest(
     DateTimeOffset StartDate,
     Guid[] AssigneeIds,
     Guid CurrentAssigneeId,
-    string[]? TagNames) : IChoreInput;
+    string[]? TagNames,
+    ChoreNotificationInput[]? Notifications = null) : IChoreInput;
 
 public record UpdateChoreRequest(
     string Name,
@@ -152,7 +176,8 @@ public record UpdateChoreRequest(
     DateTimeOffset StartDate,
     Guid[] AssigneeIds,
     Guid CurrentAssigneeId,
-    string[]? TagNames) : IChoreInput;
+    string[]? TagNames,
+    ChoreNotificationInput[]? Notifications = null) : IChoreInput;
 
 public record CompleteChoreRequest(string? Notes);
 
@@ -219,6 +244,14 @@ public record RedemptionDto(
     public static RedemptionDto FromEntity(Redemption r) =>
         new(r.Id, r.AwardId, r.AwardName, r.AwardEmoji,
             UserDto.FromEntity(r.User!), r.PointsSpent, r.Status, r.RedeemedAt, r.FulfilledAt);
+}
+
+public record PushSubscribeRequest(string Endpoint, string P256dh, string Auth);
+
+public record PushDeviceDto(Guid Id, string Label, string Endpoint, DateTimeOffset CreatedAt)
+{
+    public static PushDeviceDto FromEntity(Turnly.Core.Entities.PushSubscription s) =>
+        new(s.Id, string.IsNullOrWhiteSpace(s.DeviceLabel) ? "Unknown device" : s.DeviceLabel!, s.Endpoint, s.CreatedAt);
 }
 
 public record CreateTagRequest(string Name);

@@ -73,6 +73,27 @@ export type Weekday =
   | 'Friday'
   | 'Saturday'
 
+export type NotificationType = 'Reminder' | 'Due' | 'FollowUp'
+
+export type NotificationTiming = 'Before' | 'AtDue' | 'After'
+
+export type NotificationOffsetUnit = 'Minutes' | 'Hours' | 'Days'
+
+export type NotificationRecipients = 'CurrentAssignee' | 'AllAssignees'
+
+/** A chore notification schedule entry. `id` is present on responses, absent on requests. */
+export interface ChoreNotificationInput {
+  type: NotificationType
+  timing: NotificationTiming
+  offsetValue: number
+  offsetUnit: NotificationOffsetUnit
+  recipients: NotificationRecipients
+}
+
+export interface ChoreNotification extends ChoreNotificationInput {
+  id: string
+}
+
 export interface ChoreCompletion {
   id: string
   choreId: string
@@ -111,6 +132,7 @@ export interface Chore extends RecurrenceFields {
   currentAssignee?: User | null
   assignees: User[]
   tags: string[]
+  notifications: ChoreNotification[]
   lastCompletion?: ChoreCompletion | null
   /** Completions in the current period (frequency chores only). */
   frequencyProgress?: number | null
@@ -129,6 +151,7 @@ export interface ChoreRequest extends RecurrenceFields {
   assigneeIds: string[]
   currentAssigneeId: string
   tagNames: string[]
+  notifications: ChoreNotificationInput[]
 }
 
 export type CreateChoreRequest = ChoreRequest
@@ -149,6 +172,19 @@ export interface ReassignChoreRequest {
 export interface Tag {
   id: string
   name: string
+}
+
+export interface PushSubscribeRequest {
+  endpoint: string
+  p256dh: string
+  auth: string
+}
+
+export interface PushDevice {
+  id: string
+  label: string
+  endpoint: string
+  createdAt: string
 }
 
 export type PointsLogType = 'Completion' | 'Redemption' | 'Adjustment'

@@ -1,8 +1,10 @@
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Turnly.Core.Auth;
 using Turnly.Core.Data;
+using Turnly.Core.Notifications;
 using Turnly.Core.Services;
 
 namespace Turnly.Tests.Unit;
@@ -25,6 +27,8 @@ public sealed class TestContext : IDisposable
     public ChoreService Chores { get; }
     public AwardService Awards { get; }
     public RedemptionService Redemptions { get; }
+    public FakePushSender Push { get; }
+    public NotificationService Notifications { get; }
 
     public TestContext()
     {
@@ -53,11 +57,29 @@ public sealed class TestContext : IDisposable
         Chores = new ChoreService(Db, Tags);
         Awards = new AwardService(Db);
         Redemptions = new RedemptionService(Db);
+        Push = new FakePushSender();
+        Notifications = new NotificationService(Db, Push, NullLogger<NotificationService>.Instance);
     }
 
     public void Dispose()
     {
         Db.Dispose();
         _connection.Dispose();
+    }
+}
+
+/// <summary>Records every push send and lets a test mark certain endpoints as dead (Gone).</summary>
+public sealed class FakePushSender : IPushSender
+{
+    public List<(string Endpoint, string Payload)> Sent { get; } = new();
+    public HashSet<string> GoneEndpoints { get; } = new();
+
+    public Task<PushSendResult> SendAsync(
+        Turnly.Core.Entities.PushSubscription subscription, string payloadJson, CancellationToken ct = default)
+    {
+        if (GoneEndpoints.Contains(subscription.Endpoint))
+            return Task.FromResult(PushSendResult.Gone);
+        Sent.Add((subscription.Endpoint, payloadJson));
+        return Task.FromResult(PushSendResult.Ok);
     }
 }

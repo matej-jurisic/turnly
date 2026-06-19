@@ -6,6 +6,7 @@ import { useAuthStore } from '@/store/auth'
 import type {
   AssignmentStrategy,
   Chore,
+  ChoreNotificationInput,
   ChoreRequest,
   RecurrenceFields,
   RepeatType,
@@ -19,6 +20,7 @@ import { Card } from '@/components/ui/Card'
 import { Input, Label, Select } from '@/components/ui/Field'
 import { Modal, Avatar } from '@/components/ui/Modal'
 import { RecurrenceEditor } from '@/components/RecurrenceEditor'
+import { NotificationsEditor } from '@/components/NotificationsEditor'
 import { CompleteModal } from '@/components/CompleteModal'
 import { ChoreDetailsModal } from '@/components/ChoreDetailsModal'
 import { cn } from '@/lib/utils'
@@ -745,6 +747,15 @@ function ChoreFormModal({ title, chore, onClose, onSaved }: ChoreFormModalProps)
   )
   const [currentAssigneeId, setCurrentAssigneeId] = useState(chore?.currentAssignee?.id ?? '')
   const [selectedTags, setSelectedTags] = useState<string[]>(chore?.tags ?? [])
+  const [notifications, setNotifications] = useState<ChoreNotificationInput[]>(
+    chore?.notifications.map((n) => ({
+      type: n.type,
+      timing: n.timing,
+      offsetValue: n.offsetValue,
+      offsetUnit: n.offsetUnit,
+      recipients: n.recipients,
+    })) ?? [],
+  )
   const [error, setError] = useState<string | null>(null)
 
   const toggleAssignee = (id: string) => {
@@ -770,6 +781,7 @@ function ChoreFormModal({ title, chore, onClose, onSaved }: ChoreFormModalProps)
         assigneeIds,
         currentAssigneeId,
         tagNames: selectedTags,
+        notifications,
       }
       return isEdit && chore ? choresApi.update(chore.id, body) : choresApi.create(body)
     },
@@ -942,6 +954,7 @@ function ChoreFormModal({ title, chore, onClose, onSaved }: ChoreFormModalProps)
             <p className="text-sm text-muted-foreground">No tags yet — add them in Settings.</p>
           )}
         </div>
+        <NotificationsEditor value={notifications} onChange={setNotifications} />
         {error && <p className="text-sm text-destructive">{error}</p>}
         <div className="flex justify-end gap-2">
           <Button type="button" variant="secondary" onClick={onClose}>Cancel</Button>

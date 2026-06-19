@@ -10,6 +10,8 @@ import type {
   CreateUserRequest,
   LeaderboardEntry,
   PointsLogEntry,
+  PushDevice,
+  PushSubscribeRequest,
   ReassignChoreRequest,
   Redemption,
   SetupRequest,
@@ -160,6 +162,17 @@ export const redemptionsApi = {
   list: () => request<Redemption[]>('/redemptions'),
   fulfill: (id: string) => request<Redemption>(`/redemptions/${id}/fulfill`, { method: 'POST', body: json({}) }),
   cancel: (id: string) => request<void>(`/redemptions/${id}/cancel`, { method: 'POST', body: json({}) }),
+}
+
+export const notificationsApi = {
+  vapidKey: () => request<{ publicKey: string }>('/notifications/vapid-key'),
+  subscribe: (body: PushSubscribeRequest) =>
+    request<void>('/notifications/subscribe', { method: 'POST', body: json(body) }),
+  unsubscribe: (endpoint: string) =>
+    request<void>('/notifications/unsubscribe', { method: 'POST', body: json({ endpoint }) }),
+  test: () => request<{ sent: number }>('/notifications/test', { method: 'POST', body: json({}) }),
+  devices: () => request<PushDevice[]>('/notifications/devices'),
+  removeDevice: (id: string) => request<void>(`/notifications/devices/${id}`, { method: 'DELETE' }),
 }
 
 export const historyApi = {

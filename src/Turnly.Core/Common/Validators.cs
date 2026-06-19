@@ -13,6 +13,8 @@ public static class Validators
     public const int MaxPoints = 100_000;
     public const int MaxInterval = 365;
     public const int MaxFrequency = 100;
+    public const int MaxNotificationsPerChore = 20;
+    public const int MaxNotificationOffset = 365;
 
     public static Error? Username(string? username)
     {
@@ -132,6 +134,19 @@ public static class Validators
                 break;
         }
 
+        return null;
+    }
+
+    /// <summary>Validates a single notification schedule entry's offset. <c>AtDue</c> carries no
+    /// offset; before/after entries need a positive, bounded offset.</summary>
+    public static Error? NotificationOffset(NotificationTiming timing, int offsetValue)
+    {
+        if (timing == NotificationTiming.AtDue)
+            return null;
+        if (offsetValue < 1)
+            return Error.Validation("A before/after notification needs an offset of at least 1.");
+        if (offsetValue > MaxNotificationOffset)
+            return Error.Validation($"A notification offset must be at most {MaxNotificationOffset}.");
         return null;
     }
 

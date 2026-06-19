@@ -5,7 +5,7 @@ and 9-phase roadmap, and `README.md` for user-facing setup.
 
 ## What this is
 
-Self-hosted family chore-management web app (PWA). **Phases 1–7 are complete.** Phase 1
+Self-hosted family chore-management web app (PWA). **Phases 1–8 are complete.** Phase 1
 (Foundation): auth, user CRUD + roles, password management, DB schema, Docker. Phase 2
 (Chores – Core): chore CRUD (name, description, emoji, tags, assignees, points), basic
 recurrence (one-time/daily/weekly/monthly/yearly + start date), mark complete + undo, and a
@@ -22,8 +22,15 @@ redemption snapshots the award's name/emoji/cost so it survives award edits/dele
 (Skip & Reassign): skip a recurring chore's current occurrence (advances the schedule without
 awarding points or rotating the assignee — logged as a points-less `ChoreCompletion` with `IsSkip`,
 undoable like a completion; one-time chores can't be skipped — **admin only**), and one-off
-reassignment of the current occurrence to another eligible assignee (open to any member). Phases 8–9
-(notifications, PWA) are not started.
+reassignment of the current occurrence to another eligible assignee (open to any member). Phase 8
+(Notifications): Web Push via self-hosted VAPID keys — a per-chore notification schedule
+(`ChoreNotification` entries: reminder/due/follow-up × before/at-due/after offset × current/all
+assignees), a minute-polling `BackgroundService` that fires due entries and prunes dead
+subscriptions, "stop on completion" achieved by keying a `NotificationDelivery` dedup row to the
+occurrence's `DueAt` (completing advances `DueAt`, so pending entries for the old occurrence are
+never reached), and a minimal push-only service worker (`web/public/sw.js`) that receives pushes.
+The completion-by-others opt-out from the original spec was dropped. Phase 9 (PWA: offline,
+app shell, manifest/install, caching) is not started.
 
 ## Stack & layout
 
@@ -47,7 +54,11 @@ copy the nearest existing example. Paths are under `src/` / `web/src/` / `tests/
 **Backend (`Turnly.Core`)**
 - `Entities/` — POCOs; convention is `Guid Id = Guid.NewGuid()` + `DateTimeOffset CreatedAt`,
   no base class. `User, RefreshToken, Chore, Tag, ChoreCompletion, ChoreAssignment, PointsLogEntry,
-  Award, Redemption`. `ChoreAssignment` logs every assignment (initial + each rotation) — backs
+  Award, Redemption, ChoreNotification, PushSubscription, NotificationDelivery`. `ChoreNotification`
+  is a chore's notification-schedule entry; `PushSubscription` is one Web Push device per user;
+  `NotificationDelivery` is a `(ChoreNotificationId, OccurrenceDueAt)`-unique dedup marker that makes
+  each entry fire once per occurrence (and is how notifications "stop on completion"). `ChoreAssignment`
+  logs every assignment (initial + each rotation) — backs
   `LeastAssigned` and lets undo reverse a rotation via its `ChoreCompletionId` link. A skipped
   occurrence is a `ChoreCompletion` with `IsSkip = true` (zero points, no `PointsLogEntry`) —
   excluded from completion stats/counts but undoable on the same path. `Redemption`
@@ -55,8 +66,9 @@ copy the nearest existing example. Paths are under `src/` / `web/src/` / `tests/
   `PointsLogEntry` carries both a `ChoreCompletionId` and a `RedemptionId` link so undo/cancel can
   reverse the matching deduction the same way.
 - `Enums/` — `UserRole, RepeatType, PointsLogType, RedemptionStatus` + Phase 3's `CustomRecurrenceMode,
-  RecurrenceUnit, FrequencyPeriod, AssignmentStrategy, SchedulingPreference`; **stored as strings**
-  (`HasConversion<string>`) and serialized as strings in JSON.
+  RecurrenceUnit, FrequencyPeriod, AssignmentStrategy, SchedulingPreference` + Phase 8's
+  `NotificationType, NotificationTiming, NotificationOffsetUnit, NotificationRecipients`; **stored as
+  strings** (`HasConversion<string>`) and serialized as strings in JSON.
 - `Data/TurnlyDbContext.cs` — DbSets + fluent config in `OnModelCreating`. Many-to-many via
   skip navs (`Chore.Assignees`, `Chore.Tags`). `Chore.Weekdays` (`List<DayOfWeek>`, custom
   DaysOfWeek mode) and `Chore.DaysOfMonth`/`Chore.Months` (`List<int>`) are stored via CSV
@@ -69,23 +81,34 @@ copy the nearest existing example. Paths are under `src/` / `web/src/` / `tests/
   `ChoreDto.FromEntity(chore, lastCompletion?)` embeds the latest completion for undo.
 - `Services/*Service.cs` — ctor-inject `TurnlyDbContext` (+ deps); methods return `Result`/
   `Result<T>`. `AuthService, UserService, SetupService, TagService, ChoreService, AwardService,
-  RedemptionService`. Registered in `ServiceCollectionExtensions.AddTurnlyCore`. `RedemptionService`
+  RedemptionService, NotificationService`. Registered in `ServiceCollectionExtensions.AddTurnlyCore`
+  (also `IPushSender → WebPushSender` singleton + `VapidOptions`). `RedemptionService`
   mirrors `ChoreService`'s points-award path: `RedeemAsync` writes a negative `PointsLogEntry` +
   decrements `User.Points`; `CancelAsync` reverses it like `UndoCompletionAsync`. `ChoreService.SkipAsync`
   mirrors `CompleteAsync` minus points/rotation (advances the schedule, writes an `IsSkip` completion);
   `ReassignAsync` sets `CurrentAssigneeId` + logs a `ChoreAssignment` (same as the edit path).
+  Chore notifications ride the existing chore create/update path: `ChoreService.Apply` rebuilds
+  `chore.Notifications` from the request (so `Query()` includes them). `NotificationService` owns
+  `SubscribeAsync`/`UnsubscribeAsync` (upsert/delete `PushSubscription` by endpoint) and
+  `ProcessDueAsync(now)` — the scan that fires due entries via `IPushSender`, records a
+  `NotificationDelivery`, and prunes `Gone` subscriptions.
 - `Recurrence/` — pure, unit-tested. `RecurrenceCalculator` works off a `RecurrenceRule` record
   (`FromChore`): `FirstOccurrence(rule, start)` + `NextDue(rule, pref, scheduledDue, completedAt,
   now)` (interval stepping, fixed-slot scanning, scheduling prefs) plus `PeriodStart/PeriodEnd`
   for frequency. `AssignmentPicker.Pick(...)` implements the six strategies (inject `Random`).
   **Frequency is NOT in `NextDue`** — it needs completion counts, so `ChoreService` handles its
   period rollover (and computes `FrequencyProgress` for the DTO) client-side.
+- `Notifications/` — `NotificationPlanner.FireTime(entry, dueAt)` is pure + unit-tested (before/at/
+  after offset math). `VapidOptions` (`IsConfigured`), `IPushSender`/`WebPushSender` (WebPush lib;
+  maps 404/410 → `Gone` so the service prunes the subscription).
 - ⚠️ **SQLite can't `ORDER BY` a `DateTimeOffset`** — order date fields client-side after
   `ToListAsync` (see `ChoreService.ListAsync`, `LatestCompletionsAsync`, `GetPointsLogAsync`).
 
 **Backend (`Turnly.Api`)**
 - `Program.cs` — `AddTurnlyCore`, `JsonStringEnumConverter`, JWT bearer (claims unmapped:
-  `sub`/`role`), `"Admin"` authorization policy, then `app.Map*Endpoints()` + SPA fallback.
+  `sub`/`role`), `"Admin"` authorization policy, then `app.Map*Endpoints()` + SPA fallback. Also
+  registers `NotificationSchedulerService` (a `BackgroundService` that polls `ProcessDueAsync` every
+  minute; idle until VAPID keys are configured).
 - `Endpoints/*Endpoints.cs` — `MapGroup(...).RequireAuthorization()`; thin handlers:
   parse → call service → `result.Succeeded ? Results.Ok/... : result.Error!.ToProblem()`.
   Per-endpoint `.RequireAuthorization("Admin")` for admin-only ops (e.g. chore create/edit/
@@ -95,6 +118,11 @@ copy the nearest existing example. Paths are under `src/` / `web/src/` / `tests/
   same split: listing awards + redeeming (`POST /api/awards/{id}/redeem`) and `GET /api/redemptions`
   (own for members, all for admins) are member-open; award create/edit/delete and redemption
   fulfill/cancel are admin-only.
+  `NotificationEndpoints` (`/api/notifications`): member-open `GET /vapid-key`, `POST /subscribe`
+  (captures the User-Agent → friendly `PushSubscription.DeviceLabel`), `POST /unsubscribe`,
+  `GET /devices` + `DELETE /devices/{id}` (a user's own push devices); admin-only `POST /test`
+  (dev: immediate push to the caller's devices). Chore notification entries are nested in the chore
+  create/update request, not a separate endpoint.
 - `Endpoints/ApiResults.cs` — `Error.ToProblem()` (status mapping) and
   `principal.GetUserId()` (reads the `sub` claim).
 
@@ -107,7 +135,14 @@ copy the nearest existing example. Paths are under `src/` / `web/src/` / `tests/
   admin management on one page" example; after redeem/cancel it invalidates `['me']`/`['leaderboard']`/
   `['points-log', id]` so balances refresh. `awardsApi`/`redemptionsApi` live in `lib/api.ts`.
 - `lib/api.ts` — `request<T>` (bearer + one-shot 401 refresh); per-resource objects
-  (`usersApi`, `choresApi`, `tagsApi`). `lib/types.ts` mirrors the backend DTOs.
+  (`usersApi`, `choresApi`, `tagsApi`, `notificationsApi`). `lib/types.ts` mirrors the backend DTOs.
+- **Notifications (Phase 8):** `lib/push.ts` wraps the browser Push API
+  (`enablePush`/`disablePush`/`isPushEnabled`, VAPID key decode); `web/public/sw.js` is a minimal
+  push-only service worker (registered in `main.tsx`). `components/NotificationsEditor.tsx` is the
+  per-chore schedule sub-form (modeled on `RecurrenceEditor`, embedded in the `ChoresPage` form);
+  `SettingsPage`'s Notifications card has enable/disable-on-this-device, a list of the user's
+  registered devices (label + "This device" marker + per-device remove), and an admin-only "Send
+  test notification" button.
 - `store/auth.ts` — Zustand; `useAuthStore(s => s.user)`, role via `user.role === 'Admin'`.
 - `components/ui/` — `Button, Badge, Card(+Header/Title/Content), Modal(+Avatar), Field
   (Input/Label/Select), ColorPicker`. Semantic Tailwind tokens only (see theming section).
@@ -126,7 +161,7 @@ copy the nearest existing example. Paths are under `src/` / `web/src/` / `tests/
 
 ```bash
 dotnet build                              # build solution
-dotnet test                               # all tests (currently 51, keep them green)
+dotnet test                               # all tests (currently 126, keep them green)
 dotnet run --project src/Turnly.Api       # backend (dev) on http://localhost:5199
 cd web && npm install && npm run dev      # frontend on :5173, proxies /api → :5199
 cd web && npm run build                   # typechecks (tsc -b) + production build

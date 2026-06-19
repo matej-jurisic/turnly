@@ -21,3 +21,12 @@ createRoot(document.getElementById('root')!).render(
     </QueryClientProvider>
   </StrictMode>,
 )
+
+// Register the push-only service worker (Phase 8). Full PWA wiring lands in Phase 9.
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js').catch(() => {
+      // Non-fatal: notifications just won't be available on this client.
+    })
+  })
+}

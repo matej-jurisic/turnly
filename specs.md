@@ -102,7 +102,6 @@ Per-chore notification schedule — a list of notification entries, each with:
   - **When:** `before` | `at due` | `after` — with an offset in minutes / hours / days
   - **Who:** `current assignee` | `all assignees`
 - All notifications for a chore instance stop firing once it is marked complete
-- Per-user toggle to opt out of notifications for chore completions by others
 
 ---
 
@@ -214,10 +213,12 @@ Award CRUD (admin), redemption flow, fulfillment tracking, points deduction.
 Skip an occurrence (advance recurrence without awarding points - with logs), one-off reassignment of the current assignee for a single occurrence.
 
 ### Phase 8 — Notifications
-Web Push / VAPID setup, per-chore notification schedule, stop-on-completion logic.
+Web Push / VAPID setup, per-chore notification schedule, stop-on-completion logic, and the
+push-receiving service worker (registration + `push` / `notificationclick`) needed to deliver them.
 
 ### Phase 9 — PWA
-Service worker, offline read + completion queue, installability, app shell / icons.
+Builds on Phase 8's service worker: offline read + completion queue, installability, app shell,
+manifest / icons, caching.
 
 ---
 

@@ -1,7 +1,8 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { authApi, tagsApi, ApiError } from '@/lib/api'
+import { authApi, notificationsApi, tagsApi, ApiError } from '@/lib/api'
+import { disablePush, enablePush, getCurrentEndpoint, isPushEnabled, pushPermission } from '@/lib/push'
 import { useAuthStore } from '@/store/auth'
 import { Button } from '@/components/ui/Button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
@@ -45,6 +46,8 @@ export function SettingsPage() {
         </CardContent>
       </Card>
 
+      <NotificationsCard />
+
       {isAdmin && <TagsCard />}
 
       <Card>
@@ -73,6 +76,157 @@ export function SettingsPage() {
         </CardContent>
       </Card>
     </div>
+  )
+}
+
+function NotificationsCard() {
+  const isAdmin = useAuthStore((s) => s.user?.role === 'Admin')
+  const queryClient = useQueryClient()
+  const [permission] = useState(pushPermission())
+  const [enabled, setEnabled] = useState<boolean | null>(null)
+  const [currentEndpoint, setCurrentEndpoint] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [testing, setTesting] = useState(false)
+  const [message, setMessage] = useState<{ kind: 'ok' | 'error'; text: string } | null>(null)
+
+  const supported = permission !== 'unsupported'
+  const { data: devices } = useQuery({
+    queryKey: ['push-devices'],
+    queryFn: notificationsApi.devices,
+    enabled: supported,
+  })
+
+  const refreshLocalState = async () => {
+    setEnabled(await isPushEnabled())
+    setCurrentEndpoint(await getCurrentEndpoint())
+  }
+
+  useEffect(() => {
+    refreshLocalState()
+  }, [])
+
+  const unsupported = permission === 'unsupported'
+  const blocked = permission === 'denied'
+
+  async function toggle(turnOn: boolean) {
+    setBusy(true)
+    setMessage(null)
+    try {
+      if (turnOn) {
+        await enablePush()
+        setMessage({ kind: 'ok', text: 'Notifications enabled on this device.' })
+      } else {
+        await disablePush()
+        setMessage({ kind: 'ok', text: 'Notifications disabled on this device.' })
+      }
+      await refreshLocalState()
+      queryClient.invalidateQueries({ queryKey: ['push-devices'] })
+    } catch (err) {
+      setMessage({ kind: 'error', text: err instanceof Error ? err.message : 'Something went wrong' })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function sendTest() {
+    setTesting(true)
+    setMessage(null)
+    try {
+      const { sent } = await notificationsApi.test()
+      setMessage(
+        sent > 0
+          ? { kind: 'ok', text: `Test notification sent to ${sent} device${sent === 1 ? '' : 's'}.` }
+          : { kind: 'error', text: 'No device accepted the push. Make sure notifications are enabled on this device.' },
+      )
+    } catch (err) {
+      setMessage({ kind: 'error', text: err instanceof ApiError ? err.message : 'Failed to send test' })
+    } finally {
+      setTesting(false)
+    }
+  }
+
+  const removeMutation = useMutation({
+    mutationFn: (id: string) => notificationsApi.removeDevice(id),
+    onSuccess: async () => {
+      await refreshLocalState()
+      queryClient.invalidateQueries({ queryKey: ['push-devices'] })
+    },
+    onError: (err) => setMessage({ kind: 'error', text: err instanceof ApiError ? err.message : 'Failed to remove device' }),
+  })
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Notifications</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <p className="text-sm text-muted-foreground">
+          Get push reminders for your chores on this device. Notifications stop once a chore is marked complete.
+        </p>
+        {unsupported ? (
+          <p className="text-sm text-muted-foreground">This browser doesn’t support push notifications.</p>
+        ) : blocked ? (
+          <p className="text-sm text-destructive">
+            Notifications are blocked. Enable them for this site in your browser settings, then reload.
+          </p>
+        ) : enabled === null ? (
+          <p className="text-sm text-muted-foreground">Checking…</p>
+        ) : enabled ? (
+          <Button type="button" variant="secondary" disabled={busy} onClick={() => toggle(false)}>
+            {busy ? 'Working…' : 'Disable on this device'}
+          </Button>
+        ) : (
+          <Button type="button" disabled={busy} onClick={() => toggle(true)}>
+            {busy ? 'Working…' : 'Enable on this device'}
+          </Button>
+        )}
+
+        {devices && devices.length > 0 && (
+          <div className="space-y-2 border-t border-border pt-3">
+            <p className="text-sm text-foreground">Your devices</p>
+            <ul className="space-y-1">
+              {devices.map((d) => {
+                const isThis = currentEndpoint != null && d.endpoint === currentEndpoint
+                return (
+                  <li key={d.id} className="flex items-center justify-between gap-2 rounded-md bg-accent px-3 py-2 text-sm">
+                    <span className="flex items-center gap-2 text-foreground">
+                      {d.label}
+                      {isThis && <span className="rounded bg-primary/10 px-1.5 py-0.5 text-xs text-primary">This device</span>}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => removeMutation.mutate(d.id)}
+                      disabled={removeMutation.isPending}
+                      aria-label={`Remove ${d.label}`}
+                      className="text-muted-foreground transition-colors hover:text-destructive disabled:opacity-50"
+                    >
+                      <XIcon />
+                    </button>
+                  </li>
+                )
+              })}
+            </ul>
+            <p className="text-xs text-muted-foreground">
+              Removing a device stops notifications there. To re-enable, open Turnly on that device and turn notifications on.
+            </p>
+          </div>
+        )}
+
+        {isAdmin && enabled && (
+          <div className="border-t border-border pt-3">
+            <Button type="button" variant="secondary" disabled={testing} onClick={sendTest}>
+              {testing ? 'Sending…' : 'Send test notification'}
+            </Button>
+            <p className="mt-1 text-xs text-muted-foreground">Dev: pushes an immediate notification to your devices.</p>
+          </div>
+        )}
+        {message && (
+          <p className={message.kind === 'ok' ? 'text-sm text-success' : 'text-sm text-destructive'}>
+            {message.text}
+          </p>
+        )}
+      </CardContent>
+    </Card>
   )
 }
 
