@@ -68,9 +68,15 @@ export function TimeField({ value, onChange, id }: TimeFieldProps) {
       type="text"
       inputMode="numeric"
       placeholder="HH:mm"
+      maxLength={5}
       value={draft}
       aria-label="Due time (24-hour)"
-      onChange={(e) => setDraft(e.target.value)}
+      onChange={(e) => {
+        // Mask digit-only input into "HH:mm" so the numeric mobile keyboard (no colon key)
+        // still produces a colon. Backspacing the colon just drops back to "HH".
+        const digits = e.target.value.replace(/\D/g, '').slice(0, 4)
+        setDraft(digits.length > 2 ? `${digits.slice(0, 2)}:${digits.slice(2)}` : digits)
+      }}
       onBlur={commit}
       onKeyDown={(e) => {
         if (e.key === 'Enter') {
