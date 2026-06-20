@@ -319,7 +319,7 @@ export function ChoresPage() {
       {error && <p className="text-destructive">{(error as ApiError).message}</p>}
 
       {!isLoading && (chores ?? []).length === 0 && (
-        <p className="text-muted-foreground">No chores yet{isAdmin ? ' , add one to get started.' : '.'}</p>
+        <p className="text-muted-foreground">No chores yet{isAdmin ? ', add one to get started.' : '.'}</p>
       )}
       {!isLoading && (chores ?? []).length > 0 && overdue.length + today.length + upcoming.length + later.length === 0 && (
         <p className="text-muted-foreground">No chores match the current filters.</p>
