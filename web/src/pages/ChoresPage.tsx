@@ -162,7 +162,7 @@ export function ChoresPage() {
   })
 
   return (
-    <div className="space-y-4 md:space-y-6">
+    <div className="space-y-4 pb-24 md:space-y-6">
       {/* Filters */}
       {(chores ?? []).length > 0 && (
         <ChoreFilters value={filters} onChange={setFilters} tags={allTags} assignees={allAssignees} currentUserId={currentUser?.id} />
