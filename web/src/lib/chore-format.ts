@@ -105,7 +105,7 @@ export function notificationRecipientsLabel(n: ChoreNotification): string {
 
 export function formatDate(iso?: string | null): string {
   if (!iso) return '—'
-  return new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
+  return new Date(iso).toLocaleDateString('en-GB')
 }
 
 /** Formats an "HH:mm" due time for display in 24-hour format (e.g. "09:00"); empty for no time. */

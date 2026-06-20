@@ -120,7 +120,7 @@ export function DashboardPage() {
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-semibold text-foreground">Dashboard</h1>
         <span className="text-sm text-muted-foreground">
-          {new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })}
+          {new Date().toLocaleDateString('en-GB')}
         </span>
       </div>
 

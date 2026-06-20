@@ -5,7 +5,7 @@ import type {
   RecurrenceUnit,
   Weekday,
 } from '@/lib/types'
-import { Input, Label, Select } from '@/components/ui/Field'
+import { IntegerInput, Label, Select } from '@/components/ui/Field'
 
 const MODE_OPTIONS: { value: CustomRecurrenceMode; label: string }[] = [
   { value: 'Interval', label: 'Every…' },
@@ -96,11 +96,9 @@ export function RecurrenceEditor({ value, onChange }: Props) {
         <div className="flex items-end gap-2">
           <span className="pb-2 text-sm text-muted-foreground">Every</span>
           <div className="w-20">
-            <Input
-              type="number"
-              min={1}
+            <IntegerInput
               value={value.intervalCount ?? 1}
-              onChange={(e) => set({ intervalCount: Number(e.target.value) || 1 })}
+              onCommit={(n) => set({ intervalCount: n })}
               aria-label="Interval count"
             />
           </div>
@@ -184,11 +182,9 @@ export function RecurrenceEditor({ value, onChange }: Props) {
       {mode === 'Frequency' && (
         <div className="flex items-end gap-2">
           <div className="w-20">
-            <Input
-              type="number"
-              min={1}
+            <IntegerInput
               value={value.frequencyCount ?? 1}
-              onChange={(e) => set({ frequencyCount: Number(e.target.value) || 1 })}
+              onCommit={(n) => set({ frequencyCount: n })}
               aria-label="Times per period"
             />
           </div>

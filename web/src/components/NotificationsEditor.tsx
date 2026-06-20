@@ -1,4 +1,3 @@
-import { useEffect, useState } from 'react'
 import type {
   ChoreNotificationInput,
   NotificationOffsetUnit,
@@ -6,38 +5,7 @@ import type {
   NotificationTiming,
   NotificationType,
 } from '@/lib/types'
-import { Input, Label, Select } from '@/components/ui/Field'
-
-/**
- * Number input that lets the field go empty while typing (so you can clear "1" and type "5")
- * and only commits a valid integer ≥ 1, falling back to 1 on blur if left empty/invalid.
- */
-function OffsetInput({ value, onCommit }: { value: number; onCommit: (n: number) => void }) {
-  const [draft, setDraft] = useState(String(value))
-
-  // Keep the field in sync when the value changes from outside (e.g. switching entries).
-  useEffect(() => setDraft(String(value)), [value])
-
-  return (
-    <Input
-      type="number"
-      min={1}
-      value={draft}
-      aria-label="Offset value"
-      onChange={(e) => {
-        setDraft(e.target.value)
-        const n = Number(e.target.value)
-        if (e.target.value !== '' && Number.isFinite(n) && n >= 1) onCommit(Math.floor(n))
-      }}
-      onBlur={() => {
-        const n = Number(draft)
-        const next = draft !== '' && Number.isFinite(n) && n >= 1 ? Math.floor(n) : 1
-        setDraft(String(next))
-        onCommit(next)
-      }}
-    />
-  )
-}
+import { IntegerInput, Label, Select } from '@/components/ui/Field'
 
 const TYPE_OPTIONS: { value: NotificationType; label: string }[] = [
   { value: 'Reminder', label: 'Reminder' },
@@ -126,9 +94,10 @@ export function NotificationsEditor({ value, onChange }: Props) {
               <div className="flex items-center gap-2">
                 {entry.timing !== 'AtDue' && (
                   <div className="w-14">
-                    <OffsetInput
+                    <IntegerInput
                       value={entry.offsetValue}
                       onCommit={(n) => update(i, { offsetValue: n })}
+                      aria-label="Offset value"
                     />
                   </div>
                 )}

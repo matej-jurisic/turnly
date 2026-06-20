@@ -61,7 +61,7 @@ export function UserDetailsModal({
                   <div className="flex shrink-0 items-center gap-2 text-xs">
                     <time
                       dateTime={entry.at}
-                      title={new Date(entry.at).toLocaleString()}
+                      title={new Date(entry.at).toLocaleString('en-GB')}
                       className="text-muted-foreground"
                     >
                       {formatRelative(entry.at)}
@@ -94,5 +94,5 @@ function formatRelative(iso: string): string {
   if (hours < 24) return `${hours}h ago`
   const days = Math.floor(hours / 24)
   if (days < 7) return `${days}d ago`
-  return new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
+  return new Date(iso).toLocaleDateString('en-GB')
 }
