@@ -89,28 +89,30 @@ export function ChoreListItem({
             {chore.description && (
               <p className="text-sm text-muted-foreground">{chore.description}</p>
             )}
-            <div className="flex flex-wrap items-center gap-2">
-              <Badge tone="violet">{chore.points} pts</Badge>
-              {chore.tags.map((tag) => (
-                <Badge key={tag} tone="neutral">{tag}</Badge>
-              ))}
-            </div>
-            {chore.currentAssignee && (
-              <div className="flex flex-wrap items-center gap-2">
-                <Avatar color={chore.currentAssignee.avatarColor} name={chore.currentAssignee.displayName} size={24} />
-                <span className="text-sm text-muted-foreground">{chore.currentAssignee.displayName}</span>
-                {chore.nextAssignee && (
-                  <span
-                    className="flex items-center gap-1 text-muted-foreground"
-                    title={`Next: ${chore.nextAssignee.displayName}`}
-                  >
-                    <span aria-hidden="true">→</span>
-                    <Avatar color={chore.nextAssignee.avatarColor} name={chore.nextAssignee.displayName} size={20} />
-                    <span className="sr-only">Next: {chore.nextAssignee.displayName}</span>
-                  </span>
-                )}
+            <div className="mt-2.5 flex items-center justify-between gap-3">
+              <div className="flex min-w-0 flex-wrap items-center gap-2">
+                <Badge tone="violet">{chore.points} pts</Badge>
+                {chore.tags.map((tag) => (
+                  <Badge key={tag} tone="neutral">{tag}</Badge>
+                ))}
               </div>
-            )}
+              {chore.currentAssignee && (
+                <div className="flex shrink-0 items-center gap-2">
+                  <Avatar color={chore.currentAssignee.avatarColor} name={chore.currentAssignee.displayName} size={24} />
+                  <span className="text-sm text-muted-foreground">{chore.currentAssignee.displayName}</span>
+                  {chore.nextAssignee && (
+                    <span
+                      className="flex items-center gap-1 text-muted-foreground"
+                      title={`Next: ${chore.nextAssignee.displayName}`}
+                    >
+                      <span aria-hidden="true">→</span>
+                      <Avatar color={chore.nextAssignee.avatarColor} name={chore.nextAssignee.displayName} size={20} />
+                      <span className="sr-only">Next: {chore.nextAssignee.displayName}</span>
+                    </span>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
         </Card>
       </SwipeRow>
