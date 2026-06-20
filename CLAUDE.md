@@ -33,8 +33,21 @@ the app's own `icon-192.png`) and deep-links the chore on click. **Post-Phase-8 
 in-app notification **inbox** — every fired entry (and each test send) also writes a per-recipient
 `UserNotification` row (independent of whether a push device was reachable), surfaced by a bell
 dropdown in the top bar; both push-click and inbox-click open the chore via `/chores?chore=<id>`.
-The completion-by-others opt-out from the original spec was dropped. Phase 9 (PWA: offline,
-app shell, manifest/install, caching) is not started.
+The completion-by-others opt-out from the original spec was dropped. Basic PWA install
+(`manifest.webmanifest` + icons + the push service worker) shipped as part of Phase 8; full
+offline (offline read, completion queue, app shell, asset caching) — originally the Phase 9 PWA
+work — was dropped to **Out of Scope (v1)**. Phase 9 (**UX Polish**) is **complete**: touch swipe
+actions on chore cards (swipe right → complete, left → details, via `components/chores/SwipeRow.tsx`;
+mouse unaffected), completion **confetti** (`canvas-confetti` wrapped in `web/src/lib/confetti.ts`,
+reduced-motion aware, fired from `CompleteModal`), admin **complete-on-behalf** of any user
+(`CompleteChoreRequest.CompletedByUserId`; service requires admin when crediting someone else;
+`CompleteModal` shows a "Completed by" picker for admins), admin **deletion of activity entries**
+(completions/skips) from a chore's details — points-only reversal, **no reschedule**
+(`ChoreService.DeleteActivityAsync`, admin-only `DELETE /api/completions/{id}/activity`, distinct
+from the member undo at `DELETE /api/completions/{id}`; surfaced as an Activity list in
+`ChoreDetailsModal`), and a **chores-page refactor** (the 1k-line `ChoresPage.tsx` split into
+`web/src/components/chores/*` + shared helpers in `web/src/lib/chore-format.ts`). The originally
+planned **mobile bottom tab bar was dropped**.
 
 ## Stack & layout
 
@@ -150,7 +163,7 @@ copy the nearest existing example. Paths are under `src/` / `web/src/` / `tests/
   worker (push + `notificationclick` opens `/chores?chore=<id>`, shows the app's `icon-192.png` +
   a no-op `fetch` for installability), registered in `main.tsx`.
   `web/public/manifest.webmanifest` + `icon-192/512.png` make the app installable (basic PWA install
-  only — offline/app-shell/caching is still Phase 9); linked from `index.html`.
+  only — full offline/app-shell/caching is out of scope for v1); linked from `index.html`.
   `components/NotificationsBell.tsx` is the top-bar inbox dropdown (in `Layout`, polls `['inbox']`,
   unread badge, marks read on close, click opens the chore via `Layout`'s details modal);
   `ChoresPage` reads `?chore=<id>` to open the same modal from a push deep-link.

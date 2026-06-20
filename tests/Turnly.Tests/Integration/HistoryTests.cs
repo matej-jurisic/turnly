@@ -36,7 +36,7 @@ public class HistoryTests : IDisposable
         await admin.PostJsonAsync($"/api/chores/{chore.Id}/complete", new CompleteChoreRequest(null));
         await admin.PostJsonAsync($"/api/chores/{chore.Id}/complete", new CompleteChoreRequest("second"));
 
-        var history = await (await admin.GetAsync("/api/history")).ReadAsync<List<ChoreCompletionDto>>();
+        var history = await (await admin.GetAsync("/api/history")).ReadAsync<List<ChoreHistoryEntryDto>>();
 
         Assert.Equal(2, history.Count);
         Assert.All(history, c => Assert.Equal(chore.Id, c.ChoreId));
@@ -61,12 +61,12 @@ public class HistoryTests : IDisposable
         await member.PostJsonAsync($"/api/chores/{chore.Id}/complete", new CompleteChoreRequest(null));
 
         var adminHistory = await (await admin.GetAsync($"/api/history?userId={adminAuth.User.Id}"))
-            .ReadAsync<List<ChoreCompletionDto>>();
+            .ReadAsync<List<ChoreHistoryEntryDto>>();
         var memberHistory = await (await admin.GetAsync($"/api/history?userId={memberAuth.User.Id}"))
-            .ReadAsync<List<ChoreCompletionDto>>();
+            .ReadAsync<List<ChoreHistoryEntryDto>>();
 
-        Assert.All(adminHistory, c => Assert.Equal(adminAuth.User.Id, c.CompletedBy.Id));
-        Assert.All(memberHistory, c => Assert.Equal(memberAuth.User.Id, c.CompletedBy.Id));
+        Assert.All(adminHistory, c => Assert.Equal(adminAuth.User.Id, c.Actor!.Id));
+        Assert.All(memberHistory, c => Assert.Equal(memberAuth.User.Id, c.Actor!.Id));
     }
 
     [Fact]
@@ -83,7 +83,7 @@ public class HistoryTests : IDisposable
         await admin.PostJsonAsync($"/api/chores/{chore2.Id}/complete", new CompleteChoreRequest(null));
 
         var filtered = await (await admin.GetAsync($"/api/history?choreId={chore1.Id}"))
-            .ReadAsync<List<ChoreCompletionDto>>();
+            .ReadAsync<List<ChoreHistoryEntryDto>>();
 
         Assert.Single(filtered);
         Assert.Equal(chore1.Id, filtered[0].ChoreId);
@@ -103,7 +103,7 @@ public class HistoryTests : IDisposable
         await admin.PostJsonAsync($"/api/chores/{untagged.Id}/complete", new CompleteChoreRequest(null));
 
         var filtered = await (await admin.GetAsync("/api/history?tag=kitchen"))
-            .ReadAsync<List<ChoreCompletionDto>>();
+            .ReadAsync<List<ChoreHistoryEntryDto>>();
 
         Assert.Single(filtered);
         Assert.Equal(tagged.Id, filtered[0].ChoreId);
@@ -119,9 +119,9 @@ public class HistoryTests : IDisposable
         await admin.PostJsonAsync($"/api/chores/{chore.Id}/complete", new CompleteChoreRequest("first"));
         await admin.PostJsonAsync($"/api/chores/{chore.Id}/complete", new CompleteChoreRequest("second"));
 
-        var history = await (await admin.GetAsync("/api/history")).ReadAsync<List<ChoreCompletionDto>>();
+        var history = await (await admin.GetAsync("/api/history")).ReadAsync<List<ChoreHistoryEntryDto>>();
 
-        Assert.True(history[0].CompletedAt >= history[1].CompletedAt);
+        Assert.True(history[0].At >= history[1].At);
     }
 
     [Fact]
@@ -141,6 +141,37 @@ public class HistoryTests : IDisposable
         Assert.Equal(1, adminStats.WeeklyCount);
         Assert.Equal(1, adminStats.MonthlyCount);
         Assert.Equal(1, adminStats.AllTimeCount);
+    }
+
+    [Fact]
+    public async Task GetHistory_includes_reassignments_only_when_requested()
+    {
+        var (admin, adminAuth) = await AdminClientAsync();
+        await admin.PostJsonAsync("/api/users",
+            new CreateUserRequest("kid", "Kid", "kidpass1", UserRole.Member, null));
+        var member = _factory.CreateClient();
+        var memberAuth = await member.LoginAsync("kid", "kidpass1");
+
+        var chore = await (await admin.PostJsonAsync("/api/chores",
+            new CreateChoreRequest("Dishes", null, "🍽️", 10, RepeatType.Daily, null, null, null, null, null, null, null, null,
+                AssignmentStrategy.KeepLastAssigned, SchedulingPreference.FromScheduledDate,
+                Start, [adminAuth.User.Id, memberAuth.User.Id], adminAuth.User.Id, null)))
+            .ReadAsync<ChoreDto>();
+
+        await admin.PostJsonAsync($"/api/chores/{chore.Id}/reassign",
+            new ReassignChoreRequest(memberAuth.User.Id));
+
+        var withoutReassignments = await (await admin.GetAsync("/api/history"))
+            .ReadAsync<List<ChoreHistoryEntryDto>>();
+        Assert.Empty(withoutReassignments);
+
+        var withReassignments = await (await admin.GetAsync("/api/history?includeReassignments=true"))
+            .ReadAsync<List<ChoreHistoryEntryDto>>();
+        var entry = Assert.Single(withReassignments);
+        Assert.Equal("reassignment", entry.Kind);
+        Assert.Equal(adminAuth.User.Id, entry.Actor!.Id);
+        Assert.Equal(adminAuth.User.Id, entry.FromAssignee!.Id);
+        Assert.Equal(memberAuth.User.Id, entry.ToAssignee!.Id);
     }
 
     [Fact]

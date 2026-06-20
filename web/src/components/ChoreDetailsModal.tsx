@@ -1,62 +1,15 @@
-import type { Chore, Weekday } from '@/lib/types'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import type { Chore, ChoreHistoryEntry } from '@/lib/types'
+import { choresApi, historyApi, ApiError } from '@/lib/api'
+import { confirm } from '@/lib/confirm'
+import { toast } from '@/lib/toast'
+import { useAuthStore } from '@/store/auth'
 import { Modal, Avatar } from '@/components/ui/Modal'
 import { Badge } from '@/components/ui/Badge'
-
-const WEEKDAY_SHORT: Record<Weekday, string> = {
-  Sunday: 'Sun', Monday: 'Mon', Tuesday: 'Tue', Wednesday: 'Wed',
-  Thursday: 'Thu', Friday: 'Fri', Saturday: 'Sat',
-}
-const WEEKDAY_ORDER: Weekday[] = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
-const MONTH_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
-
-function repeatLabel(chore: Chore): string {
-  const SIMPLE: Record<string, string> = {
-    OneTime: 'One-time', Daily: 'Daily', Weekly: 'Weekly',
-    Monthly: 'Monthly', Yearly: 'Yearly',
-  }
-  if (chore.repeatType !== 'Custom') return SIMPLE[chore.repeatType] ?? chore.repeatType
-  switch (chore.customMode) {
-    case 'Interval': {
-      const unit = (chore.intervalUnit ?? 'Week').toLowerCase()
-      const n = chore.intervalCount ?? 1
-      return n === 1 ? `Every ${unit}` : `Every ${n} ${unit}s`
-    }
-    case 'DaysOfWeek':
-      return [...chore.weekdays]
-        .sort((a, b) => WEEKDAY_ORDER.indexOf(a) - WEEKDAY_ORDER.indexOf(b))
-        .map((d) => WEEKDAY_SHORT[d])
-        .join(', ') || 'Days of week'
-    case 'DaysOfMonth': {
-      const days = [...chore.daysOfMonth].sort((a, b) => a - b).join(', ')
-      const months = [...chore.months].sort((a, b) => a - b).map((m) => MONTH_SHORT[m - 1]).join(', ')
-      return `Days ${days}${months ? ` · ${months}` : ''}`
-    }
-    case 'Frequency':
-      return `${chore.frequencyCount ?? 1}×/${(chore.frequencyPeriod ?? 'Week').toLowerCase()}`
-    default:
-      return 'Custom'
-  }
-}
-
-function formatDate(iso?: string | null): string {
-  if (!iso) return '—'
-  return new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
-}
-
-const STRATEGY_LABELS: Record<string, string> = {
-  KeepLastAssigned: 'Keep last assigned',
-  RoundRobin: 'Round robin',
-  Random: 'Random',
-  RandomExceptLastAssigned: 'Random (except last)',
-  LeastAssigned: 'Least assigned',
-  LeastCompleted: 'Least completed',
-}
-
-const SCHEDULING_LABELS: Record<string, string> = {
-  FromScheduledDate: 'From scheduled date',
-  FromCompletionDate: 'From completion date',
-  ToFirstNextRepeat: 'To first next repeat',
-}
+import { TrashIcon } from '@/components/chores/icons'
+import {
+  formatDate, repeatLabel, STRATEGY_LABELS, SCHEDULING_LABELS,
+} from '@/lib/chore-format'
 
 interface ChoreDetailsModalProps {
   chore: Chore
@@ -154,27 +107,7 @@ export function ChoreDetailsModal({ chore, onClose, onComplete }: ChoreDetailsMo
           </div>
         </dl>
 
-        {/* Last completion */}
-        {chore.lastCompletion && (
-          <div className="rounded-lg border border-border bg-accent/50 px-3 py-2.5 text-sm">
-            <p className="mb-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">Last completion</p>
-            <div className="flex items-center justify-between gap-2">
-              <div className="flex items-center gap-1.5">
-                <Avatar
-                  color={chore.lastCompletion.completedBy.avatarColor}
-                  name={chore.lastCompletion.completedBy.displayName}
-                  size={20}
-                />
-                <span className="text-foreground">{chore.lastCompletion.completedBy.displayName}</span>
-                <span className="text-muted-foreground">· {formatDate(chore.lastCompletion.completedAt)}</span>
-              </div>
-              <Badge tone="violet">+{chore.lastCompletion.pointsAwarded} pts</Badge>
-            </div>
-            {chore.lastCompletion.notes && (
-              <p className="mt-1 text-muted-foreground italic">{chore.lastCompletion.notes}</p>
-            )}
-          </div>
-        )}
+        <ActivityList choreId={chore.id} />
       </div>
 
       {onComplete && (
@@ -193,5 +126,90 @@ export function ChoreDetailsModal({ chore, onClose, onComplete }: ChoreDetailsMo
         </div>
       )}
     </Modal>
+  )
+}
+
+/** Per-chore activity log (completions + skips). Admins can delete entries to fix up history;
+ * deletion reverses the entry's points but doesn't reschedule the chore. */
+function ActivityList({ choreId }: { choreId: string }) {
+  const isAdmin = useAuthStore((s) => s.user?.role === 'Admin')
+  const queryClient = useQueryClient()
+
+  const { data: activity, isLoading } = useQuery({
+    queryKey: ['history', { choreId }],
+    queryFn: () => historyApi.list({ choreId }),
+  })
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => choresApi.deleteActivity(id),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['history'] })
+      void queryClient.invalidateQueries({ queryKey: ['chores'] })
+      void queryClient.invalidateQueries({ queryKey: ['me'] })
+      void queryClient.invalidateQueries({ queryKey: ['leaderboard'] })
+    },
+    onError: (err) => toast.error(err instanceof ApiError ? err.message : 'Delete failed'),
+  })
+
+  const onDelete = async (entry: ChoreHistoryEntry) => {
+    if (
+      await confirm({
+        title: entry.kind === 'skip' ? 'Delete skip' : 'Delete completion',
+        message: entry.kind === 'skip'
+          ? 'Delete this skip from the log? The chore schedule is not changed.'
+          : `Delete this completion? ${entry.pointsAwarded} points will be reversed and the chore schedule is not changed.`,
+        confirmLabel: 'Delete',
+      })
+    ) {
+      deleteMutation.mutate(entry.id)
+    }
+  }
+
+  return (
+    <div>
+      <p className="mb-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">Activity</p>
+      {isLoading && <p className="text-sm text-muted-foreground">Loading…</p>}
+      {!isLoading && (activity?.length ?? 0) === 0 && (
+        <p className="text-sm text-muted-foreground">No activity yet.</p>
+      )}
+      <div className="space-y-2">
+        {(activity ?? []).map((entry) => (
+          <div key={entry.id} className="rounded-lg border border-border bg-accent/50 px-3 py-2.5 text-sm">
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex min-w-0 items-center gap-1.5">
+                <Avatar
+                  color={entry.actor?.avatarColor ?? 'var(--muted)'}
+                  name={entry.actor?.displayName ?? '?'}
+                  size={20}
+                />
+                <span className="truncate text-foreground">{entry.actor?.displayName}</span>
+                <span className="shrink-0 text-muted-foreground">· {formatDate(entry.at)}</span>
+              </div>
+              <div className="flex shrink-0 items-center gap-2">
+                {entry.kind === 'skip' ? (
+                  <Badge tone="neutral">Skipped</Badge>
+                ) : (
+                  <Badge tone="violet">+{entry.pointsAwarded} pts</Badge>
+                )}
+                {isAdmin && (
+                  <button
+                    type="button"
+                    onClick={() => onDelete(entry)}
+                    disabled={deleteMutation.isPending}
+                    aria-label="Delete entry"
+                    className="inline-flex h-7 w-7 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
+                  >
+                    <TrashIcon />
+                  </button>
+                )}
+              </div>
+            </div>
+            {entry.notes && (
+              <p className="mt-1 text-muted-foreground italic">{entry.notes}</p>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
   )
 }

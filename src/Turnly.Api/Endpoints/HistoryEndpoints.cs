@@ -9,9 +9,10 @@ public static class HistoryEndpoints
         var group = app.MapGroup("/api").RequireAuthorization();
 
         group.MapGet("/history", async (
-            string? tag, Guid? userId, Guid? choreId,
+            string? tag, Guid? userId, Guid? choreId, bool? includeReassignments,
             ChoreService chores, CancellationToken ct) =>
-            Results.Ok(await chores.GetHistoryAsync(tag, userId, choreId, ct)));
+            Results.Ok(await chores.GetHistoryAsync(
+                tag, userId, choreId, includeReassignments ?? false, ct)));
 
         group.MapGet("/stats", async (UserService users, CancellationToken ct) =>
             Results.Ok(await users.GetStatsAsync(ct)));

@@ -121,6 +121,17 @@ public class TurnlyDbContext : DbContext
                 .WithMany()
                 .HasForeignKey(x => x.UserId)
                 .OnDelete(DeleteBehavior.Restrict);
+
+            // Audit fields for manual reassignments — keep the row if the referenced user is deleted.
+            e.HasOne(x => x.PreviousAssignee)
+                .WithMany()
+                .HasForeignKey(x => x.PreviousAssigneeId)
+                .OnDelete(DeleteBehavior.SetNull);
+
+            e.HasOne(x => x.AssignedBy)
+                .WithMany()
+                .HasForeignKey(x => x.AssignedByUserId)
+                .OnDelete(DeleteBehavior.SetNull);
         });
 
         b.Entity<PointsLogEntry>(e =>

@@ -115,11 +115,25 @@ public class ChoreService
         return Result.Success();
     }
 
-    public async Task<Result<ChoreDto>> CompleteAsync(Guid id, Guid userId, CompleteChoreRequest req, CancellationToken ct = default)
+    /// <summary>Marks a chore complete. <paramref name="actingUserId"/> is the caller; the completion
+    /// is normally credited to them, but an admin may credit it to another user via
+    /// <see cref="CompleteChoreRequest.CompletedByUserId"/> (completing on someone's behalf).</summary>
+    public async Task<Result<ChoreDto>> CompleteAsync(Guid id, Guid actingUserId, CompleteChoreRequest req, CancellationToken ct = default)
     {
         var chore = await Query().FirstOrDefaultAsync(c => c.Id == id, ct);
         if (chore is null)
             return Result.Fail<ChoreDto>(Error.NotFound("Chore not found."));
+
+        // Resolve who gets credited. Completing on behalf of someone else is admin-only.
+        var userId = req.CompletedByUserId ?? actingUserId;
+        if (userId != actingUserId)
+        {
+            var actor = await _db.Users.FindAsync([actingUserId], ct);
+            if (actor is null)
+                return Result.Fail<ChoreDto>(Error.NotFound("User not found."));
+            if (actor.Role != UserRole.Admin)
+                return Result.Fail<ChoreDto>(Error.Forbidden("Only admins can complete a chore on behalf of another user."));
+        }
 
         var user = await _db.Users.FindAsync([userId], ct);
         if (user is null)
@@ -227,8 +241,15 @@ public class ChoreService
 
         if (chore.CurrentAssigneeId != req.AssigneeId)
         {
+            var previousAssigneeId = chore.CurrentAssigneeId;
             chore.CurrentAssigneeId = req.AssigneeId;
-            _db.ChoreAssignments.Add(new ChoreAssignment { ChoreId = chore.Id, UserId = req.AssigneeId });
+            _db.ChoreAssignments.Add(new ChoreAssignment
+            {
+                ChoreId = chore.Id,
+                UserId = req.AssigneeId,
+                PreviousAssigneeId = previousAssigneeId,
+                AssignedByUserId = userId,
+            });
             await _db.SaveChangesAsync(ct);
         }
 
@@ -275,35 +296,96 @@ public class ChoreService
         return Result.Success();
     }
 
-    public async Task<List<ChoreCompletionDto>> GetHistoryAsync(
-        string? tag, Guid? completedByUserId, Guid? choreId, CancellationToken ct = default)
+    /// <summary>Admin-only deletion of a historical activity entry (completion or skip) — e.g. to
+    /// fix up the log. Unlike <see cref="UndoCompletionAsync"/>, this is pure history cleanup: it
+    /// reverses the entry's points but does <b>not</b> rewind the chore's current schedule or
+    /// assignee, since the entry being removed is generally not the current occurrence.</summary>
+    public async Task<Result> DeleteActivityAsync(Guid completionId, Guid actingUserId, CancellationToken ct = default)
     {
-        var query = _db.ChoreCompletions
+        var actor = await _db.Users.FindAsync([actingUserId], ct);
+        if (actor is null)
+            return Result.Fail(Error.NotFound("User not found."));
+        if (actor.Role != UserRole.Admin)
+            return Result.Fail(Error.Forbidden("Only admins can delete activity entries."));
+
+        var completion = await _db.ChoreCompletions.FirstOrDefaultAsync(c => c.Id == completionId, ct);
+        if (completion is null)
+            return Result.Fail(Error.NotFound("Activity entry not found."));
+
+        // Reverse points (a no-op for skips, which award none) and drop the rotation log, but leave
+        // chore.DueAt / CurrentAssigneeId untouched.
+        var logEntry = await _db.PointsLog.FirstOrDefaultAsync(e => e.ChoreCompletionId == completionId, ct);
+        if (logEntry is not null)
+        {
+            var completer = await _db.Users.FindAsync([completion.CompletedByUserId], ct);
+            if (completer is not null)
+                completer.Points -= logEntry.Delta;
+            _db.PointsLog.Remove(logEntry);
+        }
+
+        var rotationLog = await _db.ChoreAssignments.Where(a => a.ChoreCompletionId == completionId).ToListAsync(ct);
+        _db.ChoreAssignments.RemoveRange(rotationLog);
+
+        _db.ChoreCompletions.Remove(completion);
+        await _db.SaveChangesAsync(ct);
+        return Result.Success();
+    }
+
+    public async Task<List<ChoreHistoryEntryDto>> GetHistoryAsync(
+        string? tag, Guid? userId, Guid? choreId, bool includeReassignments = false,
+        CancellationToken ct = default)
+    {
+        var completionQuery = _db.ChoreCompletions
             .Include(c => c.Chore)
             .Include(c => c.CompletedBy)
             .AsQueryable();
 
         if (choreId.HasValue)
-            query = query.Where(c => c.ChoreId == choreId);
+            completionQuery = completionQuery.Where(c => c.ChoreId == choreId);
+        if (userId.HasValue)
+            completionQuery = completionQuery.Where(c => c.CompletedByUserId == userId);
 
-        if (completedByUserId.HasValue)
-            query = query.Where(c => c.CompletedByUserId == completedByUserId);
-
+        List<Guid>? tagChoreIds = null;
         if (tag is not null)
         {
-            var choreIds = await _db.Chores
+            tagChoreIds = await _db.Chores
                 .Where(c => c.Tags.Any(t => t.Name == tag))
                 .Select(c => c.Id)
                 .ToListAsync(ct);
-            query = query.Where(c => choreIds.Contains(c.ChoreId));
+            completionQuery = completionQuery.Where(c => tagChoreIds.Contains(c.ChoreId));
+        }
+
+        var entries = (await completionQuery.ToListAsync(ct))
+            .Select(ChoreHistoryEntryDto.FromCompletion);
+
+        // Reassignments are opt-in (the History page); the per-chore/per-user views want completions
+        // only. Manual reassignments only (AssignedByUserId is set) — rotations/initial assignments
+        // have no acting user and aren't user-facing history.
+        if (includeReassignments)
+        {
+            var reassignQuery = _db.ChoreAssignments
+                .Where(a => a.AssignedByUserId != null)
+                .Include(a => a.Chore)
+                .Include(a => a.AssignedBy)
+                .Include(a => a.User)
+                .Include(a => a.PreviousAssignee)
+                .AsQueryable();
+
+            if (choreId.HasValue)
+                reassignQuery = reassignQuery.Where(a => a.ChoreId == choreId);
+            if (userId.HasValue)
+                // Relevant to a user if they performed it, or are the old/new assignee.
+                reassignQuery = reassignQuery.Where(a =>
+                    a.AssignedByUserId == userId || a.PreviousAssigneeId == userId || a.UserId == userId);
+            if (tagChoreIds is not null)
+                reassignQuery = reassignQuery.Where(a => tagChoreIds.Contains(a.ChoreId));
+
+            entries = entries.Concat((await reassignQuery.ToListAsync(ct))
+                .Select(ChoreHistoryEntryDto.FromReassignment));
         }
 
         // Order client-side: SQLite can't ORDER BY DateTimeOffset.
-        var completions = (await query.ToListAsync(ct))
-            .OrderByDescending(c => c.CompletedAt)
-            .ToList();
-
-        return completions.Select(ChoreCompletionDto.FromEntity).ToList();
+        return entries.OrderByDescending(e => e.At).ToList();
     }
 
     private IQueryable<Chore> Query() => _db.Chores

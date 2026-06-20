@@ -3,7 +3,7 @@ import type {
   AuthResponse,
   Award,
   Chore,
-  ChoreCompletion,
+  ChoreHistoryEntry,
   CompleteChoreRequest,
   CreateAwardRequest,
   CreateChoreRequest,
@@ -142,6 +142,8 @@ export const choresApi = {
     request<Chore>(`/chores/${id}/reassign`, { method: 'POST', body: json(body) }),
   undoCompletion: (completionId: string) =>
     request<void>(`/completions/${completionId}`, { method: 'DELETE' }),
+  deleteActivity: (completionId: string) =>
+    request<void>(`/completions/${completionId}/activity`, { method: 'DELETE' }),
 }
 
 export const tagsApi = {
@@ -180,10 +182,12 @@ export const notificationsApi = {
 }
 
 export const historyApi = {
-  list: (params?: { tag?: string; userId?: string; choreId?: string }) => {
-    const entries = Object.entries(params ?? {}).filter(([, v]) => v != null && v !== '')
-    const qs = entries.length > 0 ? '?' + new URLSearchParams(entries as [string, string][]) : ''
-    return request<ChoreCompletion[]>(`/history${qs}`)
+  list: (params?: { tag?: string; userId?: string; choreId?: string; includeReassignments?: boolean }) => {
+    const entries = Object.entries(params ?? {})
+      .filter(([, v]) => v != null && v !== '' && v !== false)
+      .map(([k, v]) => [k, String(v)] as [string, string])
+    const qs = entries.length > 0 ? '?' + new URLSearchParams(entries) : ''
+    return request<ChoreHistoryEntry[]>(`/history${qs}`)
   },
   stats: () => request<Stats>('/stats'),
 }

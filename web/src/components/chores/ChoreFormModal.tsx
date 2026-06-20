@@ -1,0 +1,307 @@
+import { useState } from 'react'
+import { useQuery, useMutation } from '@tanstack/react-query'
+import { choresApi, tagsApi, usersApi, ApiError } from '@/lib/api'
+import type {
+  AssignmentStrategy,
+  Chore,
+  ChoreNotificationInput,
+  ChoreRequest,
+  RecurrenceFields,
+  RepeatType,
+  SchedulingPreference,
+  User,
+} from '@/lib/types'
+import { Button } from '@/components/ui/Button'
+import { Input, Label, Select } from '@/components/ui/Field'
+import { TimeField } from '@/components/ui/TimeField'
+import { Modal, Avatar } from '@/components/ui/Modal'
+import { RecurrenceEditor } from '@/components/RecurrenceEditor'
+import { NotificationsEditor } from '@/components/NotificationsEditor'
+import {
+  REPEAT_OPTIONS, STRATEGY_OPTIONS, SCHEDULING_OPTIONS, toLocalDueInstant,
+} from '@/lib/chore-format'
+
+interface ChoreFormModalProps {
+  title: string
+  chore?: Chore
+  onClose: () => void
+  onSaved: () => void
+}
+
+export function ChoreFormModal({ title, chore, onClose, onSaved }: ChoreFormModalProps) {
+  const isEdit = Boolean(chore)
+  const { data: allUsers } = useQuery({ queryKey: ['chore-users'], queryFn: usersForChores })
+  const { data: allTags } = useQuery({ queryKey: ['tags'], queryFn: tagsApi.list })
+
+  const [name, setName] = useState(chore?.name ?? '')
+  const [description, setDescription] = useState(chore?.description ?? '')
+  const [emoji, setEmoji] = useState(chore?.emoji ?? '')
+  const [points, setPoints] = useState(String(chore?.points ?? 0))
+  const [repeatType, setRepeatType] = useState<RepeatType>(chore?.repeatType ?? 'OneTime')
+  const [recurrence, setRecurrence] = useState<RecurrenceFields>({
+    customMode: chore?.customMode ?? 'Interval',
+    intervalCount: chore?.intervalCount ?? 1,
+    intervalUnit: chore?.intervalUnit ?? 'Week',
+    weekdays: chore?.weekdays ?? [],
+    daysOfMonth: chore?.daysOfMonth ?? [],
+    months: chore?.months ?? [],
+    frequencyCount: chore?.frequencyCount ?? 1,
+    frequencyPeriod: chore?.frequencyPeriod ?? 'Week',
+  })
+  const [assignmentStrategy, setAssignmentStrategy] = useState<AssignmentStrategy>(
+    chore?.assignmentStrategy ?? 'KeepLastAssigned',
+  )
+  const [schedulingPreference, setSchedulingPreference] = useState<SchedulingPreference>(
+    chore?.schedulingPreference ?? 'FromScheduledDate',
+  )
+  const [startDate, setStartDate] = useState(
+    (chore?.startDate ?? new Date().toISOString()).slice(0, 10),
+  )
+  const [dueTime, setDueTime] = useState(chore?.dueTime ?? '')
+  const [assigneeIds, setAssigneeIds] = useState<string[]>(
+    chore?.assignees.map((a) => a.id) ?? [],
+  )
+  const [currentAssigneeId, setCurrentAssigneeId] = useState(chore?.currentAssignee?.id ?? '')
+  const [selectedTags, setSelectedTags] = useState<string[]>(chore?.tags ?? [])
+  const [notifications, setNotifications] = useState<ChoreNotificationInput[]>(
+    chore?.notifications.map((n) => ({
+      type: n.type,
+      timing: n.timing,
+      offsetValue: n.offsetValue,
+      offsetUnit: n.offsetUnit,
+      recipients: n.recipients,
+    })) ?? [],
+  )
+  const [error, setError] = useState<string | null>(null)
+
+  const toggleAssignee = (id: string) => {
+    setAssigneeIds((prev) => {
+      const next = prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+      if (!next.includes(currentAssigneeId)) setCurrentAssigneeId(next[0] ?? '')
+      return next
+    })
+  }
+
+  const isFrequency = repeatType === 'Custom' && recurrence.customMode === 'Frequency'
+
+  const mutation = useMutation({
+    mutationFn: () => {
+      const body: ChoreRequest = {
+        name,
+        description: description.trim() || null,
+        emoji: emoji.trim() || '📋',
+        points: Number(points) || 0,
+        repeatType,
+        ...recurrence,
+        assignmentStrategy,
+        schedulingPreference,
+        startDate: toLocalDueInstant(startDate, isFrequency ? '' : dueTime),
+        dueTime: isFrequency ? null : dueTime || null,
+        assigneeIds,
+        currentAssigneeId,
+        tagNames: selectedTags,
+        notifications,
+      }
+      return isEdit && chore ? choresApi.update(chore.id, body) : choresApi.create(body)
+    },
+    onSuccess: onSaved,
+    onError: (err) => setError(err instanceof ApiError ? err.message : 'Save failed'),
+  })
+
+  const selectedAssignees = (allUsers ?? []).filter((u) => assigneeIds.includes(u.id))
+
+  return (
+    <Modal title={title} onClose={onClose}>
+      <form
+        onSubmit={(e) => {
+          e.preventDefault()
+          if (assigneeIds.length === 0) {
+            setError('Select at least one assignee.')
+            return
+          }
+          setError(null)
+          mutation.mutate()
+        }}
+        className="max-h-[70vh] space-y-4 overflow-y-auto pl-1 -ml-1 pr-4 -mr-4"
+      >
+        <div>
+          <Label htmlFor="name">Name</Label>
+          <Input id="name" value={name} onChange={(e) => setName(e.target.value)} required />
+        </div>
+        <div className="flex gap-3">
+          <div className="flex-1">
+            <Label htmlFor="emoji">Emoji</Label>
+            <Input id="emoji" value={emoji} onChange={(e) => setEmoji(e.target.value)} />
+          </div>
+          <div className="flex-1">
+            <Label htmlFor="points">Points</Label>
+            <Input id="points" type="number" min={0} value={points} onChange={(e) => setPoints(e.target.value)} />
+          </div>
+        </div>
+        <div>
+          <Label htmlFor="description">Description</Label>
+          <Input id="description" value={description} onChange={(e) => setDescription(e.target.value)} />
+        </div>
+        <div>
+          <Label htmlFor="repeat">Repeat</Label>
+          <Select id="repeat" value={repeatType} onChange={(e) => setRepeatType(e.target.value as RepeatType)}>
+            {REPEAT_OPTIONS.map((o) => (
+              <option key={o.value} value={o.value}>{o.label}</option>
+            ))}
+          </Select>
+        </div>
+        <div className="flex gap-3">
+          <div className="flex-1">
+            <Label htmlFor="start">Start date</Label>
+            <Input id="start" type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} required />
+          </div>
+          {!isFrequency && (
+            <div className="flex-1">
+              <Label htmlFor="dueTime">Due time</Label>
+              <TimeField id="dueTime" value={dueTime} onChange={setDueTime} />
+            </div>
+          )}
+        </div>
+        {repeatType === 'Custom' && (
+          <RecurrenceEditor value={recurrence} onChange={setRecurrence} />
+        )}
+        {repeatType !== 'OneTime' && (
+          <div className="flex gap-3">
+            <div className="flex-1">
+              <Label htmlFor="strategy">Assignment</Label>
+              <Select
+                id="strategy"
+                value={assignmentStrategy}
+                onChange={(e) => setAssignmentStrategy(e.target.value as AssignmentStrategy)}
+              >
+                {STRATEGY_OPTIONS.map((o) => (
+                  <option key={o.value} value={o.value}>{o.label}</option>
+                ))}
+              </Select>
+            </div>
+            {!isFrequency && (
+              <div className="flex-1">
+                <Label htmlFor="scheduling">Next due</Label>
+                <Select
+                  id="scheduling"
+                  value={schedulingPreference}
+                  onChange={(e) => setSchedulingPreference(e.target.value as SchedulingPreference)}
+                >
+                  {SCHEDULING_OPTIONS.map((o) => (
+                    <option key={o.value} value={o.value}>{o.label}</option>
+                  ))}
+                </Select>
+              </div>
+            )}
+          </div>
+        )}
+        <div>
+          <div className="mb-1 flex items-center justify-between">
+            <Label className="mb-0">Assignees</Label>
+            {(allUsers ?? []).length > 1 && (() => {
+              const all = (allUsers ?? []).map((u) => u.id)
+              const allSelected = all.every((id) => assigneeIds.includes(id))
+              return (
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (allSelected) {
+                      setAssigneeIds([])
+                      setCurrentAssigneeId('')
+                    } else {
+                      setAssigneeIds(all)
+                      if (!all.includes(currentAssigneeId)) setCurrentAssigneeId(all[0] ?? '')
+                    }
+                  }}
+                  className="text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+                >
+                  {allSelected ? 'Deselect all' : 'Everyone'}
+                </button>
+              )
+            })()}
+          </div>
+          <div className="flex flex-wrap gap-1">
+            {(allUsers ?? []).map((u) => (
+              <button
+                key={u.id}
+                type="button"
+                onClick={() => toggleAssignee(u.id)}
+                className={
+                  'flex items-center gap-1.5 rounded-md px-2 py-1 text-xs transition-colors ' +
+                  (assigneeIds.includes(u.id)
+                    ? 'bg-primary/10 text-primary ring-1 ring-primary'
+                    : 'bg-accent text-muted-foreground hover:text-foreground')
+                }
+              >
+                <Avatar color={u.avatarColor} name={u.displayName} size={16} />
+                {u.displayName}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div>
+          <Label htmlFor="current">Current assignee</Label>
+          <Select
+            id="current"
+            value={currentAssigneeId}
+            onChange={(e) => setCurrentAssigneeId(e.target.value)}
+            disabled={selectedAssignees.length === 0}
+          >
+            <option value="" disabled>Select an assignee</option>
+            {selectedAssignees.map((u) => (
+              <option key={u.id} value={u.id}>{u.displayName}</option>
+            ))}
+          </Select>
+        </div>
+        <div>
+          <Label>Tags</Label>
+          {allTags && allTags.length > 0 ? (
+            <div className="flex flex-wrap gap-1">
+              {allTags.map((t) => (
+                <button
+                  key={t.id}
+                  type="button"
+                  onClick={() => setSelectedTags((prev) =>
+                    prev.includes(t.name) ? prev.filter((n) => n !== t.name) : [...prev, t.name]
+                  )}
+                  className={
+                    'rounded-md px-2 py-1 text-xs transition-colors ' +
+                    (selectedTags.includes(t.name)
+                      ? 'bg-primary/10 text-primary ring-1 ring-primary'
+                      : 'bg-accent text-muted-foreground hover:text-foreground')
+                  }
+                >
+                  {t.name}
+                </button>
+              ))}
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground">No tags yet — add them in Settings.</p>
+          )}
+        </div>
+        <NotificationsEditor value={notifications} onChange={setNotifications} />
+        {error && <p className="text-sm text-destructive">{error}</p>}
+        <div className="flex justify-end gap-2">
+          <Button type="button" variant="secondary" onClick={onClose}>Cancel</Button>
+          <Button type="submit" disabled={mutation.isPending}>
+            {mutation.isPending ? 'Saving…' : 'Save'}
+          </Button>
+        </div>
+      </form>
+    </Modal>
+  )
+}
+
+// Members need to see the user list to pick assignees, but the /users endpoint is admin-only.
+// Assignees are also embedded in each chore, so derive the roster from chores for non-admins;
+// admins get the full list.
+async function usersForChores(): Promise<User[]> {
+  try {
+    return await usersApi.list()
+  } catch {
+    const chores = await choresApi.list()
+    const map = new Map<string, User>()
+    for (const c of chores) for (const a of c.assignees) map.set(a.id, a)
+    return [...map.values()].sort((a, b) => a.displayName.localeCompare(b.displayName))
+  }
+}

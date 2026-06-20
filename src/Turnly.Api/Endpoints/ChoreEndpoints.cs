@@ -81,5 +81,16 @@ public static class ChoreEndpoints
             var result = await chores.UndoCompletionAsync(id, userId, ct);
             return result.Succeeded ? Results.NoContent() : result.Error!.ToProblem();
         });
+
+        // Admin-only deletion of a historical activity entry — reverses points without rewinding
+        // the chore's current schedule (distinct from undo above).
+        completions.MapDelete("/{id:guid}/activity", async (Guid id, ClaimsPrincipal principal,
+            ChoreService chores, CancellationToken ct) =>
+        {
+            if (principal.GetUserId() is not { } userId)
+                return Results.Unauthorized();
+            var result = await chores.DeleteActivityAsync(id, userId, ct);
+            return result.Succeeded ? Results.NoContent() : result.Error!.ToProblem();
+        }).RequireAuthorization("Admin");
     }
 }

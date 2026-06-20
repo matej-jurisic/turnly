@@ -29,8 +29,8 @@ export function HistoryPage() {
     ...(filterChoreId ? { choreId: filterChoreId } : {}),
   }
   const { data: history = [] } = useQuery({
-    queryKey: ['history', filters],
-    queryFn: () => historyApi.list(filters),
+    queryKey: ['history', { ...filters, includeReassignments: true }],
+    queryFn: () => historyApi.list({ ...filters, includeReassignments: true }),
     placeholderData: keepPreviousData,
   })
 
@@ -98,7 +98,7 @@ export function HistoryPage() {
 
       <section className="space-y-4">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-          <h2 className="text-base font-semibold text-foreground">Completion log</h2>
+          <h2 className="text-base font-semibold text-foreground">Activity log</h2>
           <div className="flex flex-1 gap-2">
             <select
               value={filterTag}
@@ -145,56 +145,68 @@ export function HistoryPage() {
         {history.length === 0 ? (
           <Card>
             <CardContent>
-              <p className="py-4 text-sm text-muted-foreground">No completions found.</p>
+              <p className="py-4 text-sm text-muted-foreground">No activity found.</p>
             </CardContent>
           </Card>
         ) : (
           <Card>
             <ul className="divide-y divide-border">
-              {history.map((entry) => (
-                <li key={entry.id} className="flex items-start gap-3 px-5 py-3">
-                  <Avatar
-                    color={entry.completedBy.avatarColor}
-                    name={entry.completedBy.displayName}
-                    size={32}
-                  />
-                  <div className="min-w-0 flex-1">
-                    <div className="flex flex-wrap items-baseline gap-x-2">
-                      <span className="text-sm font-medium text-foreground">
-                        {entry.choreName}
-                      </span>
-                      <span className="text-xs text-muted-foreground">
-                        {entry.isSkip ? 'skipped' : 'by'} {entry.completedBy.displayName}
-                      </span>
-                      {entry.isSkip && <Badge tone="neutral">Skipped</Badge>}
+              {history.map((entry) => {
+                const subject = entry.actor ?? entry.toAssignee ?? entry.fromAssignee
+                return (
+                  <li key={entry.id} className="flex items-start gap-3 px-5 py-3">
+                    <Avatar
+                      color={subject?.avatarColor ?? 'var(--muted)'}
+                      name={subject?.displayName ?? '?'}
+                      size={32}
+                    />
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-baseline gap-x-2">
+                        <span className="text-sm font-medium text-foreground">
+                          {entry.choreName}
+                        </span>
+                        {entry.kind === 'reassignment' ? (
+                          <span className="text-xs text-muted-foreground">
+                            reassigned from {entry.fromAssignee?.displayName ?? 'nobody'} to{' '}
+                            {entry.toAssignee?.displayName ?? 'nobody'}
+                            {entry.actor && ` by ${entry.actor.displayName}`}
+                          </span>
+                        ) : (
+                          <span className="text-xs text-muted-foreground">
+                            {entry.kind === 'skip' ? 'skipped' : 'by'} {entry.actor?.displayName}
+                          </span>
+                        )}
+                        {entry.kind === 'skip' && <Badge tone="neutral">Skipped</Badge>}
+                        {entry.kind === 'reassignment' && <Badge tone="blue">Reassigned</Badge>}
+                      </div>
+                      {entry.notes && (
+                        <p className="mt-0.5 text-xs text-muted-foreground">{entry.notes}</p>
+                      )}
                     </div>
-                    {entry.notes && (
-                      <p className="mt-0.5 text-xs text-muted-foreground">{entry.notes}</p>
-                    )}
-                  </div>
-                  <div className="flex shrink-0 items-center gap-2 text-xs">
-                    <time
-                      dateTime={entry.completedAt}
-                      title={new Date(entry.completedAt).toLocaleString()}
-                      className="text-muted-foreground"
-                    >
-                      {formatRelative(entry.completedAt)}
-                    </time>
-                    {!entry.isSkip && entry.occurrenceDueAt && (
-                      <span className={cn(
-                        new Date(entry.completedAt) <= new Date(entry.occurrenceDueAt)
-                          ? 'text-success'
-                          : 'text-destructive',
-                      )}>
-                        {new Date(entry.completedAt) <= new Date(entry.occurrenceDueAt) ? 'on time' : 'late'}
-                      </span>
-                    )}
-                    {entry.pointsAwarded > 0 && (
-                      <span className="text-success">+{entry.pointsAwarded} pts</span>
-                    )}
-                  </div>
-                </li>
-              ))}
+                    <div className="flex shrink-0 items-center gap-2 text-xs">
+                      <time
+                        dateTime={entry.at}
+                        title={new Date(entry.at).toLocaleString()}
+                        className="text-muted-foreground"
+                      >
+                        {formatRelative(entry.at)}
+                      </time>
+                      {entry.kind === 'completion' && entry.occurrenceDueAt && (
+                        <span className={cn(
+                          new Date(entry.at) <= new Date(entry.occurrenceDueAt)
+                            ? 'text-success'
+                            : 'text-destructive',
+                        )}>
+                          {new Date(entry.at) <= new Date(entry.occurrenceDueAt) ? 'on time' : 'late'}
+                        </span>
+                      )}
+                      {entry.pointsAwarded > 0 && (
+                        <span className="text-success">+{entry.pointsAwarded} pts</span>
+                      )}
+                    </div>
+                  </li>
+                )
+              })}
             </ul>
           </Card>
         )}

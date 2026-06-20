@@ -46,7 +46,7 @@ export function UserDetailsModal({
           <ul className="divide-y divide-border">
             {completions.map((entry) => {
               const onTime = entry.occurrenceDueAt
-                ? new Date(entry.completedAt) <= new Date(entry.occurrenceDueAt)
+                ? new Date(entry.at) <= new Date(entry.occurrenceDueAt)
                 : null
               return (
                 <li key={entry.id} className="flex items-start gap-3 py-2.5">
@@ -60,11 +60,11 @@ export function UserDetailsModal({
                   </div>
                   <div className="flex shrink-0 items-center gap-2 text-xs">
                     <time
-                      dateTime={entry.completedAt}
-                      title={new Date(entry.completedAt).toLocaleString()}
+                      dateTime={entry.at}
+                      title={new Date(entry.at).toLocaleString()}
                       className="text-muted-foreground"
                     >
-                      {formatRelative(entry.completedAt)}
+                      {formatRelative(entry.at)}
                     </time>
                     {onTime !== null && (
                       <span className={onTime ? 'text-success' : 'text-destructive'}>

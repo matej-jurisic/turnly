@@ -106,6 +106,24 @@ export interface ChoreCompletion {
   isSkip: boolean
 }
 
+/** A row in the chore history feed: a completion, a skip, or a manual reassignment. */
+export interface ChoreHistoryEntry {
+  id: string
+  kind: 'completion' | 'skip' | 'reassignment'
+  choreId: string
+  choreName: string
+  /** Completer, or the user who performed the reassignment (null if since deleted). */
+  actor?: User | null
+  at: string
+  occurrenceDueAt?: string | null
+  notes?: string | null
+  pointsAwarded: number
+  /** Reassignment only: previous assignee. */
+  fromAssignee?: User | null
+  /** Reassignment only: new assignee. */
+  toAssignee?: User | null
+}
+
 /** Custom-recurrence parameters; which fields apply depends on `customMode`. */
 export interface RecurrenceFields {
   customMode?: CustomRecurrenceMode | null
@@ -162,6 +180,8 @@ export type UpdateChoreRequest = ChoreRequest
 
 export interface CompleteChoreRequest {
   notes?: string | null
+  /** Admin-only: credit the completion to another user instead of the caller. */
+  completedByUserId?: string | null
 }
 
 export interface SkipChoreRequest {

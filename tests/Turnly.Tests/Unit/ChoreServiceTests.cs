@@ -401,6 +401,34 @@ public class ChoreServiceTests
         Assert.Equal(admin, result.Value!.CurrentAssignee!.Id);
         // Initial assignment + the reassignment.
         Assert.Equal(2, await ctx.Db.ChoreAssignments.CountAsync(a => a.ChoreId == chore.Id));
+
+        // The reassignment row records who did it and the previous assignee.
+        var reassignment = await ctx.Db.ChoreAssignments
+            .SingleAsync(a => a.ChoreId == chore.Id && a.AssignedByUserId != null);
+        Assert.Equal(member, reassignment.AssignedByUserId);
+        Assert.Equal(member, reassignment.PreviousAssigneeId);
+        Assert.Equal(admin, reassignment.UserId);
+    }
+
+    [Fact]
+    public async Task GetHistoryAsync_includes_reassignments_when_requested()
+    {
+        using var ctx = new TestContext();
+        var (admin, member) = await SeedUsersAsync(ctx);
+        var chore = (await ctx.Chores.CreateAsync(NewChore(member, [admin, member]))).Value!;
+
+        await ctx.Chores.ReassignAsync(chore.Id, member, new ReassignChoreRequest(admin));
+
+        // Completions-only view (default) excludes reassignments and the initial assignment.
+        var completionsOnly = await ctx.Chores.GetHistoryAsync(null, null, null);
+        Assert.Empty(completionsOnly);
+
+        var withReassignments = await ctx.Chores.GetHistoryAsync(null, null, null, includeReassignments: true);
+        var entry = Assert.Single(withReassignments);
+        Assert.Equal("reassignment", entry.Kind);
+        Assert.Equal(member, entry.Actor!.Id);
+        Assert.Equal(member, entry.FromAssignee!.Id);
+        Assert.Equal(admin, entry.ToAssignee!.Id);
     }
 
     [Fact]
@@ -433,5 +461,101 @@ public class ChoreServiceTests
         Assert.Equal(admin, reloaded!.CurrentAssigneeId); // rotation reversed
         // Only the initial assignment row remains.
         Assert.Equal(1, await ctx.Db.ChoreAssignments.CountAsync(a => a.ChoreId == chore.Id));
+    }
+
+    [Fact]
+    public async Task CompleteAsync_admin_can_complete_on_behalf_of_another_user()
+    {
+        using var ctx = new TestContext();
+        var (admin, member) = await SeedUsersAsync(ctx);
+        var chore = (await ctx.Chores.CreateAsync(NewChore(member, [member], points: 10))).Value!;
+
+        var result = await ctx.Chores.CompleteAsync(chore.Id, admin, new CompleteChoreRequest(null, member));
+
+        Assert.True(result.Succeeded);
+        Assert.Equal(10, (await ctx.Db.Users.FindAsync(member))!.Points); // credited to the member
+        Assert.Equal(0, (await ctx.Db.Users.FindAsync(admin))!.Points);
+        var completion = await ctx.Db.ChoreCompletions.SingleAsync();
+        Assert.Equal(member, completion.CompletedByUserId);
+    }
+
+    [Fact]
+    public async Task CompleteAsync_member_cannot_complete_on_behalf_of_another_user()
+    {
+        using var ctx = new TestContext();
+        var (admin, member) = await SeedUsersAsync(ctx);
+        var chore = (await ctx.Chores.CreateAsync(NewChore(member, [member], points: 10))).Value!;
+
+        var result = await ctx.Chores.CompleteAsync(chore.Id, member, new CompleteChoreRequest(null, admin));
+
+        Assert.False(result.Succeeded);
+        Assert.Equal(ErrorType.Forbidden, result.Error!.Type);
+        Assert.Equal(0, await ctx.Db.ChoreCompletions.CountAsync());
+    }
+
+    [Fact]
+    public async Task CompleteAsync_credits_caller_when_no_on_behalf_user_given()
+    {
+        using var ctx = new TestContext();
+        var (_, member) = await SeedUsersAsync(ctx);
+        var chore = (await ctx.Chores.CreateAsync(NewChore(member, [member], points: 10))).Value!;
+
+        var result = await ctx.Chores.CompleteAsync(chore.Id, member, new CompleteChoreRequest(null));
+
+        Assert.True(result.Succeeded);
+        Assert.Equal(member, (await ctx.Db.ChoreCompletions.SingleAsync()).CompletedByUserId);
+    }
+
+    [Fact]
+    public async Task DeleteActivity_reverses_points_without_rescheduling()
+    {
+        using var ctx = new TestContext();
+        var (admin, member) = await SeedUsersAsync(ctx);
+        var chore = (await ctx.Chores.CreateAsync(NewChore(member, [member], points: 10))).Value!;
+        await ctx.Chores.CompleteAsync(chore.Id, member, new CompleteChoreRequest(null));
+        var completionId = await ctx.Db.ChoreCompletions.Select(c => c.Id).SingleAsync();
+        var advancedDue = (await ctx.Db.Chores.FindAsync(chore.Id))!.DueAt;
+
+        var result = await ctx.Chores.DeleteActivityAsync(completionId, admin);
+
+        Assert.True(result.Succeeded);
+        Assert.Equal(0, (await ctx.Db.Users.FindAsync(member))!.Points); // points reversed
+        Assert.Empty(ctx.Db.PointsLog);
+        Assert.Empty(ctx.Db.ChoreCompletions);
+        // Schedule is NOT rewound (unlike undo): DueAt stays advanced.
+        Assert.Equal(advancedDue, (await ctx.Db.Chores.FindAsync(chore.Id))!.DueAt);
+        Assert.Equal(Start.AddDays(1), advancedDue);
+    }
+
+    [Fact]
+    public async Task DeleteActivity_forbids_non_admins()
+    {
+        using var ctx = new TestContext();
+        var (_, member) = await SeedUsersAsync(ctx);
+        var chore = (await ctx.Chores.CreateAsync(NewChore(member, [member], points: 10))).Value!;
+        await ctx.Chores.CompleteAsync(chore.Id, member, new CompleteChoreRequest(null));
+        var completionId = await ctx.Db.ChoreCompletions.Select(c => c.Id).SingleAsync();
+
+        var result = await ctx.Chores.DeleteActivityAsync(completionId, member);
+
+        Assert.False(result.Succeeded);
+        Assert.Equal(ErrorType.Forbidden, result.Error!.Type);
+        Assert.Equal(1, await ctx.Db.ChoreCompletions.CountAsync()); // untouched
+    }
+
+    [Fact]
+    public async Task DeleteActivity_removes_a_skip_entry()
+    {
+        using var ctx = new TestContext();
+        var (admin, member) = await SeedUsersAsync(ctx);
+        var chore = (await ctx.Chores.CreateAsync(NewChore(member, [member], points: 10))).Value!;
+        await ctx.Chores.SkipAsync(chore.Id, admin, new SkipChoreRequest(null));
+        var skipId = await ctx.Db.ChoreCompletions.Where(c => c.IsSkip).Select(c => c.Id).SingleAsync();
+
+        var result = await ctx.Chores.DeleteActivityAsync(skipId, admin);
+
+        Assert.True(result.Succeeded);
+        Assert.Empty(ctx.Db.ChoreCompletions);
+        Assert.Equal(0, (await ctx.Db.Users.FindAsync(member))!.Points); // skips award nothing
     }
 }

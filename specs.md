@@ -213,17 +213,30 @@ Award CRUD (admin), redemption flow, fulfillment tracking, points deduction.
 Skip an occurrence (advance recurrence without awarding points - with logs), one-off reassignment of the current assignee for a single occurrence.
 
 ### Phase 8 — Notifications
-Web Push / VAPID setup, per-chore notification schedule, stop-on-completion logic, and the
-push-receiving service worker (registration + `push` / `notificationclick`) needed to deliver them.
+Web Push / VAPID setup, per-chore notification schedule, stop-on-completion logic, push service worker,
+per-user device management, in-app notification inbox, and basic PWA install (manifest + icons).
 
-### Phase 9 — PWA
-Builds on Phase 8's service worker: offline read + completion queue, installability, app shell,
-manifest / icons, caching.
+### Phase 9 — UX Polish
+Swipe actions on chores, completion delight, admin deletion of activity entries
+(completions and skips) from chore details, admin completing a chore on behalf of any user, and
+refactoring the chores page into multiple components.
 
 ---
 
+## On wait
+
+- Investigate task update bug - db update concurrency exception on ChoreNotifications
+- Chores title and add chore button take up too much vertical space on mobile
+- Let current assignee be "anyone" (needs to be though out)
+- Add more stuff to chore details page
+- History -> Completions by member is stuffed on mobile
+- Completion log filter dropdowns are too small on mobile
+- Let users change their profile color
+
 ## Out of Scope (v1)
 
+- Full offline support — offline read, completion queue, app shell, and asset caching (basic
+  install via manifest + service worker already shipped in Phase 8)
 - Photo proof of completion
 - Chore archiving / pausing
 - Multiple households per instance

@@ -185,7 +185,7 @@ public record UpdateChoreRequest(
     ChoreNotificationInput[]? Notifications = null,
     string? DueTime = null) : IChoreInput;
 
-public record CompleteChoreRequest(string? Notes);
+public record CompleteChoreRequest(string? Notes, Guid? CompletedByUserId = null);
 
 public record SkipChoreRequest(string? Notes);
 
@@ -205,6 +205,34 @@ public record ChoreCompletionDto(
     public static ChoreCompletionDto FromEntity(ChoreCompletion c) =>
         new(c.Id, c.ChoreId, c.Chore?.Name ?? string.Empty,
             UserDto.FromEntity(c.CompletedBy!), c.CompletedAt, c.OccurrenceDueAt, c.Notes, c.PointsAwarded, c.IsSkip);
+}
+
+/// <summary>A single entry in the chore history feed — either a completion/skip (a
+/// <see cref="ChoreCompletion"/>) or a manual reassignment (a <see cref="ChoreAssignment"/> with an
+/// acting user). <see cref="Kind"/> discriminates: "completion" | "skip" | "reassignment".</summary>
+public record ChoreHistoryEntryDto(
+    Guid Id,
+    string Kind,
+    Guid ChoreId,
+    string ChoreName,
+    UserDto? Actor,
+    DateTimeOffset At,
+    DateTimeOffset? OccurrenceDueAt,
+    string? Notes,
+    int PointsAwarded,
+    UserDto? FromAssignee,
+    UserDto? ToAssignee)
+{
+    public static ChoreHistoryEntryDto FromCompletion(ChoreCompletion c) =>
+        new(c.Id, c.IsSkip ? "skip" : "completion", c.ChoreId, c.Chore?.Name ?? string.Empty,
+            UserDto.FromEntity(c.CompletedBy!), c.CompletedAt, c.OccurrenceDueAt, c.Notes,
+            c.PointsAwarded, null, null);
+
+    public static ChoreHistoryEntryDto FromReassignment(ChoreAssignment a) =>
+        new(a.Id, "reassignment", a.ChoreId, a.Chore?.Name ?? string.Empty,
+            a.AssignedBy is null ? null : UserDto.FromEntity(a.AssignedBy), a.AssignedAt, null, null, 0,
+            a.PreviousAssignee is null ? null : UserDto.FromEntity(a.PreviousAssignee),
+            a.User is null ? null : UserDto.FromEntity(a.User));
 }
 
 public record PointsLogEntryDto(
