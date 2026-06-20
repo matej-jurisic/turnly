@@ -1,6 +1,7 @@
 import type {
   AssignmentStrategy,
   Chore,
+  ChoreNotification,
   RepeatType,
   SchedulingPreference,
   Weekday,
@@ -76,6 +77,32 @@ export function repeatLabel(chore: Chore): string {
   }
 }
 
+const NOTIFICATION_TYPE_LABELS = {
+  Reminder: 'Reminder', Due: 'Due', FollowUp: 'Follow-up',
+} as const
+const NOTIFICATION_UNIT_LABELS = {
+  Minutes: 'minute', Hours: 'hour', Days: 'day',
+} as const
+
+/** Short type label for a notification entry (e.g. "Follow-up"), used as a badge. */
+export function notificationTypeLabel(n: ChoreNotification): string {
+  return NOTIFICATION_TYPE_LABELS[n.type]
+}
+
+/** Human-readable timing phrase, e.g. "1 hour before due", "at due time", "2 days after due". */
+export function notificationTimingLabel(n: ChoreNotification): string {
+  if (n.timing === 'AtDue') return 'at due time'
+  const unit = NOTIFICATION_UNIT_LABELS[n.offsetUnit]
+  const plural = n.offsetValue === 1 ? '' : 's'
+  const dir = n.timing === 'Before' ? 'before' : 'after'
+  return `${n.offsetValue} ${unit}${plural} ${dir} due`
+}
+
+/** Recipient phrase for a notification entry. */
+export function notificationRecipientsLabel(n: ChoreNotification): string {
+  return n.recipients === 'AllAssignees' ? 'all assignees' : 'current assignee'
+}
+
 export function formatDate(iso?: string | null): string {
   if (!iso) return '—'
   return new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
@@ -110,6 +137,19 @@ export function toLocalDueInstant(dateStr: string, timeStr: string): string {
 
 function startOfDay(d: Date): Date {
   return new Date(d.getFullYear(), d.getMonth(), d.getDate())
+}
+
+/** Whole calendar days between `iso` and today (positive = in the past). */
+export function calendarDaysAgo(iso: string): number {
+  return Math.round((startOfDay(new Date()).getTime() - startOfDay(new Date(iso)).getTime()) / 86_400_000)
+}
+
+/** Relative day label: "today", "yesterday", "N days ago", or "in N days". */
+export function relativeDayLabel(iso: string): string {
+  const d = calendarDaysAgo(iso)
+  if (d === 0) return 'today'
+  if (d === 1) return 'yesterday'
+  return d > 0 ? `${d} days ago` : `in ${-d} days`
 }
 
 export function choreDueStatus(chore: Chore): 'overdue' | 'today' | 'upcoming' | 'later' {

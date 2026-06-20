@@ -15,17 +15,23 @@ public class AssignmentPickerTests
         Guid? current,
         IReadOnlyDictionary<Guid, int>? assigned = null,
         IReadOnlyDictionary<Guid, int>? completed = null,
+        IReadOnlyDictionary<Guid, DateTimeOffset>? lastAssigned = null,
+        IReadOnlyDictionary<Guid, DateTimeOffset>? lastCompleted = null,
         int seed = 0) =>
         AssignmentPicker.Pick(strategy, All, current,
             assigned ?? new Dictionary<Guid, int>(),
             completed ?? new Dictionary<Guid, int>(),
+            lastAssigned ?? new Dictionary<Guid, DateTimeOffset>(),
+            lastCompleted ?? new Dictionary<Guid, DateTimeOffset>(),
             new Random(seed));
 
     [Fact]
     public void Single_assignee_is_always_picked()
     {
         var pick = AssignmentPicker.Pick(AssignmentStrategy.Random, [A], A,
-            new Dictionary<Guid, int>(), new Dictionary<Guid, int>(), new Random(1));
+            new Dictionary<Guid, int>(), new Dictionary<Guid, int>(),
+            new Dictionary<Guid, DateTimeOffset>(), new Dictionary<Guid, DateTimeOffset>(),
+            new Random(1));
         Assert.Equal(A, pick);
     }
 
@@ -66,9 +72,49 @@ public class AssignmentPickerTests
     [Fact]
     public void LeastCompleted_picks_lowest_count_with_stable_tie_break()
     {
-        // A and C tie at 0; the stable order [A,B,C] makes A win.
+        // A and C tie at 0 with no recency info; the stable order [A,B,C] makes A win.
         var counts = new Dictionary<Guid, int> { [B] = 4 };
         Assert.Equal(A, Pick(AssignmentStrategy.LeastCompleted, B, completed: counts));
+    }
+
+    [Fact]
+    public void LeastAssigned_breaks_count_tie_by_least_recently_assigned()
+    {
+        // All tied at 2 assignments; C was assigned longest ago, so C wins despite the stable order.
+        var counts = new Dictionary<Guid, int> { [A] = 2, [B] = 2, [C] = 2 };
+        var lastAssigned = new Dictionary<Guid, DateTimeOffset>
+        {
+            [A] = new(2026, 6, 10, 0, 0, 0, TimeSpan.Zero),
+            [B] = new(2026, 6, 15, 0, 0, 0, TimeSpan.Zero),
+            [C] = new(2026, 6, 1, 0, 0, 0, TimeSpan.Zero),
+        };
+        Assert.Equal(C, Pick(AssignmentStrategy.LeastAssigned, B, assigned: counts, lastAssigned: lastAssigned));
+    }
+
+    [Fact]
+    public void LeastCompleted_breaks_count_tie_by_least_recently_completed()
+    {
+        // A and C tie at 1; A completed most recently, so C (older) wins over the stable-order default.
+        var counts = new Dictionary<Guid, int> { [A] = 1, [B] = 5, [C] = 1 };
+        var lastCompleted = new Dictionary<Guid, DateTimeOffset>
+        {
+            [A] = new(2026, 6, 18, 0, 0, 0, TimeSpan.Zero),
+            [C] = new(2026, 6, 2, 0, 0, 0, TimeSpan.Zero),
+        };
+        Assert.Equal(C, Pick(AssignmentStrategy.LeastCompleted, A, completed: counts, lastCompleted: lastCompleted));
+    }
+
+    [Fact]
+    public void LeastAssigned_never_assigned_beats_recently_assigned_on_tie()
+    {
+        // A and C tie at 0, but A has a recency timestamp and C doesn't (never assigned) —
+        // the missing timestamp sorts oldest, so C wins.
+        var counts = new Dictionary<Guid, int> { [A] = 0, [B] = 3, [C] = 0 };
+        var lastAssigned = new Dictionary<Guid, DateTimeOffset>
+        {
+            [A] = new(2026, 6, 18, 0, 0, 0, TimeSpan.Zero),
+        };
+        Assert.Equal(C, Pick(AssignmentStrategy.LeastAssigned, A, assigned: counts, lastAssigned: lastAssigned));
     }
 
     [Fact]

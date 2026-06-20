@@ -215,6 +215,52 @@ public class NotificationServiceTests
     }
 
     [Fact]
+    public async Task DeleteInboxAsync_removes_own_notification()
+    {
+        using var ctx = new TestContext();
+        var (_, member) = await SeedUsersAsync(ctx);
+        await SeedChoreAsync(ctx, member, [member], AtDue(), Due);
+        await ctx.Notifications.ProcessDueAsync(Due);
+        var item = Assert.Single(await ctx.Notifications.ListInboxAsync(member));
+
+        var result = await ctx.Notifications.DeleteInboxAsync(member, item.Id);
+
+        Assert.True(result.Succeeded);
+        Assert.Empty(await ctx.Notifications.ListInboxAsync(member));
+    }
+
+    [Fact]
+    public async Task DeleteInboxAsync_rejects_another_users_notification()
+    {
+        using var ctx = new TestContext();
+        var (admin, member) = await SeedUsersAsync(ctx);
+        await SeedChoreAsync(ctx, member, [member], AtDue(), Due);
+        await ctx.Notifications.ProcessDueAsync(Due);
+        var item = Assert.Single(await ctx.Notifications.ListInboxAsync(member));
+
+        var result = await ctx.Notifications.DeleteInboxAsync(admin, item.Id);
+
+        Assert.False(result.Succeeded);
+        Assert.Equal(ErrorType.NotFound, result.Error!.Type);
+        Assert.Single(await ctx.Notifications.ListInboxAsync(member));
+    }
+
+    [Fact]
+    public async Task ClearInboxAsync_removes_only_the_callers_notifications()
+    {
+        using var ctx = new TestContext();
+        var (admin, member) = await SeedUsersAsync(ctx);
+        await SeedChoreAsync(ctx, member, [member, admin], AtDue(NotificationRecipients.AllAssignees), Due);
+        await ctx.Notifications.ProcessDueAsync(Due);
+
+        var cleared = await ctx.Notifications.ClearInboxAsync(member);
+
+        Assert.Equal(1, cleared);
+        Assert.Empty(await ctx.Notifications.ListInboxAsync(member));
+        Assert.Single(await ctx.Notifications.ListInboxAsync(admin));
+    }
+
+    [Fact]
     public async Task SubscribeAsync_upserts_by_endpoint()
     {
         using var ctx = new TestContext();

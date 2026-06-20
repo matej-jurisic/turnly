@@ -189,6 +189,32 @@ public class NotificationService
         return unread.Count;
     }
 
+    /// <summary>Deletes one of the caller's inbox notifications.</summary>
+    public async Task<Result> DeleteInboxAsync(Guid userId, Guid notificationId, CancellationToken ct = default)
+    {
+        var item = await _db.UserNotifications
+            .FirstOrDefaultAsync(n => n.Id == notificationId && n.UserId == userId, ct);
+        if (item is null)
+            return Result.Fail(new Error(ErrorType.NotFound, "Notification not found."));
+        _db.UserNotifications.Remove(item);
+        await _db.SaveChangesAsync(ct);
+        return Result.Success();
+    }
+
+    /// <summary>Deletes all of the caller's inbox notifications. Returns the count removed.</summary>
+    public async Task<int> ClearInboxAsync(Guid userId, CancellationToken ct = default)
+    {
+        var items = await _db.UserNotifications
+            .Where(n => n.UserId == userId)
+            .ToListAsync(ct);
+        if (items.Count > 0)
+        {
+            _db.UserNotifications.RemoveRange(items);
+            await _db.SaveChangesAsync(ct);
+        }
+        return items.Count;
+    }
+
     /// <summary>Scans every scheduled chore and fires any notification entry whose moment has
     /// arrived (and hasn't already fired for this occurrence). Returns the number of entries fired.</summary>
     public async Task<int> ProcessDueAsync(DateTimeOffset now, CancellationToken ct = default)

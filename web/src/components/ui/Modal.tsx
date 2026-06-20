@@ -1,3 +1,5 @@
+import { useEffect } from 'react'
+import { createPortal } from 'react-dom'
 import type { ReactNode } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 
@@ -8,7 +10,19 @@ interface ModalProps {
 }
 
 export function Modal({ title, onClose, children }: ModalProps) {
-  return (
+  // Lock background scroll while open (mirrors the drawer's scroll-lock in Layout).
+  useEffect(() => {
+    const prev = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => {
+      document.body.style.overflow = prev
+    }
+  }, [])
+
+  // Portal to <body> so the fixed backdrop isn't subject to an ancestor's `space-y-*` margin
+  // (which would offset/shrink the `inset-0` overlay and leave an undimmed strip), transform, or
+  // overflow clipping.
+  return createPortal(
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
       onClick={onClose}
@@ -29,7 +43,8 @@ export function Modal({ title, onClose, children }: ModalProps) {
         </CardHeader>
         <CardContent>{children}</CardContent>
       </Card>
-    </div>
+    </div>,
+    document.body,
   )
 }
 

@@ -349,16 +349,16 @@ function UserStatsTable({ userStats }: { userStats: UserStats[] }) {
 
   return (
     <Card>
-      <CardHeader className="flex items-center justify-between">
+      <CardHeader className="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
         <CardTitle>Completions by member</CardTitle>
-        <div className="flex rounded-lg border border-border text-sm">
+        <div className="flex w-full rounded-lg border border-border text-sm sm:w-auto">
           {(['weekly', 'monthly', 'allTime'] as Period[]).map((p, i) => (
             <button
               key={p}
               type="button"
               onClick={() => setPeriod(p)}
               className={cn(
-                'px-3 py-1 transition-colors',
+                'flex-1 whitespace-nowrap px-3 py-1 transition-colors sm:flex-none',
                 i === 0 && 'rounded-l-lg',
                 i === 2 && 'rounded-r-lg',
                 period === p

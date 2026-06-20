@@ -69,6 +69,25 @@ public static class NotificationEndpoints
             return Results.Ok(new { marked });
         });
 
+        // Delete one of the caller's inbox notifications.
+        group.MapDelete("/inbox/{id:guid}", async (
+            Guid id, ClaimsPrincipal principal, NotificationService notifications, CancellationToken ct) =>
+        {
+            if (principal.GetUserId() is not { } userId)
+                return Results.Unauthorized();
+            var result = await notifications.DeleteInboxAsync(userId, id, ct);
+            return result.Succeeded ? Results.NoContent() : result.Error!.ToProblem();
+        });
+
+        // Clear all of the caller's inbox notifications.
+        group.MapDelete("/inbox", async (ClaimsPrincipal principal, NotificationService notifications, CancellationToken ct) =>
+        {
+            if (principal.GetUserId() is not { } userId)
+                return Results.Unauthorized();
+            var cleared = await notifications.ClearInboxAsync(userId, ct);
+            return Results.Ok(new { cleared });
+        });
+
         // Dev/debug: send an immediate test push to the calling admin's own devices.
         group.MapPost("/test", async (
             ClaimsPrincipal principal, NotificationService notifications, CancellationToken ct) =>

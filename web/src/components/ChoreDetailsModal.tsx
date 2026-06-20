@@ -8,7 +8,9 @@ import { Modal, Avatar } from '@/components/ui/Modal'
 import { Badge } from '@/components/ui/Badge'
 import { TrashIcon } from '@/components/chores/icons'
 import {
-  formatDate, repeatLabel, STRATEGY_LABELS, SCHEDULING_LABELS,
+  calendarDaysAgo, choreDueStatus, formatDate, notificationRecipientsLabel,
+  notificationTimingLabel, notificationTypeLabel, relativeDayLabel, repeatLabel,
+  STRATEGY_LABELS, SCHEDULING_LABELS,
 } from '@/lib/chore-format'
 
 interface ChoreDetailsModalProps {
@@ -29,9 +31,13 @@ export function ChoreDetailsModal({ chore, onClose, onComplete }: ChoreDetailsMo
     chore.repeatType !== 'OneTime' &&
     !(chore.repeatType === 'Custom' && chore.customMode === 'Frequency')
 
+  const overdueDays = chore.dueAt && choreDueStatus(chore) === 'overdue'
+    ? calendarDaysAgo(chore.dueAt)
+    : 0
+
   return (
     <Modal title={title} onClose={onClose}>
-      <div className="max-h-[65vh] space-y-4 overflow-y-auto px-1 -mx-1">
+      <div className="max-h-[65vh] divide-y divide-border overflow-y-auto px-1 -mx-1 [&>*]:py-4 [&>*:first-child]:pt-0 [&>*:last-child]:pb-0">
         {chore.description && (
           <p className="text-sm text-muted-foreground">{chore.description}</p>
         )}
@@ -39,7 +45,11 @@ export function ChoreDetailsModal({ chore, onClose, onComplete }: ChoreDetailsMo
         {/* Schedule + points */}
         <div className="flex flex-wrap gap-2">
           <Badge tone="blue">{repeatLabel(chore)}</Badge>
-          {chore.dueAt && <Badge tone="amber">Due {formatDate(chore.dueAt)}</Badge>}
+          {chore.dueAt && (
+            overdueDays > 0
+              ? <Badge tone="red">Overdue by {overdueDays} {overdueDays === 1 ? 'day' : 'days'}</Badge>
+              : <Badge tone="amber">Due {formatDate(chore.dueAt)}</Badge>
+          )}
           <Badge tone="violet">{chore.points} pts</Badge>
           {chore.customMode === 'Frequency' && (
             <Badge tone="neutral">
@@ -107,6 +117,24 @@ export function ChoreDetailsModal({ chore, onClose, onComplete }: ChoreDetailsMo
           </div>
         </dl>
 
+        {/* Reminders */}
+        {chore.notifications.length > 0 && (
+          <div>
+            <p className="mb-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">Reminders</p>
+            <div className="space-y-1.5">
+              {chore.notifications.map((n) => (
+                <div key={n.id} className="flex flex-wrap items-center gap-1.5 text-sm">
+                  <Badge tone="blue">{notificationTypeLabel(n)}</Badge>
+                  <span className="text-foreground">{notificationTimingLabel(n)}</span>
+                  <span className="text-muted-foreground">· {notificationRecipientsLabel(n)}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <ChoreStats choreId={chore.id} />
+
         <ActivityList choreId={chore.id} />
       </div>
 
@@ -126,6 +154,75 @@ export function ChoreDetailsModal({ chore, onClose, onComplete }: ChoreDetailsMo
         </div>
       )}
     </Modal>
+  )
+}
+
+/** Summary stats + per-assignee contribution, derived from the same activity feed as the log. */
+function ChoreStats({ choreId }: { choreId: string }) {
+  const { data: activity } = useQuery({
+    queryKey: ['history', { choreId }],
+    queryFn: () => historyApi.list({ choreId }),
+  })
+
+  if (!activity || activity.length === 0) return null
+
+  const completions = activity.filter((e) => e.kind === 'completion')
+  const skips = activity.filter((e) => e.kind === 'skip')
+  const totalPoints = completions.reduce((sum, e) => sum + e.pointsAwarded, 0)
+  // Activity is newest-first, so the first completion is the most recent.
+  const lastCompletedAt = completions[0]?.at
+
+  // Tally completions per actor, keeping the actor for avatar/name, sorted by count desc.
+  const byActor = new Map<string, { actor: ChoreHistoryEntry['actor']; count: number }>()
+  for (const e of completions) {
+    if (!e.actor) continue
+    const existing = byActor.get(e.actor.id)
+    if (existing) existing.count += 1
+    else byActor.set(e.actor.id, { actor: e.actor, count: 1 })
+  }
+  const contributors = [...byActor.values()].sort((a, b) => b.count - a.count)
+
+  return (
+    <div>
+      <p className="mb-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">Stats</p>
+      <dl className="grid grid-cols-2 gap-x-4 gap-y-3 text-sm">
+        <div>
+          <dt className="text-xs text-muted-foreground">Completed</dt>
+          <dd className="text-foreground">{completions.length}{completions.length === 1 ? ' time' : ' times'}</dd>
+        </div>
+        <div>
+          <dt className="text-xs text-muted-foreground">Points earned</dt>
+          <dd className="text-foreground">{totalPoints}</dd>
+        </div>
+        {lastCompletedAt && (
+          <div>
+            <dt className="text-xs text-muted-foreground">Last completed</dt>
+            <dd className="text-foreground">{relativeDayLabel(lastCompletedAt)}</dd>
+          </div>
+        )}
+        {skips.length > 0 && (
+          <div>
+            <dt className="text-xs text-muted-foreground">Skipped</dt>
+            <dd className="text-foreground">{skips.length}{skips.length === 1 ? ' time' : ' times'}</dd>
+          </div>
+        )}
+      </dl>
+
+      {contributors.length > 0 && (
+        <div className="mt-3 flex flex-wrap gap-2">
+          {contributors.map(({ actor, count }) => (
+            <span
+              key={actor!.id}
+              className="flex items-center gap-1.5 rounded-md bg-accent px-2 py-1 text-xs text-muted-foreground"
+            >
+              <Avatar color={actor!.avatarColor} name={actor!.displayName} size={16} />
+              {actor!.displayName}
+              <span className="opacity-70">· {count}</span>
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
   )
 }
 

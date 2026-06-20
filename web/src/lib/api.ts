@@ -179,6 +179,10 @@ export const notificationsApi = {
   inbox: () => request<NotificationInboxItem[]>('/notifications/inbox'),
   markInboxRead: () =>
     request<{ marked: number }>('/notifications/inbox/read', { method: 'POST', body: json({}) }),
+  deleteInboxItem: (id: string) =>
+    request<void>(`/notifications/inbox/${id}`, { method: 'DELETE' }),
+  clearInbox: () =>
+    request<{ cleared: number }>('/notifications/inbox', { method: 'DELETE' }),
 }
 
 export const historyApi = {

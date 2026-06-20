@@ -40,6 +40,16 @@ export function NotificationsBell({ onOpenChore }: NotificationsBellProps) {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['inbox'] }),
   })
 
+  const deleteItem = useMutation({
+    mutationFn: (id: string) => notificationsApi.deleteInboxItem(id),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['inbox'] }),
+  })
+
+  const clearAll = useMutation({
+    mutationFn: notificationsApi.clearInbox,
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['inbox'] }),
+  })
+
   // Mark everything read when the panel closes, so unread highlights persist while it's open.
   const close = () => {
     setOpen(false)
@@ -80,17 +90,28 @@ export function NotificationsBell({ onOpenChore }: NotificationsBellProps) {
 
       {open && (
         <div className="fixed left-4 right-4 top-[4.5rem] z-30 overflow-hidden rounded-lg border border-border bg-card shadow-pop sm:absolute sm:left-auto sm:right-0 sm:top-full sm:mt-2 sm:w-80 sm:max-w-[calc(100vw-2rem)]">
-          <div className="flex items-center justify-between border-b border-border px-4 py-2.5">
+          <div className="flex items-center justify-between gap-3 border-b border-border px-4 py-2.5">
             <span className="text-sm font-semibold text-foreground">Notifications</span>
-            {unread > 0 && (
-              <button
-                type="button"
-                onClick={() => markRead.mutate()}
-                className="text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
-              >
-                Mark all read
-              </button>
-            )}
+            <div className="flex items-center gap-3">
+              {unread > 0 && (
+                <button
+                  type="button"
+                  onClick={() => markRead.mutate()}
+                  className="text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+                >
+                  Mark all read
+                </button>
+              )}
+              {(items ?? []).length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => clearAll.mutate()}
+                  className="text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+                >
+                  Clear all
+                </button>
+              )}
+            </div>
           </div>
 
           <div className="max-h-96 overflow-y-auto">
@@ -100,29 +121,44 @@ export function NotificationsBell({ onOpenChore }: NotificationsBellProps) {
               (items ?? []).map((n) => {
                 const clickable = Boolean(n.choreId)
                 return (
-                  <button
+                  <div
                     key={n.id}
-                    type="button"
-                    onClick={() => onItemClick(n)}
-                    disabled={!clickable}
                     className={cn(
-                      'flex w-full items-start gap-2.5 px-4 py-3 text-left transition-colors',
-                      clickable ? 'hover:bg-accent' : 'cursor-default',
+                      'relative flex items-start transition-colors',
+                      clickable && 'hover:bg-accent',
                       !n.read && 'bg-primary/5',
                     )}
                   >
-                    <span
+                    <button
+                      type="button"
+                      onClick={() => onItemClick(n)}
+                      disabled={!clickable}
                       className={cn(
-                        'mt-1.5 h-2 w-2 shrink-0 rounded-full',
-                        n.read ? 'bg-transparent' : 'bg-primary',
+                        'flex flex-1 items-start gap-2.5 py-3 pl-4 pr-9 text-left',
+                        !clickable && 'cursor-default',
                       )}
-                    />
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate text-sm font-medium text-foreground">{n.title}</span>
-                      <span className="block text-sm text-muted-foreground">{n.body}</span>
-                      <span className="mt-0.5 block text-xs text-muted-foreground">{timeAgo(n.createdAt)}</span>
-                    </span>
-                  </button>
+                    >
+                      <span
+                        className={cn(
+                          'mt-1.5 h-2 w-2 shrink-0 rounded-full',
+                          n.read ? 'bg-transparent' : 'bg-primary',
+                        )}
+                      />
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-sm font-medium text-foreground">{n.title}</span>
+                        <span className="block text-sm text-muted-foreground">{n.body}</span>
+                        <span className="mt-0.5 block text-xs text-muted-foreground">{timeAgo(n.createdAt)}</span>
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => deleteItem.mutate(n.id)}
+                      aria-label="Delete notification"
+                      className="absolute right-1.5 top-2 inline-flex h-7 w-7 items-center justify-center rounded-full text-muted-foreground/70 transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    >
+                      <CloseIcon />
+                    </button>
+                  </div>
                 )
               })
             )}
@@ -130,6 +166,14 @@ export function NotificationsBell({ onOpenChore }: NotificationsBellProps) {
         </div>
       )}
     </div>
+  )
+}
+
+function CloseIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M18 6 6 18M6 6l12 12" />
+    </svg>
   )
 }
 

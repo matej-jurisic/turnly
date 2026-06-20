@@ -122,7 +122,10 @@ export function SwipeRow({
         onPointerUp={finish}
         onPointerCancel={finish}
         style={{
-          transform: `translateX(${dx}px)`,
+          // Only set a transform mid-swipe: a resting `translateX(0px)` is still a non-`none`
+          // transform, which creates a stacking context per card and traps the ChoreMenu dropdown
+          // below the next card. `undefined` at rest keeps the dropdown's z-index effective.
+          transform: dx !== 0 ? `translateX(${dx}px)` : undefined,
           transition: animate ? 'transform 200ms ease-out' : undefined,
         }}
       >

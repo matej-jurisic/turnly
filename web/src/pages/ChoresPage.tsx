@@ -6,7 +6,7 @@ import { toast } from '@/lib/toast'
 import { confirm } from '@/lib/confirm'
 import { useAuthStore } from '@/store/auth'
 import type { Chore } from '@/lib/types'
-import { Button } from '@/components/ui/Button'
+import { PlusIcon } from '@/components/chores/icons'
 import { CompleteModal } from '@/components/CompleteModal'
 import { ChoreDetailsModal } from '@/components/ChoreDetailsModal'
 import { ChoreSection } from '@/components/chores/ChoreSection'
@@ -146,12 +146,7 @@ export function ChoresPage() {
   })
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold text-foreground">Chores</h1>
-        {isAdmin && <Button onClick={() => setCreating(true)}>Add chore</Button>}
-      </div>
-
+    <div className="space-y-4 md:space-y-6">
       {/* Filters */}
       {(allTags.length > 0 || allAssignees.length > 1) && (
         <div className="flex flex-wrap gap-3">
@@ -185,7 +180,7 @@ export function ChoresPage() {
               onClick={() => { setTagFilter(''); setAssigneeFilter('') }}
               className="text-sm text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
             >
-              Clear filters
+              Clear
             </button>
           )}
         </div>
@@ -284,6 +279,17 @@ export function ChoresPage() {
           onClose={() => setDetails(null)}
           onComplete={() => { setCompleting(details); setDetails(null) }}
         />
+      )}
+
+      {isAdmin && (
+        <button
+          type="button"
+          onClick={() => setCreating(true)}
+          aria-label="Add chore"
+          className="fixed bottom-6 left-6 z-30 flex h-14 w-14 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-pop transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring md:left-auto md:right-6"
+        >
+          <PlusIcon />
+        </button>
       )}
     </div>
   )

@@ -225,10 +225,6 @@ refactoring the chores page into multiple components.
 
 ## On wait
 
-- Chores title and add chore button take up too much vertical space on mobile
-- Let current assignee be "anyone" (needs to be though out)
-- Add more stuff to chore details page
-- History -> Completions by member is stuffed on mobile
 - Completion log filter dropdowns are too small on mobile
 - Let users change their profile color
 

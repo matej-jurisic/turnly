@@ -438,23 +438,37 @@ public class ChoreService
             .ToList();
         if (ordered.Count == 0) return;
 
-        var assignedCounts = await _db.ChoreAssignments
+        // Pull rows to memory and aggregate client-side: SQLite stores DateTimeOffset as TEXT, so a
+        // DB-side Max() can't be trusted across varying offsets (same reason we don't ORDER BY it).
+        var assignments = await _db.ChoreAssignments
             .Where(a => a.ChoreId == chore.Id)
+            .Select(a => new { a.UserId, a.AssignedAt })
+            .ToListAsync(ct);
+        var assignedCounts = assignments
             .GroupBy(a => a.UserId)
-            .Select(g => new { UserId = g.Key, Count = g.Count() })
-            .ToDictionaryAsync(x => x.UserId, x => x.Count, ct);
+            .ToDictionary(g => g.Key, g => g.Count());
+        var lastAssignedAt = assignments
+            .GroupBy(a => a.UserId)
+            .ToDictionary(g => g.Key, g => g.Max(a => a.AssignedAt));
 
-        var completedCounts = await _db.ChoreCompletions
+        var completions = await _db.ChoreCompletions
             .Where(x => x.ChoreId == chore.Id && !x.IsSkip)
+            .Select(x => new { x.CompletedByUserId, x.CompletedAt })
+            .ToListAsync(ct);
+        var completedCounts = completions
             .GroupBy(x => x.CompletedByUserId)
-            .Select(g => new { UserId = g.Key, Count = g.Count() })
-            .ToDictionaryAsync(x => x.UserId, x => x.Count, ct);
-        // Count the just-added (unsaved) completion too.
+            .ToDictionary(g => g.Key, g => g.Count());
+        var lastCompletedAt = completions
+            .GroupBy(x => x.CompletedByUserId)
+            .ToDictionary(g => g.Key, g => g.Max(x => x.CompletedAt));
+        // Fold in the just-added (unsaved) completion too.
         completedCounts[completion.CompletedByUserId] = completedCounts.GetValueOrDefault(completion.CompletedByUserId) + 1;
+        if (completion.CompletedAt > lastCompletedAt.GetValueOrDefault(completion.CompletedByUserId, DateTimeOffset.MinValue))
+            lastCompletedAt[completion.CompletedByUserId] = completion.CompletedAt;
 
         var next = AssignmentPicker.Pick(
             chore.AssignmentStrategy, ordered, chore.CurrentAssigneeId,
-            assignedCounts, completedCounts, Random.Shared);
+            assignedCounts, completedCounts, lastAssignedAt, lastCompletedAt, Random.Shared);
 
         chore.CurrentAssigneeId = next;
         _db.ChoreAssignments.Add(new ChoreAssignment
