@@ -113,6 +113,8 @@ export const authApi = {
       method: 'POST',
       body: json({ currentPassword, newPassword }),
     }),
+  updateProfile: (avatarColor: string) =>
+    request<User>('/users/me', { method: 'PUT', body: json({ avatarColor }) }),
 }
 
 export const usersApi = {

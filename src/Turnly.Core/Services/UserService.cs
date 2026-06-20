@@ -176,6 +176,21 @@ public class UserService
         return Result.Success(UserDto.FromEntity(user));
     }
 
+    // Self-service: a member may change their own avatar color (but not role or display name).
+    public async Task<Result<UserDto>> UpdateProfileAsync(Guid id, UpdateProfileRequest req, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(req.AvatarColor))
+            return Result.Fail<UserDto>(Error.Validation("Avatar color is required."));
+
+        var user = await _db.Users.FindAsync([id], ct);
+        if (user is null)
+            return Result.Fail<UserDto>(Error.NotFound("User not found."));
+
+        user.AvatarColor = req.AvatarColor.Trim();
+        await _db.SaveChangesAsync(ct);
+        return Result.Success(UserDto.FromEntity(user));
+    }
+
     public async Task<Result> DeleteAsync(Guid id, Guid actingUserId, CancellationToken ct = default)
     {
         var user = await _db.Users.FindAsync([id], ct);

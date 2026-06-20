@@ -43,6 +43,8 @@ public record CreateUserRequest(string Username, string DisplayName, string Pass
 
 public record UpdateUserRequest(string DisplayName, string AvatarColor, UserRole Role);
 
+public record UpdateProfileRequest(string AvatarColor);
+
 public record ChangePasswordRequest(string CurrentPassword, string NewPassword);
 
 public record SetPasswordRequest(string NewPassword);

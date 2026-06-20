@@ -53,6 +53,15 @@ public static class UserEndpoints
         self.MapGet("/leaderboard", async (UserService users, CancellationToken ct) =>
             Results.Ok(await users.GetLeaderboardAsync(ct)));
 
+        self.MapPut("/me", async (UpdateProfileRequest req, ClaimsPrincipal principal,
+            UserService users, CancellationToken ct) =>
+        {
+            if (principal.GetUserId() is not { } userId)
+                return Results.Unauthorized();
+            var result = await users.UpdateProfileAsync(userId, req, ct);
+            return result.Succeeded ? Results.Ok(result.Value) : result.Error!.ToProblem();
+        });
+
         self.MapGet("/{id:guid}/points-log", async (Guid id, ClaimsPrincipal principal,
             UserService users, CancellationToken ct) =>
         {

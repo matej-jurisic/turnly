@@ -8,6 +8,7 @@ import { useAuthStore } from '@/store/auth'
 import { Button } from '@/components/ui/Button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { Input, Label } from '@/components/ui/Field'
+import { ColorPicker } from '@/components/ui/ColorPicker'
 
 export function SettingsPage() {
   const user = useAuthStore((s) => s.user)
@@ -37,15 +38,7 @@ export function SettingsPage() {
     <div className="mx-auto max-w-lg space-y-6">
       <h1 className="text-2xl font-semibold text-foreground">Settings</h1>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Account</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-1 text-sm text-muted-foreground">
-          <p><span className="text-foreground">{user?.displayName}</span> (@{user?.username})</p>
-          <p>Role: {user?.role}</p>
-        </CardContent>
-      </Card>
+      <AccountCard />
 
       <NotificationsCard />
 
@@ -77,6 +70,49 @@ export function SettingsPage() {
         </CardContent>
       </Card>
     </div>
+  )
+}
+
+function AccountCard() {
+  const user = useAuthStore((s) => s.user)
+  const setUser = useAuthStore((s) => s.setUser)
+  const queryClient = useQueryClient()
+  const [color, setColor] = useState(user?.avatarColor ?? '')
+
+  const mutation = useMutation({
+    mutationFn: (avatarColor: string) => authApi.updateProfile(avatarColor),
+    onSuccess: (updated) => {
+      setUser(updated)
+      queryClient.invalidateQueries({ queryKey: ['leaderboard'] })
+      queryClient.invalidateQueries({ queryKey: ['users'] })
+      toast.success('Profile color updated.')
+    },
+    onError: (err) => {
+      toast.error(err instanceof ApiError ? err.message : 'Something went wrong')
+    },
+  })
+
+  const changed = !!user && color.toLowerCase() !== user.avatarColor.toLowerCase()
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Account</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4 text-sm text-muted-foreground">
+        <div className="space-y-1">
+          <p><span className="text-foreground">{user?.displayName}</span> (@{user?.username})</p>
+          <p>Role: {user?.role}</p>
+        </div>
+        <div className="space-y-2">
+          <Label>Profile color</Label>
+          <ColorPicker value={color} onChange={setColor} />
+        </div>
+        <Button onClick={() => mutation.mutate(color)} disabled={!changed || mutation.isPending}>
+          {mutation.isPending ? 'Saving…' : 'Save color'}
+        </Button>
+      </CardContent>
+    </Card>
   )
 }
 
