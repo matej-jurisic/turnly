@@ -98,8 +98,8 @@ export function ChoreListItem({
               </div>
               {chore.currentAssignee && (
                 <div className="flex shrink-0 items-center gap-2">
-                  <Avatar color={chore.currentAssignee.avatarColor} name={chore.currentAssignee.displayName} size={24} />
                   <span className="text-sm text-muted-foreground">{chore.currentAssignee.displayName}</span>
+                  <Avatar color={chore.currentAssignee.avatarColor} name={chore.currentAssignee.displayName} size={24} />
                   {chore.nextAssignee && (
                     <span
                       className="flex items-center gap-1 text-muted-foreground"
