@@ -31,10 +31,12 @@ public class ChoreService
 
         var ids = chores.Select(c => c.Id).ToList();
         var completionsByChore = await CompletionsByChoreAsync(ids, ct);
+        var assignmentsByChore = await AssignmentsByChoreAsync(ids, ct);
         var now = DateTimeOffset.UtcNow;
 
         return chores
-            .Select(c => ToDto(c, completionsByChore.GetValueOrDefault(c.Id), now))
+            .Select(c => ToDto(c, completionsByChore.GetValueOrDefault(c.Id),
+                assignmentsByChore.GetValueOrDefault(c.Id, []), now))
             .ToList();
     }
 
@@ -45,7 +47,9 @@ public class ChoreService
             return Result.Fail<ChoreDto>(Error.NotFound("Chore not found."));
 
         var completionsByChore = await CompletionsByChoreAsync([id], ct);
-        return Result.Success(ToDto(chore, completionsByChore.GetValueOrDefault(id), DateTimeOffset.UtcNow));
+        var assignmentsByChore = await AssignmentsByChoreAsync([id], ct);
+        return Result.Success(ToDto(chore, completionsByChore.GetValueOrDefault(id),
+            assignmentsByChore.GetValueOrDefault(id, []), DateTimeOffset.UtcNow));
     }
 
     public async Task<Result<ChoreDto>> CreateAsync(CreateChoreRequest req, CancellationToken ct = default)
@@ -440,35 +444,22 @@ public class ChoreService
 
         // Pull rows to memory and aggregate client-side: SQLite stores DateTimeOffset as TEXT, so a
         // DB-side Max() can't be trusted across varying offsets (same reason we don't ORDER BY it).
-        var assignments = await _db.ChoreAssignments
+        var assignments = (await _db.ChoreAssignments
             .Where(a => a.ChoreId == chore.Id)
             .Select(a => new { a.UserId, a.AssignedAt })
-            .ToListAsync(ct);
-        var assignedCounts = assignments
-            .GroupBy(a => a.UserId)
-            .ToDictionary(g => g.Key, g => g.Count());
-        var lastAssignedAt = assignments
-            .GroupBy(a => a.UserId)
-            .ToDictionary(g => g.Key, g => g.Max(a => a.AssignedAt));
-
-        var completions = await _db.ChoreCompletions
+            .ToListAsync(ct))
+            .Select(a => (a.UserId, a.AssignedAt))
+            .ToList();
+        var completions = (await _db.ChoreCompletions
             .Where(x => x.ChoreId == chore.Id && !x.IsSkip)
             .Select(x => new { x.CompletedByUserId, x.CompletedAt })
-            .ToListAsync(ct);
-        var completedCounts = completions
-            .GroupBy(x => x.CompletedByUserId)
-            .ToDictionary(g => g.Key, g => g.Count());
-        var lastCompletedAt = completions
-            .GroupBy(x => x.CompletedByUserId)
-            .ToDictionary(g => g.Key, g => g.Max(x => x.CompletedAt));
-        // Fold in the just-added (unsaved) completion too.
-        completedCounts[completion.CompletedByUserId] = completedCounts.GetValueOrDefault(completion.CompletedByUserId) + 1;
-        if (completion.CompletedAt > lastCompletedAt.GetValueOrDefault(completion.CompletedByUserId, DateTimeOffset.MinValue))
-            lastCompletedAt[completion.CompletedByUserId] = completion.CompletedAt;
+            .ToListAsync(ct))
+            .Select(x => (x.CompletedByUserId, x.CompletedAt))
+            .ToList();
 
-        var next = AssignmentPicker.Pick(
-            chore.AssignmentStrategy, ordered, chore.CurrentAssigneeId,
-            assignedCounts, completedCounts, lastAssignedAt, lastCompletedAt, Random.Shared);
+        // Mirror what the preview computes (see PickNext): the just-added (unsaved) completion is
+        // folded in as one more completion by its completer.
+        var next = PickNext(chore, ordered, assignments, completions, completion.CompletedByUserId, completion.CompletedAt);
 
         chore.CurrentAssigneeId = next;
         _db.ChoreAssignments.Add(new ChoreAssignment
@@ -478,6 +469,55 @@ public class ChoreService
             AssignedAt = now,
             ChoreCompletionId = completion.Id
         });
+    }
+
+    /// <summary>Runs the chore's assignment strategy against in-memory history to pick the assignee
+    /// the next occurrence would rotate to, assuming <paramref name="completedBy"/> completes the
+    /// current occurrence at <paramref name="completedAt"/>. Shared by the live rotation
+    /// (<see cref="RotateAssigneeAsync"/>) and the DTO's "next assignee" preview, so both agree.</summary>
+    private static Guid PickNext(
+        Chore chore,
+        IReadOnlyList<Guid> ordered,
+        IReadOnlyList<(Guid UserId, DateTimeOffset AssignedAt)> assignments,
+        IReadOnlyList<(Guid UserId, DateTimeOffset CompletedAt)> completions,
+        Guid completedBy,
+        DateTimeOffset completedAt)
+    {
+        var assignedCounts = assignments.GroupBy(a => a.UserId).ToDictionary(g => g.Key, g => g.Count());
+        var lastAssignedAt = assignments.GroupBy(a => a.UserId).ToDictionary(g => g.Key, g => g.Max(a => a.AssignedAt));
+        var completedCounts = completions.GroupBy(x => x.UserId).ToDictionary(g => g.Key, g => g.Count());
+        var lastCompletedAt = completions.GroupBy(x => x.UserId).ToDictionary(g => g.Key, g => g.Max(x => x.CompletedAt));
+        completedCounts[completedBy] = completedCounts.GetValueOrDefault(completedBy) + 1;
+        if (completedAt > lastCompletedAt.GetValueOrDefault(completedBy, DateTimeOffset.MinValue))
+            lastCompletedAt[completedBy] = completedAt;
+
+        return AssignmentPicker.Pick(
+            chore.AssignmentStrategy, ordered, chore.CurrentAssigneeId,
+            assignedCounts, completedCounts, lastAssignedAt, lastCompletedAt, Random.Shared);
+    }
+
+    /// <summary>The assignee the chore would rotate to on its next completion — shown as a preview.
+    /// Only meaningful for strategies whose outcome is fixed by current state; the random strategies
+    /// (and chores that can't rotate: one-time, nothing scheduled, single assignee) return null.
+    /// Assumes the current assignee is the one who completes it (the normal path).</summary>
+    private static User? PredictNextAssignee(
+        Chore chore, List<ChoreCompletion>? completions,
+        IReadOnlyList<(Guid UserId, DateTimeOffset AssignedAt)> assignments, DateTimeOffset now)
+    {
+        if (chore.RepeatType == RepeatType.OneTime || chore.DueAt is null) return null;
+        if (chore.AssignmentStrategy is AssignmentStrategy.Random or AssignmentStrategy.RandomExceptLastAssigned) return null;
+        if (chore.CurrentAssigneeId is not { } current) return null;
+
+        var orderedUsers = chore.Assignees.OrderBy(u => u.CreatedAt).ThenBy(u => u.Id).ToList();
+        if (orderedUsers.Count < 2) return null;
+
+        var completionPairs = (completions ?? [])
+            .Where(x => !x.IsSkip)
+            .Select(x => (x.CompletedByUserId, x.CompletedAt))
+            .ToList();
+
+        var nextId = PickNext(chore, orderedUsers.Select(u => u.Id).ToList(), assignments, completionPairs, current, now);
+        return orderedUsers.FirstOrDefault(u => u.Id == nextId);
     }
 
     /// <summary>All completions per chore id (newest-first within each chore), for both the
@@ -499,7 +539,8 @@ public class ChoreService
             .ToDictionary(g => g.Key, g => g.OrderByDescending(x => x.CompletedAt).ToList());
     }
 
-    private static ChoreDto ToDto(Chore chore, List<ChoreCompletion>? completions, DateTimeOffset now)
+    private static ChoreDto ToDto(Chore chore, List<ChoreCompletion>? completions,
+        IReadOnlyList<(Guid UserId, DateTimeOffset AssignedAt)> assignments, DateTimeOffset now)
     {
         var latest = completions?.FirstOrDefault();
         int? progress = null;
@@ -509,7 +550,27 @@ public class ChoreService
             var end = RecurrenceCalculator.PeriodEnd(period, now);
             progress = completions?.Count(x => !x.IsSkip && x.CompletedAt >= start && x.CompletedAt < end) ?? 0;
         }
-        return ChoreDto.FromEntity(chore, latest, progress);
+        var next = PredictNextAssignee(chore, completions, assignments, now);
+        return ChoreDto.FromEntity(chore, latest, progress, next);
+    }
+
+    /// <summary>Assignment history per chore id, as lightweight (user, when) pairs — for the
+    /// "next assignee" preview's Least-Assigned counting. SQLite stores DateTimeOffset as TEXT, so
+    /// aggregation happens client-side (same reason we don't ORDER BY it).</summary>
+    private async Task<Dictionary<Guid, List<(Guid UserId, DateTimeOffset AssignedAt)>>> AssignmentsByChoreAsync(
+        List<Guid> choreIds, CancellationToken ct)
+    {
+        if (choreIds.Count == 0)
+            return new Dictionary<Guid, List<(Guid, DateTimeOffset)>>();
+
+        var assignments = await _db.ChoreAssignments
+            .Where(a => choreIds.Contains(a.ChoreId))
+            .Select(a => new { a.ChoreId, a.UserId, a.AssignedAt })
+            .ToListAsync(ct);
+
+        return assignments
+            .GroupBy(a => a.ChoreId)
+            .ToDictionary(g => g.Key, g => g.Select(a => (a.UserId, a.AssignedAt)).ToList());
     }
 
     /// <summary>Validates the request and returns the resolved assignee entities.</summary>

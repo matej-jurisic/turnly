@@ -288,6 +288,65 @@ public class ChoreServiceTests
     }
 
     [Fact]
+    public async Task NextAssignee_predicts_round_robin_rotation()
+    {
+        using var ctx = new TestContext();
+        var (admin, member) = await SeedUsersAsync(ctx);
+        // admin created first → stable order [admin, member]; current is admin, so next is member.
+        var chore = (await ctx.Chores.CreateAsync(
+            NewChore(admin, [admin, member], strategy: AssignmentStrategy.RoundRobin))).Value!;
+
+        Assert.Equal(member, chore.NextAssignee!.Id);
+
+        // The prediction matches who the rotation actually picks.
+        var afterFirst = await ctx.Chores.CompleteAsync(chore.Id, admin, new CompleteChoreRequest(null));
+        Assert.Equal(member, afterFirst.Value!.CurrentAssignee!.Id);
+        Assert.Equal(admin, afterFirst.Value!.NextAssignee!.Id); // wraps back
+    }
+
+    [Fact]
+    public async Task NextAssignee_is_null_for_random_strategy()
+    {
+        using var ctx = new TestContext();
+        var (admin, member) = await SeedUsersAsync(ctx);
+        var chore = (await ctx.Chores.CreateAsync(
+            NewChore(admin, [admin, member], strategy: AssignmentStrategy.Random))).Value!;
+
+        Assert.Null(chore.NextAssignee);
+    }
+
+    [Fact]
+    public async Task NextAssignee_is_null_for_one_time_and_single_assignee()
+    {
+        using var ctx = new TestContext();
+        var (admin, member) = await SeedUsersAsync(ctx);
+
+        var oneTime = (await ctx.Chores.CreateAsync(
+            NewChore(admin, [admin, member], repeat: RepeatType.OneTime, strategy: AssignmentStrategy.RoundRobin))).Value!;
+        Assert.Null(oneTime.NextAssignee);
+
+        var solo = (await ctx.Chores.CreateAsync(
+            NewChore(member, [member], strategy: AssignmentStrategy.RoundRobin))).Value!;
+        Assert.Null(solo.NextAssignee);
+    }
+
+    [Fact]
+    public async Task NextAssignee_predicts_least_completed_after_a_completion()
+    {
+        using var ctx = new TestContext();
+        var (admin, member) = await SeedUsersAsync(ctx);
+        // current is admin; once admin completes, admin leads completions, so the least-completed
+        // pick (and prediction) is member.
+        var chore = (await ctx.Chores.CreateAsync(
+            NewChore(admin, [admin, member], strategy: AssignmentStrategy.LeastCompleted))).Value!;
+
+        var after = await ctx.Chores.CompleteAsync(chore.Id, admin, new CompleteChoreRequest(null));
+        Assert.Equal(member, after.Value!.CurrentAssignee!.Id);
+        // member is now current; the preview anticipates member completing next, handing it to admin.
+        Assert.Equal(admin, after.Value!.NextAssignee!.Id);
+    }
+
+    [Fact]
     public async Task CompleteAsync_from_completion_date_schedules_from_now()
     {
         using var ctx = new TestContext();

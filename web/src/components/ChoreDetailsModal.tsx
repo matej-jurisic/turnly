@@ -70,13 +70,18 @@ export function ChoreDetailsModal({ chore, onClose, onComplete }: ChoreDetailsMo
                     'flex items-center gap-1.5 rounded-md px-2 py-1 text-xs ' +
                     (u.id === chore.currentAssignee?.id
                       ? 'bg-primary/10 text-primary ring-1 ring-primary'
-                      : 'bg-accent text-muted-foreground')
+                      : u.id === chore.nextAssignee?.id
+                        ? 'bg-accent text-muted-foreground ring-1 ring-border'
+                        : 'bg-accent text-muted-foreground')
                   }
                 >
                   <Avatar color={u.avatarColor} name={u.displayName} size={16} />
                   {u.displayName}
                   {u.id === chore.currentAssignee?.id && (
                     <span className="ml-0.5 opacity-70">· current</span>
+                  )}
+                  {u.id === chore.nextAssignee?.id && u.id !== chore.currentAssignee?.id && (
+                    <span className="ml-0.5 opacity-70">· next</span>
                   )}
                 </span>
               ))}

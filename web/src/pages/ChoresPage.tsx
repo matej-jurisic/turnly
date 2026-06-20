@@ -1,11 +1,11 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { choresApi, ApiError } from '@/lib/api'
 import { toast } from '@/lib/toast'
 import { confirm } from '@/lib/confirm'
 import { useAuthStore } from '@/store/auth'
-import type { Chore } from '@/lib/types'
+import type { Chore, User } from '@/lib/types'
 import { PlusIcon } from '@/components/chores/icons'
 import { CompleteModal } from '@/components/CompleteModal'
 import { ChoreDetailsModal } from '@/components/ChoreDetailsModal'
@@ -13,6 +13,7 @@ import { ChoreSection } from '@/components/chores/ChoreSection'
 import { ChoreListItem } from '@/components/chores/ChoreListItem'
 import { ChoreFormModal } from '@/components/chores/ChoreFormModal'
 import { ReassignModal } from '@/components/chores/ReassignModal'
+import { ChoreFilters, emptyFilters, type ChoreFilterState } from '@/components/chores/ChoreFilters'
 import { choreDueStatus } from '@/lib/chore-format'
 
 export function ChoresPage() {
@@ -30,8 +31,7 @@ export function ChoresPage() {
   const [completing, setCompleting] = useState<Chore | null>(null)
   const [reassigning, setReassigning] = useState<Chore | null>(null)
   const [details, setDetails] = useState<Chore | null>(null)
-  const [tagFilter, setTagFilter] = useState('')
-  const [assigneeFilter, setAssigneeFilter] = useState('')
+  const [filters, setFilters] = useState<ChoreFilterState>(emptyFilters)
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ['chores'] })
 
@@ -73,28 +73,44 @@ export function ChoresPage() {
     () => [...new Set((chores ?? []).flatMap((c) => c.tags))].sort(),
     [chores],
   )
-  const allAssignees = useMemo(
-    () =>
-      [
-        ...new Map(
-          (chores ?? [])
-            .filter((c) => c.currentAssignee)
-            .map((c) => [c.currentAssignee!.id, c.currentAssignee!]),
-        ).values(),
-      ].sort((a, b) => a.displayName.localeCompare(b.displayName)),
-    [chores],
-  )
+  const allAssignees = useMemo(() => {
+    const map = new Map<string, User>()
+    for (const c of chores ?? []) {
+      if (c.currentAssignee) map.set(c.currentAssignee.id, c.currentAssignee)
+      if (c.nextAssignee) map.set(c.nextAssignee.id, c.nextAssignee)
+    }
+    return [...map.values()].sort((a, b) => a.displayName.localeCompare(b.displayName))
+  }, [chores])
+
+  // Default the view to "Mine" on first load — only when there are multiple members and the current
+  // user is actually one of the assignees (otherwise the default would be an empty list). Runs once;
+  // the user is free to clear or change it afterwards.
+  const didDefaultFilter = useRef(false)
+  useEffect(() => {
+    if (didDefaultFilter.current || !currentUser || !chores) return
+    didDefaultFilter.current = true
+    if (allAssignees.length > 1 && allAssignees.some((u) => u.id === currentUser.id)) {
+      setFilters({ ...emptyFilters, assignees: [currentUser.id] })
+    }
+  }, [currentUser, chores, allAssignees])
 
   const { overdue, today, upcoming, later } = useMemo(() => {
     const filtered = (chores ?? []).filter((c) => {
-      if (tagFilter && !c.tags.includes(tagFilter)) return false
-      if (assigneeFilter && c.currentAssignee?.id !== assigneeFilter) return false
+      // OR within each dimension, AND across dimensions.
+      if (filters.tags.length && !filters.tags.some((t) => c.tags.includes(t))) return false
+      if (filters.assignees.length) {
+        const ids = [c.currentAssignee?.id]
+        if (filters.includeNext) ids.push(c.nextAssignee?.id)
+        if (!filters.assignees.some((a) => ids.includes(a))) return false
+      }
+      if (filters.repeat.length && !filters.repeat.includes(c.repeatType)) return false
+      if (filters.due.length && !filters.due.includes(choreDueStatus(c))) return false
       return true
     })
     const buckets = { overdue: [] as Chore[], today: [] as Chore[], upcoming: [] as Chore[], later: [] as Chore[] }
     for (const c of filtered) buckets[choreDueStatus(c)].push(c)
     return buckets
-  }, [chores, tagFilter, assigneeFilter])
+  }, [chores, filters])
 
   const itemProps = (chore: Chore) => ({
     chore,
@@ -148,42 +164,8 @@ export function ChoresPage() {
   return (
     <div className="space-y-4 md:space-y-6">
       {/* Filters */}
-      {(allTags.length > 0 || allAssignees.length > 1) && (
-        <div className="flex flex-wrap gap-3">
-          {allTags.length > 0 && (
-            <select
-              value={tagFilter}
-              onChange={(e) => setTagFilter(e.target.value)}
-              className="rounded-lg border border-border bg-card px-3 py-1.5 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-            >
-              <option value="">All tags</option>
-              {allTags.map((t) => (
-                <option key={t} value={t}>{t}</option>
-              ))}
-            </select>
-          )}
-          {allAssignees.length > 1 && (
-            <select
-              value={assigneeFilter}
-              onChange={(e) => setAssigneeFilter(e.target.value)}
-              className="rounded-lg border border-border bg-card px-3 py-1.5 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-            >
-              <option value="">All members</option>
-              {allAssignees.map((u) => (
-                <option key={u.id} value={u.id}>{u.displayName}</option>
-              ))}
-            </select>
-          )}
-          {(tagFilter || assigneeFilter) && (
-            <button
-              type="button"
-              onClick={() => { setTagFilter(''); setAssigneeFilter('') }}
-              className="text-sm text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
-            >
-              Clear
-            </button>
-          )}
-        </div>
+      {(chores ?? []).length > 0 && (
+        <ChoreFilters value={filters} onChange={setFilters} tags={allTags} assignees={allAssignees} currentUserId={currentUser?.id} />
       )}
 
       {isLoading && <p className="text-muted-foreground">Loading…</p>}

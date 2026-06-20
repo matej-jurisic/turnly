@@ -43,23 +43,24 @@ export function ChoreListItem({
             Due {formatDate(chore.dueAt)}{chore.dueTime && ` · ${formatDueTime(chore.dueTime)}`}
           </Badge>
         )}
-        <Badge tone="blue" className="border border-info bg-card">{repeatLabel(chore)}</Badge>
-        {chore.customMode === 'Frequency' && (
+        {chore.customMode === 'Frequency' ? (
           <Badge tone="violet" className="border border-primary bg-card">
             {chore.frequencyProgress ?? 0}/{chore.frequencyCount ?? 1} this {(chore.frequencyPeriod ?? 'Week').toLowerCase()}
           </Badge>
+        ) : (
+          <Badge tone="blue" className="border border-info bg-card">{repeatLabel(chore)}</Badge>
         )}
       </div>
       <SwipeRow onSwipeRight={canComplete ? onComplete : undefined} onSwipeLeft={onDetails}>
         <Card className="min-w-0 p-4">
           <div className="space-y-2">
-            <div className="flex items-start justify-between gap-3">
-              <div className="flex min-w-0 items-start gap-2">
+            <div className="flex justify-between gap-3">
+              <div className="flex min-w-0 items-center gap-2 self-center">
                 {chore.emoji && <span className="shrink-0 text-xl leading-tight">{chore.emoji}</span>}
                 <span className="line-clamp-2 font-semibold text-foreground">{chore.name}</span>
               </div>
 
-              <div className="flex shrink-0 items-center gap-1">
+              <div className="flex shrink-0 items-center gap-1 self-start">
                 <button
                   type="button"
                   onClick={onComplete}
@@ -89,17 +90,27 @@ export function ChoreListItem({
               <p className="text-sm text-muted-foreground">{chore.description}</p>
             )}
             <div className="flex flex-wrap items-center gap-2">
-              {chore.currentAssignee && (
-                <>
-                  <Avatar color={chore.currentAssignee.avatarColor} name={chore.currentAssignee.displayName} size={24} />
-                  <span className="text-sm text-muted-foreground">{chore.currentAssignee.displayName}</span>
-                </>
-              )}
               <Badge tone="violet">{chore.points} pts</Badge>
               {chore.tags.map((tag) => (
                 <Badge key={tag} tone="neutral">{tag}</Badge>
               ))}
             </div>
+            {chore.currentAssignee && (
+              <div className="flex flex-wrap items-center gap-2">
+                <Avatar color={chore.currentAssignee.avatarColor} name={chore.currentAssignee.displayName} size={24} />
+                <span className="text-sm text-muted-foreground">{chore.currentAssignee.displayName}</span>
+                {chore.nextAssignee && (
+                  <span
+                    className="flex items-center gap-1 text-muted-foreground"
+                    title={`Next: ${chore.nextAssignee.displayName}`}
+                  >
+                    <span aria-hidden="true">→</span>
+                    <Avatar color={chore.nextAssignee.avatarColor} name={chore.nextAssignee.displayName} size={20} />
+                    <span className="sr-only">Next: {chore.nextAssignee.displayName}</span>
+                  </span>
+                )}
+              </div>
+            )}
           </div>
         </Card>
       </SwipeRow>

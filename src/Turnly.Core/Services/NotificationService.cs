@@ -264,7 +264,7 @@ public class NotificationService
                 if (!delivered.Add(key))
                     continue;
 
-                await SendEntryAsync(chore, entry, subsByUser, ct);
+                await SendEntryAsync(chore, entry, subsByUser, now, ct);
 
                 _db.NotificationDeliveries.Add(new NotificationDelivery
                 {
@@ -283,7 +283,8 @@ public class NotificationService
     }
 
     private async Task SendEntryAsync(
-        Chore chore, ChoreNotification entry, Dictionary<Guid, List<PushSubscription>> subsByUser, CancellationToken ct)
+        Chore chore, ChoreNotification entry, Dictionary<Guid, List<PushSubscription>> subsByUser,
+        DateTimeOffset now, CancellationToken ct)
     {
         var recipientIds = (entry.Recipients == NotificationRecipients.AllAssignees
                 ? chore.Assignees.Select(a => a.Id)
@@ -291,7 +292,7 @@ public class NotificationService
             .Distinct()
             .ToList();
 
-        var (title, body) = BuildMessage(chore, entry);
+        var (title, body) = BuildMessage(chore, entry, now);
         var payload = JsonSerializer.Serialize(new
         {
             title,
@@ -340,15 +341,37 @@ public class NotificationService
                 chore.Name, entry.Recipients);
     }
 
-    private static (string Title, string Body) BuildMessage(Chore chore, ChoreNotification entry)
+    private static (string Title, string Body) BuildMessage(Chore chore, ChoreNotification entry, DateTimeOffset now)
     {
         var title = string.IsNullOrWhiteSpace(chore.Emoji) ? chore.Name : $"{chore.Emoji} {chore.Name}";
+
+        // CurrentAssignee is one of the loaded Assignees, so resolve the name without an extra include.
+        var assignee = chore.Assignees.FirstOrDefault(a => a.Id == chore.CurrentAssigneeId)?.DisplayName;
+        var prefix = assignee is null ? "" : $"{assignee} - ";
+        var points = chore.Points > 0 ? $" ({chore.Points} pts)" : "";
+        var dueAt = chore.DueAt ?? now;
+
         var body = entry.Type switch
         {
-            NotificationType.Due => $"{chore.Name} is due now.",
-            NotificationType.FollowUp => $"{chore.Name} is overdue.",
-            _ => $"{chore.Name} is coming up."
+            NotificationType.Due => $"{prefix}due now{points}",
+            NotificationType.FollowUp => $"{prefix}overdue by {Humanize(now - dueAt)}{points}",
+            _ => $"{prefix}due in {Humanize(dueAt - now)}{points}"
         };
         return (title, body);
     }
+
+    /// <summary>Coarse human-friendly duration: minutes under an hour, then hours, then days.</summary>
+    private static string Humanize(TimeSpan span)
+    {
+        var total = span < TimeSpan.Zero ? TimeSpan.Zero : span;
+        if (total.TotalMinutes < 1)
+            return "less than a minute";
+        if (total.TotalMinutes < 60)
+            return Plural((int)Math.Round(total.TotalMinutes), "minute");
+        if (total.TotalHours < 24)
+            return Plural((int)Math.Round(total.TotalHours), "hour");
+        return Plural((int)Math.Round(total.TotalDays), "day");
+    }
+
+    private static string Plural(int n, string unit) => $"{n} {unit}{(n == 1 ? "" : "s")}";
 }

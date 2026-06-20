@@ -150,6 +150,9 @@ export interface Chore extends RecurrenceFields {
   dueTime?: string | null
   dueAt?: string | null
   currentAssignee?: User | null
+  /** Who the chore will rotate to next, for strategies whose outcome is fixed by current state
+   * (null for the random strategies, one-time chores, and single-assignee chores). */
+  nextAssignee?: User | null
   assignees: User[]
   tags: string[]
   notifications: ChoreNotification[]

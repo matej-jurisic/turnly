@@ -70,6 +70,7 @@ public record ChoreDto(
     string? DueTime,
     DateTimeOffset? DueAt,
     UserDto? CurrentAssignee,
+    UserDto? NextAssignee,
     UserDto[] Assignees,
     string[] Tags,
     ChoreNotificationDto[] Notifications,
@@ -77,13 +78,14 @@ public record ChoreDto(
     int? FrequencyProgress,
     DateTimeOffset CreatedAt)
 {
-    public static ChoreDto FromEntity(Chore c, ChoreCompletion? lastCompletion = null, int? frequencyProgress = null) =>
+    public static ChoreDto FromEntity(Chore c, ChoreCompletion? lastCompletion = null, int? frequencyProgress = null, User? nextAssignee = null) =>
         new(c.Id, c.Name, c.Description, c.Emoji, c.Points, c.RepeatType,
             c.CustomMode, c.IntervalCount, c.IntervalUnit,
             c.Weekdays.ToArray(), c.DaysOfMonth.ToArray(), c.Months.ToArray(),
             c.FrequencyCount, c.FrequencyPeriod, c.AssignmentStrategy, c.SchedulingPreference,
             c.StartDate, c.DueTime?.ToString("HH\\:mm"), c.DueAt,
             c.CurrentAssignee is null ? null : UserDto.FromEntity(c.CurrentAssignee),
+            nextAssignee is null ? null : UserDto.FromEntity(nextAssignee),
             c.Assignees.Select(UserDto.FromEntity).OrderBy(u => u.DisplayName).ToArray(),
             c.Tags.Select(t => t.Name).OrderBy(n => n).ToArray(),
             c.Notifications.OrderBy(n => n.CreatedAt).Select(ChoreNotificationDto.FromEntity).ToArray(),
