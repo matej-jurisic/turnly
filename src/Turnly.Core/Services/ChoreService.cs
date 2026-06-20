@@ -545,7 +545,7 @@ public class ChoreService
         a.FrequencyCount != b.FrequencyCount ||
         a.FrequencyPeriod != b.FrequencyPeriod;
 
-    private static void Apply(Chore chore, IChoreInput req, List<User> assignees)
+    private void Apply(Chore chore, IChoreInput req, List<User> assignees)
     {
         chore.Name = req.Name.Trim();
         chore.Description = string.IsNullOrWhiteSpace(req.Description) ? null : req.Description.Trim();
@@ -585,12 +585,16 @@ public class ChoreService
         foreach (var a in assignees) chore.Assignees.Add(a);
 
         // Rebuild the notification schedule from the request (orphans cascade-delete). AtDue entries
-        // carry no offset.
-        chore.Notifications.Clear();
+        // carry no offset. New entries are inserted via the DbSet rather than only through the
+        // navigation: a ChoreNotification carries a client-set Guid key, so on the update path (where
+        // the chore is already tracked) EF would classify a navigation-added child as Modified and
+        // emit an UPDATE against a row that doesn't exist yet — a DbUpdateConcurrencyException.
+        _db.ChoreNotifications.RemoveRange(chore.Notifications);
         foreach (var n in req.Notifications ?? [])
         {
-            chore.Notifications.Add(new ChoreNotification
+            _db.ChoreNotifications.Add(new ChoreNotification
             {
+                ChoreId = chore.Id,
                 Type = n.Type,
                 Timing = n.Timing,
                 OffsetValue = n.Timing == NotificationTiming.AtDue ? 0 : Math.Max(0, n.OffsetValue),

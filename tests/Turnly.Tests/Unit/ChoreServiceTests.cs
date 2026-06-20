@@ -558,4 +558,61 @@ public class ChoreServiceTests
         Assert.Empty(ctx.Db.ChoreCompletions);
         Assert.Equal(0, (await ctx.Db.Users.FindAsync(member))!.Points); // skips award nothing
     }
+
+    private static UpdateChoreRequest ToUpdate(CreateChoreRequest c) =>
+        new(c.Name, c.Description, c.Emoji, c.Points, c.RepeatType, c.CustomMode, c.IntervalCount,
+            c.IntervalUnit, c.Weekdays, c.DaysOfMonth, c.Months, c.FrequencyCount, c.FrequencyPeriod,
+            c.AssignmentStrategy, c.SchedulingPreference, c.StartDate, c.AssigneeIds,
+            c.CurrentAssigneeId, c.TagNames, c.Notifications, c.DueTime);
+
+    [Fact]
+    public async Task UpdateAsync_rebuilds_notifications_after_a_delivery_was_recorded()
+    {
+        using var ctx = new TestContext();
+        var (_, member) = await SeedUsersAsync(ctx);
+        var notif = new ChoreNotificationInput(
+            NotificationType.Reminder, NotificationTiming.Before, 30,
+            NotificationOffsetUnit.Minutes, NotificationRecipients.CurrentAssignee);
+        var create = NewChore(member, [member]) with { Notifications = [notif] };
+        var chore = (await ctx.Chores.CreateAsync(create)).Value!;
+
+        // Simulate the scheduler having fired the notification at least once: a NotificationDelivery
+        // row now references the existing ChoreNotification.
+        var notificationId = await ctx.Db.ChoreNotifications.Select(n => n.Id).SingleAsync();
+        ctx.Db.NotificationDeliveries.Add(new Core.Entities.NotificationDelivery
+        {
+            ChoreNotificationId = notificationId,
+            OccurrenceDueAt = chore.DueAt!.Value,
+        });
+        await ctx.Db.SaveChangesAsync();
+
+        // Editing the chore rebuilds (clears + re-adds) its notifications.
+        var result = await ctx.Chores.UpdateAsync(chore.Id, ToUpdate(create));
+
+        Assert.True(result.Succeeded);
+        Assert.Single(result.Value!.Notifications);
+    }
+
+    [Fact]
+    public async Task UpdateAsync_can_change_notifications_on_a_chore_that_has_them()
+    {
+        using var ctx = new TestContext();
+        var (_, member) = await SeedUsersAsync(ctx);
+        var reminder = new ChoreNotificationInput(
+            NotificationType.Reminder, NotificationTiming.Before, 30,
+            NotificationOffsetUnit.Minutes, NotificationRecipients.CurrentAssignee);
+        var create = NewChore(member, [member]) with { Notifications = [reminder] };
+        var chore = (await ctx.Chores.CreateAsync(create)).Value!;
+
+        // Replace the schedule with a different entry.
+        var dueNotice = new ChoreNotificationInput(
+            NotificationType.Due, NotificationTiming.AtDue, 0,
+            NotificationOffsetUnit.Minutes, NotificationRecipients.AllAssignees);
+        var result = await ctx.Chores.UpdateAsync(chore.Id, ToUpdate(create) with { Notifications = [dueNotice] });
+
+        Assert.True(result.Succeeded);
+        var saved = Assert.Single(result.Value!.Notifications);
+        Assert.Equal(NotificationType.Due, saved.Type);
+        Assert.Equal(1, await ctx.Db.ChoreNotifications.CountAsync(n => n.ChoreId == chore.Id));
+    }
 }

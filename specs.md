@@ -225,7 +225,6 @@ refactoring the chores page into multiple components.
 
 ## On wait
 
-- Investigate task update bug - db update concurrency exception on ChoreNotifications
 - Chores title and add chore button take up too much vertical space on mobile
 - Let current assignee be "anyone" (needs to be though out)
 - Add more stuff to chore details page
