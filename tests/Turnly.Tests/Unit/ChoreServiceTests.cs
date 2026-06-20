@@ -33,10 +33,11 @@ public class ChoreServiceTests
         bool rotateOnEachCompletion = false,
         AssignmentStrategy strategy = AssignmentStrategy.KeepLastAssigned,
         SchedulingPreference scheduling = SchedulingPreference.FromScheduledDate,
+        int? graceMinutes = null,
         DateTimeOffset? start = null) =>
         new("Dishes", null, "🍽️", points, repeat, customMode, intervalCount, intervalUnit,
             weekdays, daysOfMonth, months, completionsRequired, rotateOnEachCompletion,
-            strategy, scheduling, start ?? Start, assignees, currentAssignee, tags);
+            strategy, scheduling, graceMinutes, start ?? Start, assignees, currentAssignee, tags);
 
     [Fact]
     public async Task CreateAsync_rejects_blank_name()
@@ -361,19 +362,21 @@ public class ChoreServiceTests
     }
 
     [Fact]
-    public async Task CompleteAsync_from_completion_date_schedules_from_now()
+    public async Task CompleteAsync_from_completion_date_schedules_from_completion_date_at_scheduled_time()
     {
         using var ctx = new TestContext();
         var (_, member) = await SeedUsersAsync(ctx);
+        // Start is 2026-06-17 09:00; completing this overdue daily reschedules off the completion date.
         var chore = (await ctx.Chores.CreateAsync(NewChore(member, [member], RepeatType.Daily,
             scheduling: SchedulingPreference.FromCompletionDate))).Value!;
 
-        var before = DateTimeOffset.UtcNow;
+        var completedDate = DateTimeOffset.UtcNow.Date;
         var result = await ctx.Chores.CompleteAsync(chore.Id, member, new CompleteChoreRequest(null));
 
-        // Next due is ~1 day after the actual completion time, not after the scheduled Start.
-        Assert.True(result.Value!.DueAt! >= before.AddDays(1).AddSeconds(-5));
-        Assert.True(result.Value!.DueAt! <= DateTimeOffset.UtcNow.AddDays(1).AddSeconds(5));
+        // Next due is one day after the completion *date* — but the time-of-day stays pinned to the
+        // chore's scheduled 09:00, never drifting to whatever time "complete" was tapped.
+        Assert.Equal(new TimeSpan(9, 0, 0), result.Value!.DueAt!.Value.TimeOfDay);
+        Assert.Equal(completedDate.AddDays(1), result.Value!.DueAt!.Value.Date);
     }
 
     [Fact]
@@ -676,8 +679,8 @@ public class ChoreServiceTests
     private static UpdateChoreRequest ToUpdate(CreateChoreRequest c) =>
         new(c.Name, c.Description, c.Emoji, c.Points, c.RepeatType, c.CustomMode, c.IntervalCount,
             c.IntervalUnit, c.Weekdays, c.DaysOfMonth, c.Months, c.CompletionsRequired,
-            c.RotateOnEachCompletion, c.AssignmentStrategy, c.SchedulingPreference, c.StartDate, c.AssigneeIds,
-            c.CurrentAssigneeId, c.TagNames, c.Notifications, c.DueTime);
+            c.RotateOnEachCompletion, c.AssignmentStrategy, c.SchedulingPreference, c.GraceMinutes,
+            c.StartDate, c.AssigneeIds, c.CurrentAssigneeId, c.TagNames, c.Notifications, c.DueTime);
 
     [Fact]
     public async Task UpdateAsync_rebuilds_notifications_after_a_delivery_was_recorded()

@@ -60,7 +60,11 @@ export type AssignmentStrategy =
   | 'RandomExceptLastAssigned'
   | 'RoundRobin'
 
-export type SchedulingPreference = 'FromScheduledDate' | 'FromCompletionDate' | 'ToFirstNextRepeat'
+export type SchedulingPreference =
+  | 'FromScheduledDate'
+  | 'FromCompletionDate'
+  | 'ToFirstNextRepeat'
+  | 'SmartScheduling'
 
 export type Weekday =
   | 'Sunday'
@@ -147,6 +151,8 @@ export interface Chore extends RecurrenceFields {
   rotateOnEachCompletion: boolean
   assignmentStrategy: AssignmentStrategy
   schedulingPreference: SchedulingPreference
+  /** Grace window (minutes) for SmartScheduling; null = no grace. */
+  graceMinutes?: number | null
   startDate: string
   /** Local due time "HH:mm", or null for "no specific time" (due end of day). */
   dueTime?: string | null
@@ -174,6 +180,7 @@ export interface ChoreRequest extends RecurrenceFields {
   rotateOnEachCompletion: boolean
   assignmentStrategy: AssignmentStrategy
   schedulingPreference: SchedulingPreference
+  graceMinutes?: number | null
   startDate: string
   dueTime?: string | null
   assigneeIds: string[]

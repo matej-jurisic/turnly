@@ -8,9 +8,9 @@ import { Modal, Avatar } from '@/components/ui/Modal'
 import { Badge } from '@/components/ui/Badge'
 import { TrashIcon } from '@/components/chores/icons'
 import {
-  calendarDaysAgo, choreDueStatus, completionProgressLabel, formatDate, notificationRecipientsLabel,
-  notificationTimingLabel, notificationTypeLabel, relativeDayLabel, repeatLabel,
-  STRATEGY_LABELS, SCHEDULING_LABELS,
+  calendarDaysAgo, choreDueStatus, completionProgressLabel, formatDate, formatGrace,
+  notificationRecipientsLabel, notificationTimingLabel, notificationTypeLabel, relativeDayLabel,
+  repeatLabel, STRATEGY_LABELS, SCHEDULING_LABELS,
 } from '@/lib/chore-format'
 
 interface ChoreDetailsModalProps {
@@ -111,6 +111,11 @@ export function ChoreDetailsModal({ chore, onClose, onComplete }: ChoreDetailsMo
             <div>
               <dt className="text-xs text-muted-foreground">Next due</dt>
               <dd className="text-foreground">{SCHEDULING_LABELS[chore.schedulingPreference] ?? chore.schedulingPreference}</dd>
+              {chore.schedulingPreference === 'SmartScheduling' && chore.graceMinutes ? (
+                <span className="block text-xs text-muted-foreground">
+                  Resets if done &gt;{formatGrace(chore.graceMinutes)} early
+                </span>
+              ) : null}
             </div>
           )}
           <div>

@@ -46,6 +46,12 @@ public class Chore
     /// <summary>How the next due date is calculated after completion.</summary>
     public SchedulingPreference SchedulingPreference { get; set; } = SchedulingPreference.FromScheduledDate;
 
+    /// <summary>Grace window (in minutes) for <see cref="SchedulingPreference.SmartScheduling"/>:
+    /// completions more than this many minutes before the scheduled due date reset the cadence from
+    /// the completion instead of holding the grid. Null = no grace (pure max). Only meaningful when
+    /// <see cref="SchedulingPreference"/> is <see cref="SchedulingPreference.SmartScheduling"/>.</summary>
+    public int? GraceMinutes { get; set; }
+
     /// <summary>When the first occurrence is due (the resolved local instant — date plus
     /// <see cref="DueTime"/>, or end-of-day when none — with the creating client's UTC offset baked
     /// in so the recurrence math keeps a consistent local time-of-day).</summary>

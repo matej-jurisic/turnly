@@ -66,6 +66,7 @@ public record ChoreDto(
     bool RotateOnEachCompletion,
     AssignmentStrategy AssignmentStrategy,
     SchedulingPreference SchedulingPreference,
+    int? GraceMinutes,
     DateTimeOffset StartDate,
     string? DueTime,
     DateTimeOffset? DueAt,
@@ -83,7 +84,7 @@ public record ChoreDto(
             c.CustomMode, c.IntervalCount, c.IntervalUnit,
             c.Weekdays.ToArray(), c.DaysOfMonth.ToArray(), c.Months.ToArray(),
             c.CompletionsRequired, c.RotateOnEachCompletion, c.AssignmentStrategy, c.SchedulingPreference,
-            c.StartDate, c.DueTime?.ToString("HH\\:mm"), c.DueAt,
+            c.GraceMinutes, c.StartDate, c.DueTime?.ToString("HH\\:mm"), c.DueAt,
             c.CurrentAssignee is null ? null : UserDto.FromEntity(c.CurrentAssignee),
             nextAssignee is null ? null : UserDto.FromEntity(nextAssignee),
             c.Assignees.Select(UserDto.FromEntity).OrderBy(u => u.DisplayName).ToArray(),
@@ -133,6 +134,9 @@ public interface IChoreInput
     bool RotateOnEachCompletion { get; }
     AssignmentStrategy AssignmentStrategy { get; }
     SchedulingPreference SchedulingPreference { get; }
+    /// <summary>Grace window in minutes for <see cref="SchedulingPreference.SmartScheduling"/>; null
+    /// (or non-positive) means no grace. Ignored for other scheduling preferences.</summary>
+    int? GraceMinutes { get; }
     DateTimeOffset StartDate { get; }
     /// <summary>Optional local time-of-day ("HH:mm") the chore is due; null means end of day. The
     /// client bakes the resolved instant into <see cref="StartDate"/>; this is stored for round-trip.</summary>
@@ -159,6 +163,7 @@ public record CreateChoreRequest(
     bool RotateOnEachCompletion,
     AssignmentStrategy AssignmentStrategy,
     SchedulingPreference SchedulingPreference,
+    int? GraceMinutes,
     DateTimeOffset StartDate,
     Guid[] AssigneeIds,
     Guid CurrentAssigneeId,
@@ -182,6 +187,7 @@ public record UpdateChoreRequest(
     bool RotateOnEachCompletion,
     AssignmentStrategy AssignmentStrategy,
     SchedulingPreference SchedulingPreference,
+    int? GraceMinutes,
     DateTimeOffset StartDate,
     Guid[] AssigneeIds,
     Guid CurrentAssigneeId,

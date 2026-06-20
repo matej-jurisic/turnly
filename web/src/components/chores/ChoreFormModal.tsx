@@ -18,7 +18,8 @@ import { Modal, Avatar } from '@/components/ui/Modal'
 import { RecurrenceEditor } from '@/components/RecurrenceEditor'
 import { NotificationsEditor } from '@/components/NotificationsEditor'
 import {
-  REPEAT_OPTIONS, STRATEGY_OPTIONS, SCHEDULING_OPTIONS, toLocalDueInstant,
+  REPEAT_OPTIONS, STRATEGY_OPTIONS, SCHEDULING_OPTIONS, GRACE_UNITS,
+  isIntervalStyle, splitGrace, toLocalDueInstant,
 } from '@/lib/chore-format'
 
 interface ChoreFormModalProps {
@@ -54,6 +55,9 @@ export function ChoreFormModal({ title, chore, onClose, onSaved }: ChoreFormModa
   const [schedulingPreference, setSchedulingPreference] = useState<SchedulingPreference>(
     chore?.schedulingPreference ?? 'ToFirstNextRepeat',
   )
+  const initialGrace = splitGrace(chore?.graceMinutes)
+  const [graceValue, setGraceValue] = useState(initialGrace.value)
+  const [graceUnit, setGraceUnit] = useState(initialGrace.unit)
   const [startDate, setStartDate] = useState(
     (chore?.startDate ?? new Date().toISOString()).slice(0, 10),
   )
@@ -85,6 +89,15 @@ export function ChoreFormModal({ title, chore, onClose, onSaved }: ChoreFormModa
   // "Complete N times" only rides on the non-custom repeat types; custom recurrences are always 1.
   const isCustom = repeatType === 'Custom'
 
+  // Smart scheduling is only offered for interval-style repeats (fixed-slot recurrences always hold
+  // their grid). If it was selected and the repeat type is no longer interval-style, fall back.
+  const intervalStyle = isIntervalStyle(repeatType, recurrence.customMode)
+  const effectiveScheduling: SchedulingPreference =
+    !intervalStyle && schedulingPreference === 'SmartScheduling' ? 'FromScheduledDate' : schedulingPreference
+  const graceUnitMinutes = GRACE_UNITS.find((u) => u.value === graceUnit)?.minutes ?? 24 * 60
+  const graceMinutes =
+    effectiveScheduling === 'SmartScheduling' ? Math.max(1, graceValue) * graceUnitMinutes : null
+
   const mutation = useMutation({
     mutationFn: () => {
       const body: ChoreRequest = {
@@ -97,7 +110,8 @@ export function ChoreFormModal({ title, chore, onClose, onSaved }: ChoreFormModa
         completionsRequired: isCustom ? 1 : Math.max(1, completionsRequired),
         rotateOnEachCompletion: !isCustom && completionsRequired > 1 && rotateOnEachCompletion,
         assignmentStrategy,
-        schedulingPreference,
+        schedulingPreference: effectiveScheduling,
+        graceMinutes,
         startDate: toLocalDueInstant(startDate, dueTime),
         dueTime: dueTime || null,
         assigneeIds,
@@ -218,14 +232,43 @@ export function ChoreFormModal({ title, chore, onClose, onSaved }: ChoreFormModa
               <Label htmlFor="scheduling">Next due</Label>
               <Select
                 id="scheduling"
-                value={schedulingPreference}
+                value={effectiveScheduling}
                 onChange={(e) => setSchedulingPreference(e.target.value as SchedulingPreference)}
               >
-                {SCHEDULING_OPTIONS.map((o) => (
+                {SCHEDULING_OPTIONS.filter((o) => o.value !== 'SmartScheduling' || intervalStyle).map((o) => (
                   <option key={o.value} value={o.value}>{o.label}</option>
                 ))}
               </Select>
             </div>
+          </div>
+        )}
+        {repeatType !== 'OneTime' && effectiveScheduling === 'SmartScheduling' && (
+          <div className="-mt-1 rounded-lg bg-accent/50 p-3">
+            <Label className="mb-1">Grace window</Label>
+            <div className="flex items-center gap-2">
+              <div className="w-16">
+                <IntegerInput
+                  value={graceValue}
+                  onCommit={(n) => setGraceValue(Math.max(1, n))}
+                  aria-label="Grace window amount"
+                />
+              </div>
+              <div className="w-28">
+                <Select
+                  value={graceUnit}
+                  onChange={(e) => setGraceUnit(e.target.value)}
+                  aria-label="Grace window unit"
+                >
+                  {GRACE_UNITS.map((u) => (
+                    <option key={u.value} value={u.value}>{u.label}</option>
+                  ))}
+                </Select>
+              </div>
+            </div>
+            <p className="mt-2 text-xs text-muted-foreground">
+              If completed more than this early, reset the next due date to the completion date instead
+              of holding the schedule.
+            </p>
           </div>
         )}
         <div>

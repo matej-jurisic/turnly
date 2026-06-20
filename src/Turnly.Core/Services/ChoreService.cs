@@ -417,7 +417,8 @@ public class ChoreService
 
         var rule = RecurrenceRule.FromChore(chore);
         var scheduledDue = completion.OccurrenceDueAt ?? now;
-        chore.DueAt = RecurrenceCalculator.NextDue(rule, chore.SchedulingPreference, scheduledDue, now, now);
+        var grace = chore.GraceMinutes is { } m ? TimeSpan.FromMinutes(m) : (TimeSpan?)null;
+        chore.DueAt = RecurrenceCalculator.NextDue(rule, chore.SchedulingPreference, scheduledDue, now, now, grace);
         return chore.DueAt is not null;
     }
 
@@ -614,6 +615,10 @@ public class ChoreService
         chore.StartDate = req.StartDate;
         chore.AssignmentStrategy = req.AssignmentStrategy;
         chore.SchedulingPreference = req.SchedulingPreference;
+        // Grace only rides on Smart scheduling, and only when positive (0/null = pure max).
+        chore.GraceMinutes = req.SchedulingPreference == SchedulingPreference.SmartScheduling && req.GraceMinutes is > 0
+            ? req.GraceMinutes
+            : null;
         chore.CurrentAssigneeId = req.CurrentAssigneeId;
 
         // Keep only the recurrence parameters relevant to the chosen mode; null/clear the rest so

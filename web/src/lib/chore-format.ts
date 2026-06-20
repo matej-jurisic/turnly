@@ -2,6 +2,7 @@ import type {
   AssignmentStrategy,
   Chore,
   ChoreNotification,
+  CustomRecurrenceMode,
   RepeatType,
   SchedulingPreference,
   Weekday,
@@ -31,7 +32,42 @@ export const SCHEDULING_OPTIONS: { value: SchedulingPreference; label: string }[
   { value: 'FromScheduledDate', label: 'From scheduled date' },
   { value: 'FromCompletionDate', label: 'From completion date' },
   { value: 'ToFirstNextRepeat', label: 'To first next repeat' },
+  { value: 'SmartScheduling', label: 'Smart scheduling' },
 ]
+
+// Grace-window units for Smart scheduling, stored as a flat minute count. Months are approximated as
+// 30 days — fine for a tolerance window.
+export const GRACE_UNITS: { value: string; label: string; minutes: number }[] = [
+  { value: 'Hour', label: 'hours', minutes: 60 },
+  { value: 'Day', label: 'days', minutes: 60 * 24 },
+  { value: 'Week', label: 'weeks', minutes: 60 * 24 * 7 },
+  { value: 'Month', label: 'months', minutes: 60 * 24 * 30 },
+]
+
+/** Decompose a stored grace-in-minutes into a {value, unit} pair, picking the largest unit that
+ * divides evenly so it round-trips the way the user most likely entered it. */
+export function splitGrace(minutes: number | null | undefined): { value: number; unit: string } {
+  if (!minutes || minutes <= 0) return { value: 1, unit: 'Day' }
+  for (const u of [...GRACE_UNITS].reverse()) {
+    if (minutes % u.minutes === 0) return { value: minutes / u.minutes, unit: u.value }
+  }
+  return { value: minutes, unit: 'Hour' } // never hit (60 divides all), keeps TS happy
+}
+
+/** Human-readable grace window, e.g. 2880 → "2 days". Strips a trailing "s" for singular amounts. */
+export function formatGrace(minutes: number): string {
+  const { value, unit } = splitGrace(minutes)
+  const label = GRACE_UNITS.find((u) => u.value === unit)?.label ?? 'days'
+  return `${value} ${value === 1 ? label.replace(/s$/, '') : label}`
+}
+
+/** Whether a repeat type / custom mode is interval-style (the only case where Smart scheduling
+ * applies — fixed-slot DaysOfWeek/DaysOfMonth recurrences always hold their grid). */
+export function isIntervalStyle(repeatType: RepeatType, customMode?: CustomRecurrenceMode | null): boolean {
+  if (repeatType === 'OneTime') return false
+  if (repeatType !== 'Custom') return true
+  return customMode === 'Interval'
+}
 
 export const STRATEGY_LABELS: Record<string, string> = Object.fromEntries(
   STRATEGY_OPTIONS.map((o) => [o.value, o.label]),

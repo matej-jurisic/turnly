@@ -27,7 +27,7 @@ public class AwardManagementTests : IDisposable
     {
         var chore = await (await admin.PostJsonAsync("/api/chores", new CreateChoreRequest(
             "Dishes", null, "🍽️", points, RepeatType.Daily, null, null, null, null, null, null, 1, false,
-            AssignmentStrategy.KeepLastAssigned, SchedulingPreference.FromScheduledDate,
+            AssignmentStrategy.KeepLastAssigned, SchedulingPreference.FromScheduledDate, null,
             new DateTimeOffset(2026, 6, 17, 9, 0, 0, TimeSpan.Zero),
             [memberAuth.User.Id], memberAuth.User.Id, null))).ReadAsync<ChoreDto>();
         await member.PostJsonAsync($"/api/chores/{chore.Id}/complete", new CompleteChoreRequest(null));

@@ -12,7 +12,12 @@ recurrence (one-time/daily/weekly/monthly/yearly + start date), mark complete + 
 per-user points log. Phase 3 (Chores – Advanced): custom recurrence (`Custom` repeat type with
 Interval / DaysOfWeek / DaysOfMonth modes — day granularity, hourly deferred to
 a later phase), six assignment strategies that rotate the current assignee on each new occurrence, and
-three scheduling preferences for the next due date. **Post-Phase-3 refactor:** the old "N times per
+four scheduling preferences for the next due date (`FromScheduledDate`, `FromCompletionDate`,
+`ToFirstNextRepeat`, and `SmartScheduling` — the last holds the planned cadence but never schedules
+sooner than one interval after the actual completion, i.e. `max(FromScheduledDate, FromCompletionDate)`,
+with an optional `Chore.GraceMinutes` window that resets the cadence from completion when a chore is
+done more than the grace early; offered only for interval-style repeats, computed in
+`RecurrenceCalculator.NextDue`). **Post-Phase-3 refactor:** the old "N times per
 period" custom mode (`Frequency`) was generalised into an orthogonal per-occurrence completion count
 — `Chore.CompletionsRequired` (default 1, offered only on the non-custom repeat types
 OneTime/Daily/Weekly/Monthly/Yearly). An occurrence now closes after N completions/skips (counted by

@@ -225,8 +225,22 @@ refactoring the chores page into multiple components.
 
 ## On wait
 
-- Completion log filter dropdowns are too small on mobile
-- Let users change their profile color
+- **Per-user time zone** — `User.TimeZoneId` (IANA); prerequisite for quiet hours + digest
+  (everything currently runs in UTC). Set manually by an admin on the user add/edit form (a zone
+  picker); no auto-detection for now.
+- **Vacation / availability** — `UserAvailability` (date range per user); `AdvanceScheduleAsync`
+  filters unavailable users out of the assignee list before `AssignmentPicker.Pick` (fall back to
+  the full list if everyone's away), and `SendEntryAsync` skips away recipients (push + inbox).
+  Independent of the time-zone work.
+- **Quiet hours** — per-user nightly window (`QuietHoursEnabled/Start/End` on `User`, wrap-aware);
+  in `SendEntryAsync`, suppress push for recipients currently in quiet hours but keep the inbox row.
+  v1 just drops the push; full version defers/replays it after the window (needs a per-recipient
+  pending-push queue, since today's dedup is per-occurrence, not per-recipient).
+- **Daily digest** — opt-in per-user morning summary (one push instead of N): `DigestEnabled` +
+  `DigestAtLocal` on `User`, a `DigestDelivery (UserId, LocalDate)` dedup row, and a new
+  `ProcessDigestsAsync(now)` scan called from the same minute tick. Reuses the dashboard's
+  today/overdue grouping. Consider a per-user "per-event | digest | both" notification style that
+  ties this together with quiet hours.
 
 ## Out of Scope (v1)
 

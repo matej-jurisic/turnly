@@ -9,8 +9,8 @@ public class RecurrenceCalculatorTests
 
     private static DateTimeOffset? Next(RecurrenceRule rule, DateTimeOffset scheduledDue,
         SchedulingPreference pref = SchedulingPreference.FromScheduledDate,
-        DateTimeOffset? completedAt = null, DateTimeOffset? now = null) =>
-        RecurrenceCalculator.NextDue(rule, pref, scheduledDue, completedAt ?? scheduledDue, now ?? scheduledDue);
+        DateTimeOffset? completedAt = null, DateTimeOffset? now = null, TimeSpan? grace = null) =>
+        RecurrenceCalculator.NextDue(rule, pref, scheduledDue, completedAt ?? scheduledDue, now ?? scheduledDue, grace);
 
     [Fact]
     public void OneTime_has_no_next_occurrence()
@@ -103,6 +103,60 @@ public class RecurrenceCalculatorTests
         Assert.Equal(Wed.AddDays(11), next); // first daily slot strictly after now
     }
 
+    // ── SmartScheduling: max(FromScheduledDate, FromCompletionDate), with optional grace ──────
+
+    [Fact]
+    public void Smart_late_completion_rests_a_full_interval_from_completion()
+    {
+        // Weekly chore due Wed, completed 5 days late. FromScheduled would land it only 2 days out;
+        // Smart instead keeps a full week of rest from the actual completion.
+        var rule = new RecurrenceRule(RepeatType.Weekly);
+        var completed = Wed.AddDays(5);
+        var next = Next(rule, Wed, SchedulingPreference.SmartScheduling, completedAt: completed, now: completed);
+        Assert.Equal(completed.AddDays(7), next);
+    }
+
+    [Fact]
+    public void Smart_early_completion_holds_the_grid()
+    {
+        // Weekly chore due Wed, completed 2 days early. Smart keeps the planned Wed cadence rather
+        // than drifting earlier (which pure FromCompletionDate would do).
+        var rule = new RecurrenceRule(RepeatType.Weekly);
+        var completed = Wed.AddDays(-2);
+        var next = Next(rule, Wed, SchedulingPreference.SmartScheduling, completedAt: completed, now: completed);
+        Assert.Equal(Wed.AddDays(7), next);
+    }
+
+    [Fact]
+    public void Smart_on_time_completion_advances_one_interval()
+    {
+        var rule = new RecurrenceRule(RepeatType.Weekly);
+        Assert.Equal(Wed.AddDays(7), Next(rule, Wed, SchedulingPreference.SmartScheduling));
+    }
+
+    [Fact]
+    public void Smart_within_grace_holds_the_grid()
+    {
+        // Completed 1 day early with a 2-day grace → still treated as on-schedule, keep the grid.
+        var rule = new RecurrenceRule(RepeatType.Weekly);
+        var completed = Wed.AddDays(-1);
+        var next = Next(rule, Wed, SchedulingPreference.SmartScheduling,
+            completedAt: completed, now: completed, grace: TimeSpan.FromDays(2));
+        Assert.Equal(Wed.AddDays(7), next);
+    }
+
+    [Fact]
+    public void Smart_beyond_grace_resets_from_completion()
+    {
+        // Completed 6 days early with a 2-day grace → genuine early completion, reset the cadence
+        // from completion (avoids the ~13-day gap holding the grid would create).
+        var rule = new RecurrenceRule(RepeatType.Weekly);
+        var completed = Wed.AddDays(-6);
+        var next = Next(rule, Wed, SchedulingPreference.SmartScheduling,
+            completedAt: completed, now: completed, grace: TimeSpan.FromDays(2));
+        Assert.Equal(completed.AddDays(7), next);
+    }
+
     [Fact]
     public void FirstOccurrence_for_fixed_slot_lands_on_or_after_start()
     {
@@ -117,5 +171,43 @@ public class RecurrenceCalculatorTests
     public void FirstOccurrence_for_interval_is_the_start()
     {
         Assert.Equal(Wed, RecurrenceCalculator.FirstOccurrence(new RecurrenceRule(RepeatType.Daily), Wed));
+    }
+
+    // ── Time-of-day is fixed by the schedule and never follows the completion time ────────────
+
+    [Fact]
+    public void FromCompletionDate_keeps_the_scheduled_time_of_day()
+    {
+        // Chore due at 18:00; completed at 09:15 the same day. The next due must stay at 18:00,
+        // not drift to 09:15 (which plain interval-stepping off the completion instant would do).
+        var due = new DateTimeOffset(2026, 6, 17, 18, 0, 0, TimeSpan.Zero);
+        var completed = new DateTimeOffset(2026, 6, 17, 9, 15, 0, TimeSpan.Zero);
+        var next = Next(new RecurrenceRule(RepeatType.Daily), due,
+            SchedulingPreference.FromCompletionDate, completedAt: completed, now: completed);
+        Assert.Equal(new DateTimeOffset(2026, 6, 18, 18, 0, 0, TimeSpan.Zero), next);
+    }
+
+    [Fact]
+    public void Smart_late_completion_keeps_the_scheduled_time_of_day()
+    {
+        // Weekly chore due 18:00, completed 5 days late at 09:15: Smart rests a full week from the
+        // completion *date*, but the time-of-day stays pinned to 18:00.
+        var due = new DateTimeOffset(2026, 6, 17, 18, 0, 0, TimeSpan.Zero);
+        var completed = new DateTimeOffset(2026, 6, 22, 9, 15, 0, TimeSpan.Zero);
+        var next = Next(new RecurrenceRule(RepeatType.Weekly), due,
+            SchedulingPreference.SmartScheduling, completedAt: completed, now: completed);
+        Assert.Equal(new DateTimeOffset(2026, 6, 29, 18, 0, 0, TimeSpan.Zero), next);
+    }
+
+    [Fact]
+    public void FromCompletionDate_keeps_scheduled_time_across_utc_offset()
+    {
+        // Chore due 18:00 at +02:00, completed late evening UTC (early-morning local next day). The
+        // next due must land on the correct local date at 18:00 +02:00, not at the UTC completion time.
+        var due = new DateTimeOffset(2026, 6, 17, 18, 0, 0, TimeSpan.FromHours(2));
+        var completed = new DateTimeOffset(2026, 6, 17, 23, 0, 0, TimeSpan.Zero); // 2026-06-18 01:00 +02:00
+        var next = Next(new RecurrenceRule(RepeatType.Daily), due,
+            SchedulingPreference.FromCompletionDate, completedAt: completed, now: completed);
+        Assert.Equal(new DateTimeOffset(2026, 6, 19, 18, 0, 0, TimeSpan.FromHours(2)), next);
     }
 }

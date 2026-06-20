@@ -30,42 +30,94 @@ public static class RecurrenceCalculator
     }
 
     /// <summary>The next due date after completing the <paramref name="scheduledDue"/> occurrence,
-    /// honouring the scheduling preference. Returns null for one-time chores.</summary>
+    /// honouring the scheduling preference. Returns null for one-time chores. <paramref name="grace"/>
+    /// only applies to <see cref="SchedulingPreference.SmartScheduling"/>.</summary>
     public static DateTimeOffset? NextDue(
+        RecurrenceRule rule,
+        SchedulingPreference pref,
+        DateTimeOffset scheduledDue,
+        DateTimeOffset completedAt,
+        DateTimeOffset now,
+        TimeSpan? grace = null)
+    {
+        if (rule.Type == RepeatType.OneTime)
+            return null;
+
+        if (pref == SchedulingPreference.SmartScheduling)
+        {
+            // Hold the planned cadence, but never sooner than one interval after the actual
+            // completion: the later of the grid-anchored and completion-anchored next dates.
+            var fromCompletion = NextDueFor(rule, SchedulingPreference.FromCompletionDate, scheduledDue, completedAt, now);
+
+            // Completed more than the grace window early → treat it as a genuine early completion and
+            // reset from completion, rather than holding the grid (which would leave an over-long gap).
+            if (grace is { } g && scheduledDue - completedAt > g)
+                return fromCompletion;
+
+            var fromScheduled = NextDueFor(rule, SchedulingPreference.FromScheduledDate, scheduledDue, completedAt, now);
+            return fromScheduled >= fromCompletion ? fromScheduled : fromCompletion;
+        }
+
+        return NextDueFor(rule, pref, scheduledDue, completedAt, now);
+    }
+
+    /// <summary>The next due date for one of the three base preferences (everything except the
+    /// composite <see cref="SchedulingPreference.SmartScheduling"/>). Never null — the one-time guard
+    /// lives in <see cref="NextDue"/>.</summary>
+    private static DateTimeOffset NextDueFor(
         RecurrenceRule rule,
         SchedulingPreference pref,
         DateTimeOffset scheduledDue,
         DateTimeOffset completedAt,
         DateTimeOffset now)
     {
-        if (rule.Type == RepeatType.OneTime)
-            return null;
-
+        DateTimeOffset result;
         if (IsFixedSlot(rule))
         {
-            // All three preferences reduce to "the next slot strictly after a base instant".
+            // All base preferences reduce to "the next slot strictly after a base instant".
             var baseInstant = pref switch
             {
                 SchedulingPreference.FromCompletionDate => completedAt,
                 SchedulingPreference.ToFirstNextRepeat => now,
                 _ => scheduledDue,
             };
-            return FixedSlotAfter(rule, scheduledDue, baseInstant);
+            result = FixedSlotAfter(rule, scheduledDue, baseInstant);
+        }
+        else
+        {
+            // Interval-style (Daily / Weekly / Monthly / Yearly / Custom-Interval).
+            switch (pref)
+            {
+                case SchedulingPreference.FromCompletionDate:
+                    result = AddInterval(rule, completedAt);
+                    break;
+                case SchedulingPreference.ToFirstNextRepeat:
+                    var next = AddInterval(rule, scheduledDue);
+                    for (var i = 0; next <= now && i < MaxIntervalSteps; i++)
+                        next = AddInterval(rule, next);
+                    result = next;
+                    break;
+                default: // FromScheduledDate
+                    result = AddInterval(rule, scheduledDue);
+                    break;
+            }
         }
 
-        // Interval-style (Daily / Weekly / Monthly / Yearly / Custom-Interval).
-        switch (pref)
-        {
-            case SchedulingPreference.FromCompletionDate:
-                return AddInterval(rule, completedAt);
-            case SchedulingPreference.ToFirstNextRepeat:
-                var next = AddInterval(rule, scheduledDue);
-                for (var i = 0; next <= now && i < MaxIntervalSteps; i++)
-                    next = AddInterval(rule, next);
-                return next;
-            default: // FromScheduledDate
-                return AddInterval(rule, scheduledDue);
-        }
+        // The time-of-day is part of the schedule (a chore due at 18:00 stays due at 18:00) and must
+        // never drift to the completion instant — which FromCompletionDate would otherwise do, since
+        // it steps the interval off `completedAt` (= the moment "complete" was tapped, in UTC). Re-anchor
+        // every computed date to the occurrence's set local time-of-day and offset.
+        return WithScheduledTimeOfDay(result, scheduledDue);
+    }
+
+    /// <summary>Forces <paramref name="result"/> onto <paramref name="canonical"/>'s local time-of-day
+    /// and UTC offset, keeping the calendar date as it falls in that offset. Fixed-slot results already
+    /// carry the right time, so this is a no-op for them; it only corrects the interval-style paths that
+    /// step off the completion instant.</summary>
+    private static DateTimeOffset WithScheduledTimeOfDay(DateTimeOffset result, DateTimeOffset canonical)
+    {
+        var localDate = result.ToOffset(canonical.Offset).Date;
+        return new DateTimeOffset(localDate.Add(canonical.TimeOfDay), canonical.Offset);
     }
 
     // ── Classification ────────────────────────────────────────────────────────────────────

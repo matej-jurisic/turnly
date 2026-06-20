@@ -66,7 +66,7 @@ public class NotificationTests : IDisposable
             NotificationRecipients.AllAssignees);
         var request = new CreateChoreRequest(
             "Dishes", null, "🍽️", 10, RepeatType.Daily, null, null, null, null, null, null, 1, false,
-            AssignmentStrategy.KeepLastAssigned, SchedulingPreference.FromScheduledDate,
+            AssignmentStrategy.KeepLastAssigned, SchedulingPreference.FromScheduledDate, null,
             Start, [adminAuth.User.Id], adminAuth.User.Id, null, [notification]);
 
         var created = await (await admin.PostJsonAsync("/api/chores", request)).ReadAsync<ChoreDto>();
