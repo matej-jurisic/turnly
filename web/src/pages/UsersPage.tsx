@@ -1,6 +1,8 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { usersApi, ApiError } from '@/lib/api'
+import { toast } from '@/lib/toast'
+import { confirm } from '@/lib/confirm'
 import { useAuthStore } from '@/store/auth'
 import type { CreateUserRequest, UpdateUserRequest, User, UserRole } from '@/lib/types'
 import { Button } from '@/components/ui/Button'
@@ -25,7 +27,7 @@ export function UsersPage() {
   const deleteMutation = useMutation({
     mutationFn: (id: string) => usersApi.remove(id),
     onSuccess: invalidate,
-    onError: (err) => alert(err instanceof ApiError ? err.message : 'Delete failed'),
+    onError: (err) => toast.error(err instanceof ApiError ? err.message : 'Delete failed'),
   })
 
   return (
@@ -62,8 +64,14 @@ export function UsersPage() {
                 variant="ghost"
                 className="text-destructive hover:bg-destructive/10"
                 disabled={user.id === currentUser?.id || deleteMutation.isPending}
-                onClick={() => {
-                  if (confirm(`Delete ${user.displayName}? This wipes their history.`)) {
+                onClick={async () => {
+                  if (
+                    await confirm({
+                      title: 'Delete user',
+                      message: `Delete ${user.displayName}? This wipes their history.`,
+                      confirmLabel: 'Delete',
+                    })
+                  ) {
                     deleteMutation.mutate(user.id)
                   }
                 }}

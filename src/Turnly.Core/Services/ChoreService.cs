@@ -426,6 +426,8 @@ public class ChoreService
         if (Validators.Recurrence(req.RepeatType, req.CustomMode, req.IntervalCount, req.IntervalUnit,
                 req.Weekdays, req.DaysOfMonth, req.Months, req.FrequencyCount, req.FrequencyPeriod) is { } recurrenceError)
             return Result.Fail<List<User>>(recurrenceError);
+        if (Validators.DueTime(req.DueTime, out _) is { } dueTimeError)
+            return Result.Fail<List<User>>(dueTimeError);
 
         if (req.Notifications is { } notifications)
         {
@@ -492,6 +494,10 @@ public class ChoreService
             : new List<int>();
         chore.FrequencyCount = mode == CustomRecurrenceMode.Frequency ? req.FrequencyCount : null;
         chore.FrequencyPeriod = mode == CustomRecurrenceMode.Frequency ? req.FrequencyPeriod : null;
+
+        // A specific due time is meaningless for Frequency chores (they're due at the period boundary).
+        Validators.DueTime(req.DueTime, out var dueTime); // format already checked in ValidateAsync
+        chore.DueTime = mode == CustomRecurrenceMode.Frequency ? null : dueTime;
 
         chore.Assignees.Clear();
         foreach (var a in assignees) chore.Assignees.Add(a);

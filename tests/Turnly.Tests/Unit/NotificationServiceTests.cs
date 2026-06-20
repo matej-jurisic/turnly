@@ -171,6 +171,50 @@ public class NotificationServiceTests
     }
 
     [Fact]
+    public async Task ProcessDueAsync_writes_an_inbox_item_even_without_a_subscription()
+    {
+        using var ctx = new TestContext();
+        var (_, member) = await SeedUsersAsync(ctx);
+        var choreId = await SeedChoreAsync(ctx, member, [member], AtDue(), Due);
+        // No push subscription — the in-app inbox should still record it.
+
+        var fired = await ctx.Notifications.ProcessDueAsync(Due);
+
+        Assert.Equal(1, fired);
+        var inbox = await ctx.Notifications.ListInboxAsync(member);
+        var item = Assert.Single(inbox);
+        Assert.Equal(choreId, item.ChoreId);
+        Assert.False(item.Read);
+    }
+
+    [Fact]
+    public async Task ProcessDueAsync_writes_an_inbox_item_per_recipient()
+    {
+        using var ctx = new TestContext();
+        var (admin, member) = await SeedUsersAsync(ctx);
+        await SeedChoreAsync(ctx, member, [member, admin], AtDue(NotificationRecipients.AllAssignees), Due);
+
+        await ctx.Notifications.ProcessDueAsync(Due);
+
+        Assert.Single(await ctx.Notifications.ListInboxAsync(member));
+        Assert.Single(await ctx.Notifications.ListInboxAsync(admin));
+    }
+
+    [Fact]
+    public async Task MarkInboxReadAsync_marks_all_unread_as_read()
+    {
+        using var ctx = new TestContext();
+        var (_, member) = await SeedUsersAsync(ctx);
+        await SeedChoreAsync(ctx, member, [member], AtDue(), Due);
+        await ctx.Notifications.ProcessDueAsync(Due);
+
+        var marked = await ctx.Notifications.MarkInboxReadAsync(member, Due.AddMinutes(1));
+
+        Assert.Equal(1, marked);
+        Assert.All(await ctx.Notifications.ListInboxAsync(member), n => Assert.True(n.Read));
+    }
+
+    [Fact]
     public async Task SubscribeAsync_upserts_by_endpoint()
     {
         using var ctx = new TestContext();

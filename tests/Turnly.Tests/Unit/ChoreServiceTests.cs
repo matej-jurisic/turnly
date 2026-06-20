@@ -100,6 +100,47 @@ public class ChoreServiceTests
     }
 
     [Fact]
+    public async Task CreateAsync_stores_and_round_trips_due_time()
+    {
+        using var ctx = new TestContext();
+        var (_, member) = await SeedUsersAsync(ctx);
+
+        var result = await ctx.Chores.CreateAsync(NewChore(member, [member]) with { DueTime = "09:30" });
+
+        Assert.True(result.Succeeded);
+        Assert.Equal("09:30", result.Value!.DueTime);
+        var stored = await ctx.Db.Chores.SingleAsync();
+        Assert.Equal(new TimeOnly(9, 30), stored.DueTime);
+    }
+
+    [Fact]
+    public async Task CreateAsync_rejects_malformed_due_time()
+    {
+        using var ctx = new TestContext();
+        var (_, member) = await SeedUsersAsync(ctx);
+
+        var result = await ctx.Chores.CreateAsync(NewChore(member, [member]) with { DueTime = "9am" });
+
+        Assert.False(result.Succeeded);
+        Assert.Equal(ErrorType.Validation, result.Error!.Type);
+    }
+
+    [Fact]
+    public async Task CreateAsync_ignores_due_time_for_frequency_chores()
+    {
+        using var ctx = new TestContext();
+        var (_, member) = await SeedUsersAsync(ctx);
+
+        var result = await ctx.Chores.CreateAsync(
+            NewChore(member, [member], RepeatType.Custom,
+                customMode: CustomRecurrenceMode.Frequency, frequencyCount: 3,
+                frequencyPeriod: FrequencyPeriod.Week) with { DueTime = "09:30" });
+
+        Assert.True(result.Succeeded);
+        Assert.Null(result.Value!.DueTime);
+    }
+
+    [Fact]
     public async Task CreateAsync_reuses_existing_tags()
     {
         using var ctx = new TestContext();

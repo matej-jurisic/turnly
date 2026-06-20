@@ -2,6 +2,8 @@ import { useState } from 'react'
 import type { ReactNode } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { choresApi, usersApi, ApiError } from '@/lib/api'
+import { toast } from '@/lib/toast'
+import { confirm } from '@/lib/confirm'
 import type { Chore, LeaderboardEntry } from '@/lib/types'
 import { Badge } from '@/components/ui/Badge'
 import { Card } from '@/components/ui/Card'
@@ -42,7 +44,7 @@ function dueLabelFor(chore: Chore): string {
     const hours = due.getHours()
     const mins = due.getMinutes()
     if (hours === 0 && mins === 0) return 'Due today'
-    return `Due today at ${due.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+    return `Due today at ${due.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}`
   }
   if (diffDays === 1) return 'Tomorrow'
   return `In ${diffDays} days`
@@ -75,8 +77,20 @@ export function DashboardPage() {
   const undoMutation = useMutation({
     mutationFn: (completionId: string) => choresApi.undoCompletion(completionId),
     onSuccess: invalidate,
-    onError: (err) => alert(err instanceof ApiError ? err.message : 'Undo failed'),
+    onError: (err) => toast.error(err instanceof ApiError ? err.message : 'Undo failed'),
   })
+
+  const confirmUndo = async (chore: Chore) => {
+    if (
+      await confirm({
+        title: 'Undo completion',
+        message: 'Undo the last completion? Points will be reversed.',
+        confirmLabel: 'Undo',
+      })
+    ) {
+      undoMutation.mutate(chore.lastCompletion!.id)
+    }
+  }
 
   // All unique tags from all chores
   const allTags = [...new Set(chores.flatMap((c) => c.tags))].sort()
@@ -175,10 +189,7 @@ export function DashboardPage() {
               chore={chore}
                             undoPending={undoMutation.isPending}
               onComplete={() => setCompleting(chore)}
-              onUndo={() => {
-                if (confirm('Undo the last completion? Points will be reversed.'))
-                  undoMutation.mutate(chore.lastCompletion!.id)
-              }}
+              onUndo={() => confirmUndo(chore)}
             />
           )}
         </ChoreSection>
@@ -192,10 +203,7 @@ export function DashboardPage() {
             chore={chore}
                         undoPending={undoMutation.isPending}
             onComplete={() => setCompleting(chore)}
-            onUndo={() => {
-              if (confirm('Undo the last completion? Points will be reversed.'))
-                undoMutation.mutate(chore.lastCompletion!.id)
-            }}
+            onUndo={() => confirmUndo(chore)}
           />
         )}
       </ChoreSection>
@@ -209,10 +217,7 @@ export function DashboardPage() {
               chore={chore}
                             undoPending={undoMutation.isPending}
               onComplete={() => setCompleting(chore)}
-              onUndo={() => {
-                if (confirm('Undo the last completion? Points will be reversed.'))
-                  undoMutation.mutate(chore.lastCompletion!.id)
-              }}
+              onUndo={() => confirmUndo(chore)}
             />
           )}
         </ChoreSection>

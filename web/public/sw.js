@@ -17,6 +17,9 @@ self.addEventListener('push', (event) => {
   const title = data.title || 'Turnly'
   const options = {
     body: data.body || '',
+    // Our own app icon, so notifications aren't branded with the browser's default.
+    icon: data.icon || '/icon-192.png',
+    badge: data.badge || '/icon-192.png',
     data: { url: data.url || '/chores' },
   }
 

@@ -1,7 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { choresApi, tagsApi, usersApi, ApiError } from '@/lib/api'
+import { toast } from '@/lib/toast'
+import { confirm } from '@/lib/confirm'
 import { useAuthStore } from '@/store/auth'
 import type {
   AssignmentStrategy,
@@ -18,6 +21,7 @@ import { Button } from '@/components/ui/Button'
 import { Badge } from '@/components/ui/Badge'
 import { Card } from '@/components/ui/Card'
 import { Input, Label, Select } from '@/components/ui/Field'
+import { TimeField } from '@/components/ui/TimeField'
 import { Modal, Avatar } from '@/components/ui/Modal'
 import { RecurrenceEditor } from '@/components/RecurrenceEditor'
 import { NotificationsEditor } from '@/components/NotificationsEditor'
@@ -88,6 +92,33 @@ function formatDate(iso?: string | null): string {
   return new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
 }
 
+/** Formats an "HH:mm" due time for display in 24-hour format (e.g. "09:00"); empty for no time. */
+function formatDueTime(time?: string | null): string {
+  if (!time) return ''
+  const [hh, mm] = time.split(':').map(Number)
+  return new Date(2000, 0, 1, hh, mm).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
+}
+
+/**
+ * Builds an offset-preserving local ISO instant from a date (YYYY-MM-DD) + optional time (HH:mm).
+ * Keeping the browser's UTC offset (rather than `toISOString()`, which collapses to UTC) is what
+ * makes the chore land on the right calendar day in the user's timezone and keeps the recurrence
+ * engine's time-of-day correct. No time → end of the local day, so it stays "due today" all day.
+ */
+function toLocalDueInstant(dateStr: string, timeStr: string): string {
+  const [y, m, d] = dateStr.split('-').map(Number)
+  const [hh, mm] = timeStr ? timeStr.split(':').map(Number) : [23, 59]
+  const dt = new Date(y, m - 1, d, hh, mm, timeStr ? 0 : 59, 0)
+  const pad = (n: number) => String(Math.abs(n)).padStart(2, '0')
+  const off = -dt.getTimezoneOffset()
+  const sign = off >= 0 ? '+' : '-'
+  return (
+    `${dt.getFullYear()}-${pad(dt.getMonth() + 1)}-${pad(dt.getDate())}` +
+    `T${pad(dt.getHours())}:${pad(dt.getMinutes())}:${pad(dt.getSeconds())}` +
+    `${sign}${pad(Math.trunc(Math.abs(off) / 60))}:${pad(Math.abs(off) % 60)}`
+  )
+}
+
 // ── helpers ────────────────────────────────────────────────────────────────
 
 function startOfDay(d: Date): Date {
@@ -115,6 +146,9 @@ export function ChoresPage() {
 
   const { data: chores, isLoading, error } = useQuery({ queryKey: ['chores'], queryFn: choresApi.list })
 
+  // Deep-link from a notification (push or inbox): /chores?chore=<id> opens its details modal.
+  const [searchParams, setSearchParams] = useSearchParams()
+
   const [editing, setEditing] = useState<Chore | null>(null)
   const [creating, setCreating] = useState(false)
   const [completing, setCompleting] = useState<Chore | null>(null)
@@ -125,22 +159,38 @@ export function ChoresPage() {
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ['chores'] })
 
+  const choreParam = searchParams.get('chore')
+  useEffect(() => {
+    if (!choreParam || !chores) return
+    const match = chores.find((c) => c.id === choreParam)
+    if (match) setDetails(match)
+    // Consume the param either way so it doesn't re-open after the modal is closed.
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev)
+        next.delete('chore')
+        return next
+      },
+      { replace: true },
+    )
+  }, [choreParam, chores, setSearchParams])
+
   const deleteMutation = useMutation({
     mutationFn: (id: string) => choresApi.remove(id),
     onSuccess: invalidate,
-    onError: (err) => alert(err instanceof ApiError ? err.message : 'Delete failed'),
+    onError: (err) => toast.error(err instanceof ApiError ? err.message : 'Delete failed'),
   })
 
   const undoMutation = useMutation({
     mutationFn: (completionId: string) => choresApi.undoCompletion(completionId),
     onSuccess: invalidate,
-    onError: (err) => alert(err instanceof ApiError ? err.message : 'Undo failed'),
+    onError: (err) => toast.error(err instanceof ApiError ? err.message : 'Undo failed'),
   })
 
   const skipMutation = useMutation({
     mutationFn: (id: string) => choresApi.skip(id, { notes: null }),
     onSuccess: invalidate,
-    onError: (err) => alert(err instanceof ApiError ? err.message : 'Skip failed'),
+    onError: (err) => toast.error(err instanceof ApiError ? err.message : 'Skip failed'),
   })
 
   const allTags = useMemo(
@@ -177,22 +227,44 @@ export function ChoresPage() {
     skipPending: skipMutation.isPending,
     deletePending: deleteMutation.isPending,
     onComplete: () => setCompleting(chore),
-    onUndo: () => {
+    onUndo: async () => {
       const wasSkip = chore.lastCompletion?.isSkip
-      const message = wasSkip
-        ? 'Undo the last skip? The chore returns to its previous due date.'
-        : 'Undo the last completion? Points will be reversed.'
-      if (confirm(message)) undoMutation.mutate(chore.lastCompletion!.id)
+      if (
+        await confirm({
+          title: wasSkip ? 'Undo skip' : 'Undo completion',
+          message: wasSkip
+            ? 'Undo the last skip? The chore returns to its previous due date.'
+            : 'Undo the last completion? Points will be reversed.',
+          confirmLabel: 'Undo',
+        })
+      ) {
+        undoMutation.mutate(chore.lastCompletion!.id)
+      }
     },
-    onSkip: () => {
-      if (confirm(`Skip this occurrence of "${chore.name}"? It advances to the next due date without awarding points.`))
+    onSkip: async () => {
+      if (
+        await confirm({
+          title: 'Skip occurrence',
+          message: `Skip this occurrence of "${chore.name}"? It advances to the next due date without awarding points.`,
+          confirmLabel: 'Skip',
+          variant: 'primary',
+        })
+      ) {
         skipMutation.mutate(chore.id)
+      }
     },
     onReassign: () => setReassigning(chore),
     onEdit: () => setEditing(chore),
-    onDelete: () => {
-      if (confirm(`Delete "${chore.name}"? This wipes its completion history.`))
+    onDelete: async () => {
+      if (
+        await confirm({
+          title: 'Delete chore',
+          message: `Delete "${chore.name}"? This wipes its completion history.`,
+          confirmLabel: 'Delete',
+        })
+      ) {
         deleteMutation.mutate(chore.id)
+      }
     },
     onDetails: () => setDetails(chore),
   })
@@ -247,7 +319,7 @@ export function ChoresPage() {
       {error && <p className="text-destructive">{(error as ApiError).message}</p>}
 
       {!isLoading && (chores ?? []).length === 0 && (
-        <p className="text-muted-foreground">No chores yet{isAdmin ? ' — add one to get started.' : '.'}</p>
+        <p className="text-muted-foreground">No chores yet{isAdmin ? ' , add one to get started.' : '.'}</p>
       )}
       {!isLoading && (chores ?? []).length > 0 && overdue.length + today.length + upcoming.length + later.length === 0 && (
         <p className="text-muted-foreground">No chores match the current filters.</p>
@@ -349,7 +421,7 @@ function ReassignModal({ chore, onClose, onDone }: { chore: Chore; onClose: () =
   const mutation = useMutation({
     mutationFn: () => choresApi.reassign(chore.id, { assigneeId }),
     onSuccess: onDone,
-    onError: (err) => alert(err instanceof ApiError ? err.message : 'Reassign failed'),
+    onError: (err) => toast.error(err instanceof ApiError ? err.message : 'Reassign failed'),
   })
 
   return (
@@ -446,7 +518,9 @@ function ChoreListItem({
     <div className="relative">
       <div className="absolute left-4 top-0 z-10 flex -translate-y-1/2 items-center gap-2">
         {chore.dueAt && (
-          <Badge tone="amber" className="border border-warning bg-card">Due {formatDate(chore.dueAt)}</Badge>
+          <Badge tone="amber" className="border border-warning bg-card">
+            Due {formatDate(chore.dueAt)}{chore.dueTime && ` · ${formatDueTime(chore.dueTime)}`}
+          </Badge>
         )}
         <Badge tone="blue" className="border border-info bg-card">{repeatLabel(chore)}</Badge>
         {chore.customMode === 'Frequency' && (
@@ -742,6 +816,7 @@ function ChoreFormModal({ title, chore, onClose, onSaved }: ChoreFormModalProps)
   const [startDate, setStartDate] = useState(
     (chore?.startDate ?? new Date().toISOString()).slice(0, 10),
   )
+  const [dueTime, setDueTime] = useState(chore?.dueTime ?? '')
   const [assigneeIds, setAssigneeIds] = useState<string[]>(
     chore?.assignees.map((a) => a.id) ?? [],
   )
@@ -766,6 +841,8 @@ function ChoreFormModal({ title, chore, onClose, onSaved }: ChoreFormModalProps)
     })
   }
 
+  const isFrequency = repeatType === 'Custom' && recurrence.customMode === 'Frequency'
+
   const mutation = useMutation({
     mutationFn: () => {
       const body: ChoreRequest = {
@@ -777,7 +854,8 @@ function ChoreFormModal({ title, chore, onClose, onSaved }: ChoreFormModalProps)
         ...recurrence,
         assignmentStrategy,
         schedulingPreference,
-        startDate: new Date(startDate).toISOString(),
+        startDate: toLocalDueInstant(startDate, isFrequency ? '' : dueTime),
+        dueTime: isFrequency ? null : dueTime || null,
         assigneeIds,
         currentAssigneeId,
         tagNames: selectedTags,
@@ -803,7 +881,7 @@ function ChoreFormModal({ title, chore, onClose, onSaved }: ChoreFormModalProps)
           setError(null)
           mutation.mutate()
         }}
-        className="max-h-[70vh] space-y-4 overflow-y-auto px-1 -mx-1"
+        className="max-h-[70vh] space-y-4 overflow-y-auto pl-1 -ml-1 pr-4 -mr-4"
       >
         <div>
           <Label htmlFor="name">Name</Label>
@@ -823,19 +901,25 @@ function ChoreFormModal({ title, chore, onClose, onSaved }: ChoreFormModalProps)
           <Label htmlFor="description">Description</Label>
           <Input id="description" value={description} onChange={(e) => setDescription(e.target.value)} />
         </div>
+        <div>
+          <Label htmlFor="repeat">Repeat</Label>
+          <Select id="repeat" value={repeatType} onChange={(e) => setRepeatType(e.target.value as RepeatType)}>
+            {REPEAT_OPTIONS.map((o) => (
+              <option key={o.value} value={o.value}>{o.label}</option>
+            ))}
+          </Select>
+        </div>
         <div className="flex gap-3">
-          <div className="flex-1">
-            <Label htmlFor="repeat">Repeat</Label>
-            <Select id="repeat" value={repeatType} onChange={(e) => setRepeatType(e.target.value as RepeatType)}>
-              {REPEAT_OPTIONS.map((o) => (
-                <option key={o.value} value={o.value}>{o.label}</option>
-              ))}
-            </Select>
-          </div>
           <div className="flex-1">
             <Label htmlFor="start">Start date</Label>
             <Input id="start" type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} required />
           </div>
+          {!isFrequency && (
+            <div className="flex-1">
+              <Label htmlFor="dueTime">Due time</Label>
+              <TimeField id="dueTime" value={dueTime} onChange={setDueTime} />
+            </div>
+          )}
         </div>
         {repeatType === 'Custom' && (
           <RecurrenceEditor value={recurrence} onChange={setRecurrence} />
@@ -854,7 +938,7 @@ function ChoreFormModal({ title, chore, onClose, onSaved }: ChoreFormModalProps)
                 ))}
               </Select>
             </div>
-            {!(repeatType === 'Custom' && recurrence.customMode === 'Frequency') && (
+            {!isFrequency && (
               <div className="flex-1">
                 <Label htmlFor="scheduling">Next due</Label>
                 <Select

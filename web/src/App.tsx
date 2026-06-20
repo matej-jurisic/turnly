@@ -3,6 +3,8 @@ import { Navigate, Route, Routes } from 'react-router-dom'
 import { authApi, tryRefresh } from '@/lib/api'
 import { useAuthStore } from '@/store/auth'
 import { Layout } from '@/components/Layout'
+import { Toaster } from '@/components/ui/Toaster'
+import { ConfirmHost } from '@/components/ui/ConfirmHost'
 import { SetupPage } from '@/pages/SetupPage'
 import { LoginPage } from '@/pages/LoginPage'
 import { UsersPage } from '@/pages/UsersPage'
@@ -13,6 +15,16 @@ import { HistoryPage } from '@/pages/HistoryPage'
 import { AwardsPage } from '@/pages/AwardsPage'
 
 export default function App() {
+  return (
+    <>
+      <AppRoutes />
+      <Toaster />
+      <ConfirmHost />
+    </>
+  )
+}
+
+function AppRoutes() {
   const status = useAuthStore((s) => s.status)
   const user = useAuthStore((s) => s.user)
   const setStatus = useAuthStore((s) => s.setStatus)

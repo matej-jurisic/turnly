@@ -23,6 +23,7 @@ public class TurnlyDbContext : DbContext
     public DbSet<ChoreNotification> ChoreNotifications => Set<ChoreNotification>();
     public DbSet<PushSubscription> PushSubscriptions => Set<PushSubscription>();
     public DbSet<NotificationDelivery> NotificationDeliveries => Set<NotificationDelivery>();
+    public DbSet<UserNotification> UserNotifications => Set<UserNotification>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
@@ -190,6 +191,25 @@ public class TurnlyDbContext : DbContext
                 .WithMany()
                 .HasForeignKey(x => x.ChoreNotificationId)
                 .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        b.Entity<UserNotification>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Title).IsRequired().HasMaxLength(256);
+            e.Property(x => x.Body).IsRequired().HasMaxLength(512);
+            e.HasIndex(x => new { x.UserId, x.CreatedAt });
+
+            e.HasOne(x => x.User)
+                .WithMany()
+                .HasForeignKey(x => x.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // Keep the inbox record if the chore is deleted; just drop the deep-link.
+            e.HasOne(x => x.Chore)
+                .WithMany()
+                .HasForeignKey(x => x.ChoreId)
+                .OnDelete(DeleteBehavior.SetNull);
         });
     }
 

@@ -39,8 +39,15 @@ public class Chore
     /// <summary>How the next due date is calculated after completion.</summary>
     public SchedulingPreference SchedulingPreference { get; set; } = SchedulingPreference.FromScheduledDate;
 
-    /// <summary>When the first occurrence begins.</summary>
+    /// <summary>When the first occurrence is due (the resolved local instant — date plus
+    /// <see cref="DueTime"/>, or end-of-day when none — with the creating client's UTC offset baked
+    /// in so the recurrence math keeps a consistent local time-of-day).</summary>
     public DateTimeOffset StartDate { get; set; }
+
+    /// <summary>The user-chosen local time-of-day a chore is due, or <c>null</c> for "no specific
+    /// time" (treated as end of day). Stored only so the UI can show/round-trip it; the authoritative
+    /// instant lives in <see cref="StartDate"/>/<see cref="DueAt"/>. Not applicable to Frequency chores.</summary>
+    public TimeOnly? DueTime { get; set; }
 
     /// <summary>Due date of the current/next occurrence. Null means nothing is scheduled
     /// (e.g. a completed one-time chore).</summary>

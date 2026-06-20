@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useState } from 'react'
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
-import { authApi } from '@/lib/api'
+import { authApi, choresApi } from '@/lib/api'
 import { useAuthStore } from '@/store/auth'
 import { UserMenu } from '@/components/UserMenu'
+import { NotificationsBell } from '@/components/NotificationsBell'
 import { SearchBar, SearchIcon } from '@/components/SearchBar'
 import { ChoreDetailsModal } from '@/components/ChoreDetailsModal'
 import { UserDetailsModal } from '@/components/UserDetailsModal'
@@ -45,6 +46,16 @@ export function Layout() {
   }, [])
 
   const closeSearch = useCallback(() => setSearchOpen(false), [])
+
+  // Open a chore's details from a notification (inbox click). Fetch fresh so it reflects the
+  // current occurrence; silently ignore a chore that was since deleted.
+  const openChoreById = useCallback(async (choreId: string) => {
+    try {
+      setDetailChore(await choresApi.get(choreId))
+    } catch {
+      /* chore no longer exists — nothing to open */
+    }
+  }, [])
 
   // Close the drawer on Escape; lock background scroll while it's open.
   useEffect(() => {
@@ -125,8 +136,11 @@ export function Layout() {
             </button>
           </div>
 
-          {/* Right: user menu */}
-          <UserMenu onLogout={logout} />
+          {/* Right: notifications + user menu */}
+          <div className="flex items-center gap-1">
+            <NotificationsBell onOpenChore={openChoreById} />
+            <UserMenu onLogout={logout} />
+          </div>
         </header>
 
         <main className="mx-auto w-full max-w-5xl flex-1 px-4 py-8 md:px-8">

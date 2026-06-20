@@ -128,6 +128,8 @@ export interface Chore extends RecurrenceFields {
   assignmentStrategy: AssignmentStrategy
   schedulingPreference: SchedulingPreference
   startDate: string
+  /** Local due time "HH:mm", or null for "no specific time" (due end of day). */
+  dueTime?: string | null
   dueAt?: string | null
   currentAssignee?: User | null
   assignees: User[]
@@ -148,6 +150,7 @@ export interface ChoreRequest extends RecurrenceFields {
   assignmentStrategy: AssignmentStrategy
   schedulingPreference: SchedulingPreference
   startDate: string
+  dueTime?: string | null
   assigneeIds: string[]
   currentAssigneeId: string
   tagNames: string[]
@@ -184,6 +187,15 @@ export interface PushDevice {
   id: string
   label: string
   endpoint: string
+  createdAt: string
+}
+
+export interface NotificationInboxItem {
+  id: string
+  title: string
+  body: string
+  choreId?: string | null
+  read: boolean
   createdAt: string
 }
 

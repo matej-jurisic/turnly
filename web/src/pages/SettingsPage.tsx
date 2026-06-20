@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { authApi, notificationsApi, tagsApi, ApiError } from '@/lib/api'
+import { toast } from '@/lib/toast'
 import { disablePush, enablePush, getCurrentEndpoint, isPushEnabled, pushPermission } from '@/lib/push'
 import { useAuthStore } from '@/store/auth'
 import { Button } from '@/components/ui/Button'
@@ -249,7 +250,7 @@ function TagsCard() {
   const deleteMutation = useMutation({
     mutationFn: (id: string) => tagsApi.remove(id),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['tags'] }),
-    onError: (err) => alert(err instanceof ApiError ? err.message : 'Failed to delete tag'),
+    onError: (err) => toast.error(err instanceof ApiError ? err.message : 'Failed to delete tag'),
   })
 
   return (

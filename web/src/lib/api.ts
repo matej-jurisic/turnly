@@ -9,6 +9,7 @@ import type {
   CreateChoreRequest,
   CreateUserRequest,
   LeaderboardEntry,
+  NotificationInboxItem,
   PointsLogEntry,
   PushDevice,
   PushSubscribeRequest,
@@ -173,6 +174,9 @@ export const notificationsApi = {
   test: () => request<{ sent: number }>('/notifications/test', { method: 'POST', body: json({}) }),
   devices: () => request<PushDevice[]>('/notifications/devices'),
   removeDevice: (id: string) => request<void>(`/notifications/devices/${id}`, { method: 'DELETE' }),
+  inbox: () => request<NotificationInboxItem[]>('/notifications/inbox'),
+  markInboxRead: () =>
+    request<{ marked: number }>('/notifications/inbox/read', { method: 'POST', body: json({}) }),
 }
 
 export const historyApi = {

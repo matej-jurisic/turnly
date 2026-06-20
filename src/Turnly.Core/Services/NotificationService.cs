@@ -134,15 +134,13 @@ public class NotificationService
             return Result.Fail<int>(Error.Validation(
                 "No push subscription on this account — enable notifications on this device first."));
 
-        var payload = JsonSerializer.Serialize(new
-        {
-            title = "Turnly",
-            body = "Test notification — push is working. 🎉",
-            url = "/chores"
-        });
+        const string title = "Turnly";
+        const string body = "Test notification — push is working. 🎉";
+        var payload = JsonSerializer.Serialize(new { title, body, url = "/chores" });
+
+        _db.UserNotifications.Add(new UserNotification { UserId = userId, Title = title, Body = body });
 
         var sent = 0;
-        var pruned = false;
         foreach (var sub in subs)
         {
             PushSendResult result;
@@ -158,15 +156,37 @@ public class NotificationService
             if (result == PushSendResult.Ok)
                 sent++;
             else if (result == PushSendResult.Gone)
-            {
                 _db.PushSubscriptions.Remove(sub);
-                pruned = true;
-            }
         }
 
-        if (pruned)
-            await _db.SaveChangesAsync(ct);
+        await _db.SaveChangesAsync(ct);
         return Result.Success(sent);
+    }
+
+    /// <summary>The user's in-app notification inbox (newest first, most recent 100).</summary>
+    public async Task<List<NotificationInboxDto>> ListInboxAsync(Guid userId, CancellationToken ct = default)
+    {
+        var items = await _db.UserNotifications
+            .Where(n => n.UserId == userId)
+            .ToListAsync(ct);
+        return items
+            .OrderByDescending(n => n.CreatedAt)
+            .Take(100)
+            .Select(NotificationInboxDto.FromEntity)
+            .ToList();
+    }
+
+    /// <summary>Marks all of the user's unread inbox notifications as read. Returns the count marked.</summary>
+    public async Task<int> MarkInboxReadAsync(Guid userId, DateTimeOffset now, CancellationToken ct = default)
+    {
+        var unread = await _db.UserNotifications
+            .Where(n => n.UserId == userId && n.ReadAt == null)
+            .ToListAsync(ct);
+        foreach (var n in unread)
+            n.ReadAt = now;
+        if (unread.Count > 0)
+            await _db.SaveChangesAsync(ct);
+        return unread.Count;
     }
 
     /// <summary>Scans every scheduled chore and fires any notification entry whose moment has
@@ -239,14 +259,33 @@ public class NotificationService
     private async Task SendEntryAsync(
         Chore chore, ChoreNotification entry, Dictionary<Guid, List<PushSubscription>> subsByUser, CancellationToken ct)
     {
-        var recipientIds = entry.Recipients == NotificationRecipients.AllAssignees
-            ? chore.Assignees.Select(a => a.Id)
-            : chore.CurrentAssigneeId is { } cur ? [cur] : Enumerable.Empty<Guid>();
+        var recipientIds = (entry.Recipients == NotificationRecipients.AllAssignees
+                ? chore.Assignees.Select(a => a.Id)
+                : chore.CurrentAssigneeId is { } cur ? [cur] : Enumerable.Empty<Guid>())
+            .Distinct()
+            .ToList();
 
-        var payload = BuildPayload(chore, entry);
-        var attempted = 0;
-        foreach (var userId in recipientIds.Distinct())
+        var (title, body) = BuildMessage(chore, entry);
+        var payload = JsonSerializer.Serialize(new
         {
+            title,
+            body,
+            url = $"/chores?chore={chore.Id}",
+            choreId = chore.Id
+        });
+
+        var attempted = 0;
+        foreach (var userId in recipientIds)
+        {
+            // Record the in-app inbox item even if the user has no reachable push device.
+            _db.UserNotifications.Add(new UserNotification
+            {
+                UserId = userId,
+                Title = title,
+                Body = body,
+                ChoreId = chore.Id
+            });
+
             if (!subsByUser.TryGetValue(userId, out var subs))
                 continue;
 
@@ -275,7 +314,7 @@ public class NotificationService
                 chore.Name, entry.Recipients);
     }
 
-    private static string BuildPayload(Chore chore, ChoreNotification entry)
+    private static (string Title, string Body) BuildMessage(Chore chore, ChoreNotification entry)
     {
         var title = string.IsNullOrWhiteSpace(chore.Emoji) ? chore.Name : $"{chore.Emoji} {chore.Name}";
         var body = entry.Type switch
@@ -284,6 +323,6 @@ public class NotificationService
             NotificationType.FollowUp => $"{chore.Name} is overdue.",
             _ => $"{chore.Name} is coming up."
         };
-        return JsonSerializer.Serialize(new { title, body, url = "/chores" });
+        return (title, body);
     }
 }

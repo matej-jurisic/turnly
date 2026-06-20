@@ -65,6 +65,7 @@ public record ChoreDto(
     AssignmentStrategy AssignmentStrategy,
     SchedulingPreference SchedulingPreference,
     DateTimeOffset StartDate,
+    string? DueTime,
     DateTimeOffset? DueAt,
     UserDto? CurrentAssignee,
     UserDto[] Assignees,
@@ -79,7 +80,7 @@ public record ChoreDto(
             c.CustomMode, c.IntervalCount, c.IntervalUnit,
             c.Weekdays.ToArray(), c.DaysOfMonth.ToArray(), c.Months.ToArray(),
             c.FrequencyCount, c.FrequencyPeriod, c.AssignmentStrategy, c.SchedulingPreference,
-            c.StartDate, c.DueAt,
+            c.StartDate, c.DueTime?.ToString("HH\\:mm"), c.DueAt,
             c.CurrentAssignee is null ? null : UserDto.FromEntity(c.CurrentAssignee),
             c.Assignees.Select(UserDto.FromEntity).OrderBy(u => u.DisplayName).ToArray(),
             c.Tags.Select(t => t.Name).OrderBy(n => n).ToArray(),
@@ -129,6 +130,9 @@ public interface IChoreInput
     AssignmentStrategy AssignmentStrategy { get; }
     SchedulingPreference SchedulingPreference { get; }
     DateTimeOffset StartDate { get; }
+    /// <summary>Optional local time-of-day ("HH:mm") the chore is due; null means end of day. The
+    /// client bakes the resolved instant into <see cref="StartDate"/>; this is stored for round-trip.</summary>
+    string? DueTime { get; }
     Guid[] AssigneeIds { get; }
     Guid CurrentAssigneeId { get; }
     string[]? TagNames { get; }
@@ -155,7 +159,8 @@ public record CreateChoreRequest(
     Guid[] AssigneeIds,
     Guid CurrentAssigneeId,
     string[]? TagNames,
-    ChoreNotificationInput[]? Notifications = null) : IChoreInput;
+    ChoreNotificationInput[]? Notifications = null,
+    string? DueTime = null) : IChoreInput;
 
 public record UpdateChoreRequest(
     string Name,
@@ -177,7 +182,8 @@ public record UpdateChoreRequest(
     Guid[] AssigneeIds,
     Guid CurrentAssigneeId,
     string[]? TagNames,
-    ChoreNotificationInput[]? Notifications = null) : IChoreInput;
+    ChoreNotificationInput[]? Notifications = null,
+    string? DueTime = null) : IChoreInput;
 
 public record CompleteChoreRequest(string? Notes);
 
@@ -252,6 +258,18 @@ public record PushDeviceDto(Guid Id, string Label, string Endpoint, DateTimeOffs
 {
     public static PushDeviceDto FromEntity(Turnly.Core.Entities.PushSubscription s) =>
         new(s.Id, string.IsNullOrWhiteSpace(s.DeviceLabel) ? "Unknown device" : s.DeviceLabel!, s.Endpoint, s.CreatedAt);
+}
+
+public record NotificationInboxDto(
+    Guid Id,
+    string Title,
+    string Body,
+    Guid? ChoreId,
+    bool Read,
+    DateTimeOffset CreatedAt)
+{
+    public static NotificationInboxDto FromEntity(Turnly.Core.Entities.UserNotification n) =>
+        new(n.Id, n.Title, n.Body, n.ChoreId, n.ReadAt is not null, n.CreatedAt);
 }
 
 public record CreateTagRequest(string Name);

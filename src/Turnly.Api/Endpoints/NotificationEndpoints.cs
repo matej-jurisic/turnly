@@ -52,6 +52,23 @@ public static class NotificationEndpoints
             return result.Succeeded ? Results.NoContent() : result.Error!.ToProblem();
         });
 
+        // The user's in-app notification inbox.
+        group.MapGet("/inbox", async (ClaimsPrincipal principal, NotificationService notifications, CancellationToken ct) =>
+        {
+            if (principal.GetUserId() is not { } userId)
+                return Results.Unauthorized();
+            return Results.Ok(await notifications.ListInboxAsync(userId, ct));
+        });
+
+        // Mark all of the caller's inbox notifications as read.
+        group.MapPost("/inbox/read", async (ClaimsPrincipal principal, NotificationService notifications, CancellationToken ct) =>
+        {
+            if (principal.GetUserId() is not { } userId)
+                return Results.Unauthorized();
+            var marked = await notifications.MarkInboxReadAsync(userId, DateTimeOffset.UtcNow, ct);
+            return Results.Ok(new { marked });
+        });
+
         // Dev/debug: send an immediate test push to the calling admin's own devices.
         group.MapPost("/test", async (
             ClaimsPrincipal principal, NotificationService notifications, CancellationToken ct) =>

@@ -150,6 +150,19 @@ public static class Validators
         return null;
     }
 
+    /// <summary>Validates an optional due-time string. Null/empty is valid (= end of day); otherwise
+    /// it must be "HH:mm". Returns the parsed value via <paramref name="parsed"/>.</summary>
+    public static Error? DueTime(string? value, out TimeOnly? parsed)
+    {
+        parsed = null;
+        if (string.IsNullOrWhiteSpace(value))
+            return null;
+        if (!TimeOnly.TryParseExact(value, "HH:mm", out var time))
+            return Error.Validation("A due time must be in HH:mm format.");
+        parsed = time;
+        return null;
+    }
+
     // Highest day number a month can hold. February counts 29 so leap-year-only chores
     // (day 29 in Feb) stay valid.
     private static int MaxDayInMonth(int month) =>

@@ -1,6 +1,8 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ApiError, authApi, awardsApi, redemptionsApi } from '@/lib/api'
+import { toast } from '@/lib/toast'
+import { confirm } from '@/lib/confirm'
 import { useAuthStore } from '@/store/auth'
 import type { Award, AwardRequest, Redemption } from '@/lib/types'
 import { Button } from '@/components/ui/Button'
@@ -31,13 +33,13 @@ export function AwardsPage() {
   const deleteMutation = useMutation({
     mutationFn: (id: string) => awardsApi.remove(id),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['awards'] }),
-    onError: (err) => alert(err instanceof ApiError ? err.message : 'Delete failed'),
+    onError: (err) => toast.error(err instanceof ApiError ? err.message : 'Delete failed'),
   })
 
   const redeemMutation = useMutation({
     mutationFn: (id: string) => awardsApi.redeem(id),
     onSuccess: refreshAfterSpend,
-    onError: (err) => alert(err instanceof ApiError ? err.message : 'Redeem failed'),
+    onError: (err) => toast.error(err instanceof ApiError ? err.message : 'Redeem failed'),
   })
 
   const balance = me?.points ?? 0
@@ -88,8 +90,14 @@ export function AwardsPage() {
                             variant="ghost"
                             className="text-destructive hover:bg-destructive/10"
                             disabled={deleteMutation.isPending}
-                            onClick={() => {
-                              if (confirm(`Delete ${award.name}? Past redemptions are kept.`)) {
+                            onClick={async () => {
+                              if (
+                                await confirm({
+                                  title: 'Delete award',
+                                  message: `Delete ${award.name}? Past redemptions are kept.`,
+                                  confirmLabel: 'Delete',
+                                })
+                              ) {
                                 deleteMutation.mutate(award.id)
                               }
                             }}
@@ -102,8 +110,15 @@ export function AwardsPage() {
                         size="sm"
                         disabled={!affordable || redeemMutation.isPending}
                         title={affordable ? undefined : 'Not enough points'}
-                        onClick={() => {
-                          if (confirm(`Redeem ${award.name} for ${award.cost} points?`)) {
+                        onClick={async () => {
+                          if (
+                            await confirm({
+                              title: 'Redeem award',
+                              message: `Redeem ${award.name} for ${award.cost} points?`,
+                              confirmLabel: 'Redeem',
+                              variant: 'primary',
+                            })
+                          ) {
                             redeemMutation.mutate(award.id)
                           }
                         }}
@@ -153,13 +168,13 @@ function RedemptionsSection({ isAdmin, onChange }: { isAdmin: boolean; onChange:
   const fulfillMutation = useMutation({
     mutationFn: (id: string) => redemptionsApi.fulfill(id),
     onSuccess: onChange,
-    onError: (err) => alert(err instanceof ApiError ? err.message : 'Fulfill failed'),
+    onError: (err) => toast.error(err instanceof ApiError ? err.message : 'Fulfill failed'),
   })
 
   const cancelMutation = useMutation({
     mutationFn: (id: string) => redemptionsApi.cancel(id),
     onSuccess: onChange,
-    onError: (err) => alert(err instanceof ApiError ? err.message : 'Cancel failed'),
+    onError: (err) => toast.error(err instanceof ApiError ? err.message : 'Cancel failed'),
   })
 
   return (
@@ -178,8 +193,15 @@ function RedemptionsSection({ isAdmin, onChange }: { isAdmin: boolean; onChange:
                 redemption={r}
                 isAdmin={isAdmin}
                 onFulfill={() => fulfillMutation.mutate(r.id)}
-                onCancel={() => {
-                  if (confirm(`Cancel this redemption and refund ${r.pointsSpent} points?`)) {
+                onCancel={async () => {
+                  if (
+                    await confirm({
+                      title: 'Cancel redemption',
+                      message: `Cancel this redemption and refund ${r.pointsSpent} points?`,
+                      confirmLabel: 'Cancel redemption',
+                      cancelLabel: 'Keep',
+                    })
+                  ) {
                     cancelMutation.mutate(r.id)
                   }
                 }}

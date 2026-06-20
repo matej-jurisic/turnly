@@ -28,7 +28,11 @@ reassignment of the current occurrence to another eligible assignee (open to any
 assignees), a minute-polling `BackgroundService` that fires due entries and prunes dead
 subscriptions, "stop on completion" achieved by keying a `NotificationDelivery` dedup row to the
 occurrence's `DueAt` (completing advances `DueAt`, so pending entries for the old occurrence are
-never reached), and a minimal push-only service worker (`web/public/sw.js`) that receives pushes.
+never reached), and a service worker (`web/public/sw.js`) that receives pushes (showing them with
+the app's own `icon-192.png`) and deep-links the chore on click. **Post-Phase-8 addition:** an
+in-app notification **inbox** — every fired entry (and each test send) also writes a per-recipient
+`UserNotification` row (independent of whether a push device was reachable), surfaced by a bell
+dropdown in the top bar; both push-click and inbox-click open the chore via `/chores?chore=<id>`.
 The completion-by-others opt-out from the original spec was dropped. Phase 9 (PWA: offline,
 app shell, manifest/install, caching) is not started.
 
@@ -54,10 +58,13 @@ copy the nearest existing example. Paths are under `src/` / `web/src/` / `tests/
 **Backend (`Turnly.Core`)**
 - `Entities/` — POCOs; convention is `Guid Id = Guid.NewGuid()` + `DateTimeOffset CreatedAt`,
   no base class. `User, RefreshToken, Chore, Tag, ChoreCompletion, ChoreAssignment, PointsLogEntry,
-  Award, Redemption, ChoreNotification, PushSubscription, NotificationDelivery`. `ChoreNotification`
-  is a chore's notification-schedule entry; `PushSubscription` is one Web Push device per user;
-  `NotificationDelivery` is a `(ChoreNotificationId, OccurrenceDueAt)`-unique dedup marker that makes
-  each entry fire once per occurrence (and is how notifications "stop on completion"). `ChoreAssignment`
+  Award, Redemption, ChoreNotification, PushSubscription, NotificationDelivery, UserNotification`.
+  `ChoreNotification` is a chore's notification-schedule entry; `PushSubscription` is one Web Push
+  device per user; `NotificationDelivery` is a `(ChoreNotificationId, OccurrenceDueAt)`-unique dedup
+  marker that makes each entry fire once per occurrence (and is how notifications "stop on
+  completion"); `UserNotification` is a per-user in-app inbox row (Title/Body/ChoreId/ReadAt) written
+  when a notification fires or a test is sent — `ChoreId` FK is `SetNull` so the record outlives the
+  chore. `ChoreAssignment`
   logs every assignment (initial + each rotation) — backs
   `LeastAssigned` and lets undo reverse a rotation via its `ChoreCompletionId` link. A skipped
   occurrence is a `ChoreCompletion` with `IsSkip = true` (zero points, no `PointsLogEntry`) —
@@ -90,8 +97,9 @@ copy the nearest existing example. Paths are under `src/` / `web/src/` / `tests/
   Chore notifications ride the existing chore create/update path: `ChoreService.Apply` rebuilds
   `chore.Notifications` from the request (so `Query()` includes them). `NotificationService` owns
   `SubscribeAsync`/`UnsubscribeAsync` (upsert/delete `PushSubscription` by endpoint) and
-  `ProcessDueAsync(now)` — the scan that fires due entries via `IPushSender`, records a
-  `NotificationDelivery`, and prunes `Gone` subscriptions.
+  `ProcessDueAsync(now)` — the scan that fires due entries via `IPushSender`, writes a
+  `UserNotification` inbox row per recipient, records a `NotificationDelivery`, and prunes `Gone`
+  subscriptions — plus `ListInboxAsync`/`MarkInboxReadAsync` for the in-app inbox.
 - `Recurrence/` — pure, unit-tested. `RecurrenceCalculator` works off a `RecurrenceRule` record
   (`FromChore`): `FirstOccurrence(rule, start)` + `NextDue(rule, pref, scheduledDue, completedAt,
   now)` (interval stepping, fixed-slot scanning, scheduling prefs) plus `PeriodStart/PeriodEnd`
@@ -120,7 +128,8 @@ copy the nearest existing example. Paths are under `src/` / `web/src/` / `tests/
   fulfill/cancel are admin-only.
   `NotificationEndpoints` (`/api/notifications`): member-open `GET /vapid-key`, `POST /subscribe`
   (captures the User-Agent → friendly `PushSubscription.DeviceLabel`), `POST /unsubscribe`,
-  `GET /devices` + `DELETE /devices/{id}` (a user's own push devices); admin-only `POST /test`
+  `GET /devices` + `DELETE /devices/{id}` (a user's own push devices), `GET /inbox` +
+  `POST /inbox/read` (the in-app inbox); admin-only `POST /test`
   (dev: immediate push to the caller's devices). Chore notification entries are nested in the chore
   create/update request, not a separate endpoint.
 - `Endpoints/ApiResults.cs` — `Error.ToProblem()` (status mapping) and
@@ -138,9 +147,14 @@ copy the nearest existing example. Paths are under `src/` / `web/src/` / `tests/
   (`usersApi`, `choresApi`, `tagsApi`, `notificationsApi`). `lib/types.ts` mirrors the backend DTOs.
 - **Notifications (Phase 8):** `lib/push.ts` wraps the browser Push API
   (`enablePush`/`disablePush`/`isPushEnabled`, VAPID key decode); `web/public/sw.js` is the service
-  worker (push + `notificationclick` + a no-op `fetch` for installability), registered in `main.tsx`.
+  worker (push + `notificationclick` opens `/chores?chore=<id>`, shows the app's `icon-192.png` +
+  a no-op `fetch` for installability), registered in `main.tsx`.
   `web/public/manifest.webmanifest` + `icon-192/512.png` make the app installable (basic PWA install
-  only — offline/app-shell/caching is still Phase 9); linked from `index.html`. `components/NotificationsEditor.tsx` is the
+  only — offline/app-shell/caching is still Phase 9); linked from `index.html`.
+  `components/NotificationsBell.tsx` is the top-bar inbox dropdown (in `Layout`, polls `['inbox']`,
+  unread badge, marks read on close, click opens the chore via `Layout`'s details modal);
+  `ChoresPage` reads `?chore=<id>` to open the same modal from a push deep-link.
+  `components/NotificationsEditor.tsx` is the
   per-chore schedule sub-form (modeled on `RecurrenceEditor`, embedded in the `ChoresPage` form);
   `SettingsPage`'s Notifications card has enable/disable-on-this-device, a list of the user's
   registered devices (label + "This device" marker + per-device remove), and an admin-only "Send
@@ -163,7 +177,7 @@ copy the nearest existing example. Paths are under `src/` / `web/src/` / `tests/
 
 ```bash
 dotnet build                              # build solution
-dotnet test                               # all tests (currently 126, keep them green)
+dotnet test                               # all tests (currently 132, keep them green)
 dotnet run --project src/Turnly.Api       # backend (dev) on http://localhost:5199
 cd web && npm install && npm run dev      # frontend on :5173, proxies /api → :5199
 cd web && npm run build                   # typechecks (tsc -b) + production build
