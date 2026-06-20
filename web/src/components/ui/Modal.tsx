@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import type { ReactNode } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
+import { registerModal } from '@/lib/modalHistory'
 
 interface ModalProps {
   title: ReactNode
@@ -19,26 +20,12 @@ export function Modal({ title, onClose, children }: ModalProps) {
     }
   }, [])
 
-  // Make the device/browser Back button close the modal instead of navigating away. We push a
-  // throwaway history entry on open; a Back press pops it and fires `popstate`, which we turn into
-  // an `onClose`. If the modal is instead closed via the UI, we pop our own entry in cleanup — but
-  // only when it's still on top (guarded by the `turnlyModal` state marker), so a real route
-  // navigation that happened while the modal was open doesn't get undone.
+  // Make the device/browser Back button close the modal instead of navigating away. The shared
+  // history manager owns the entry bookkeeping (Back, UI close, programmatic close, StrictMode,
+  // rapid open/close) — see lib/modalHistory.ts.
   const onCloseRef = useRef(onClose)
   onCloseRef.current = onClose
-  useEffect(() => {
-    window.history.pushState({ turnlyModal: true }, '')
-    let poppedByBack = false
-    const onPopState = () => {
-      poppedByBack = true
-      onCloseRef.current()
-    }
-    window.addEventListener('popstate', onPopState)
-    return () => {
-      window.removeEventListener('popstate', onPopState)
-      if (!poppedByBack && window.history.state?.turnlyModal) window.history.back()
-    }
-  }, [])
+  useEffect(() => registerModal(() => onCloseRef.current()), [])
 
   // Portal to <body> so the fixed backdrop isn't subject to an ancestor's `space-y-*` margin
   // (which would offset/shrink the `inset-0` overlay and leave an undimmed strip), transform, or
