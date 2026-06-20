@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import type { ReactNode } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
@@ -16,6 +16,27 @@ export function Modal({ title, onClose, children }: ModalProps) {
     document.body.style.overflow = 'hidden'
     return () => {
       document.body.style.overflow = prev
+    }
+  }, [])
+
+  // Make the device/browser Back button close the modal instead of navigating away. We push a
+  // throwaway history entry on open; a Back press pops it and fires `popstate`, which we turn into
+  // an `onClose`. If the modal is instead closed via the UI, we pop our own entry in cleanup — but
+  // only when it's still on top (guarded by the `turnlyModal` state marker), so a real route
+  // navigation that happened while the modal was open doesn't get undone.
+  const onCloseRef = useRef(onClose)
+  onCloseRef.current = onClose
+  useEffect(() => {
+    window.history.pushState({ turnlyModal: true }, '')
+    let poppedByBack = false
+    const onPopState = () => {
+      poppedByBack = true
+      onCloseRef.current()
+    }
+    window.addEventListener('popstate', onPopState)
+    return () => {
+      window.removeEventListener('popstate', onPopState)
+      if (!poppedByBack && window.history.state?.turnlyModal) window.history.back()
     }
   }, [])
 

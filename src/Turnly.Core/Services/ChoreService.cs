@@ -170,9 +170,11 @@ public class ChoreService
         }
 
         // Advance the schedule and decide whether this completion opened a new occurrence (which
-        // is what triggers an assignee rotation).
+        // is what triggers an assignee rotation). With RotateOnEachCompletion, a multi-completion
+        // chore also rotates on the in-between completions — but not when the occurrence just closed
+        // for good (DueAt null, e.g. a finished one-time chore), where a rotation would be pointless.
         var advancedToNewOccurrence = await AdvanceScheduleAsync(chore, completion, now, ct);
-        if (advancedToNewOccurrence)
+        if (advancedToNewOccurrence || (chore.RotateOnEachCompletion && chore.DueAt is not null))
             await RotateAssigneeAsync(chore, completion, now, ct);
 
         await _db.SaveChangesAsync(ct);
@@ -212,18 +214,10 @@ public class ChoreService
         };
         _db.ChoreCompletions.Add(skip);
 
-        // Advance the schedule, but keep the same assignee (a skip is not a completion, so it
-        // neither awards points nor rotates). Frequency chores roll straight to the next period.
-        if (chore is { RepeatType: RepeatType.Custom, CustomMode: CustomRecurrenceMode.Frequency, FrequencyPeriod: { } period })
-        {
-            chore.DueAt = RecurrenceCalculator.PeriodEnd(period, RecurrenceCalculator.PeriodEnd(period, now));
-        }
-        else
-        {
-            var rule = RecurrenceRule.FromChore(chore);
-            var scheduledDue = chore.DueAt ?? now;
-            chore.DueAt = RecurrenceCalculator.NextDue(rule, chore.SchedulingPreference, scheduledDue, now, now);
-        }
+        // Advance the schedule, but keep the same assignee (a skip is not a completion, so it neither
+        // awards points nor rotates). It still counts toward a multi-completion occurrence, so the
+        // due date only moves once the occurrence is fully closed — hence we ignore the return value.
+        await AdvanceScheduleAsync(chore, skip, now, ct);
 
         await _db.SaveChangesAsync(ct);
         return await GetAsync(chore.Id, ct);
@@ -400,30 +394,25 @@ public class ChoreService
         .AsSplitQuery();
 
     /// <summary>Advances <c>chore.DueAt</c> to the next occurrence and returns whether a brand-new
-    /// occurrence was opened (true → rotate the assignee). For frequency chores the period only
-    /// rolls over — and thus rotates — once the required count is met.</summary>
+    /// occurrence was opened (true → rotate the assignee). A chore that needs N completions per
+    /// occurrence stays put (returns false) until the Nth completion/skip closes it; only then does
+    /// it advance via the same <see cref="RecurrenceCalculator.NextDue"/> path as any other chore.
+    /// The just-added <paramref name="completion"/> is included in the count.</summary>
     private async Task<bool> AdvanceScheduleAsync(Chore chore, ChoreCompletion completion, DateTimeOffset now, CancellationToken ct)
     {
-        if (chore is { RepeatType: RepeatType.Custom, CustomMode: CustomRecurrenceMode.Frequency, FrequencyPeriod: { } period })
+        if (chore.CompletionsRequired > 1)
         {
-            var start = RecurrenceCalculator.PeriodStart(period, now);
-            var end = RecurrenceCalculator.PeriodEnd(period, now);
-            // SQLite can't compare DateTimeOffset in SQL, so count client-side. +1 for the
-            // completion we just added but haven't saved yet.
-            var completedAts = await _db.ChoreCompletions
-                .Where(x => x.ChoreId == chore.Id && !x.IsSkip)
-                .Select(x => x.CompletedAt)
+            // Completions (skips included) sharing this occurrence's due date count toward closing it.
+            // SQLite can't compare DateTimeOffset in SQL, so match client-side; +1 for the row we just
+            // added to the context but haven't saved yet.
+            var occurrenceDues = await _db.ChoreCompletions
+                .Where(x => x.ChoreId == chore.Id)
+                .Select(x => x.OccurrenceDueAt)
                 .ToListAsync(ct);
-            var doneThisPeriod = completedAts.Count(t => t >= start && t < end) + 1;
+            var doneThisOccurrence = occurrenceDues.Count(d => d == completion.OccurrenceDueAt) + 1;
 
-            if (doneThisPeriod >= (chore.FrequencyCount ?? 1))
-            {
-                chore.DueAt = RecurrenceCalculator.PeriodEnd(period, end); // roll into the next period
-                return true;
-            }
-
-            chore.DueAt = end; // still due this period; same occupant keeps it
-            return false;
+            if (doneThisOccurrence < chore.CompletionsRequired)
+                return false; // occurrence still open — same due date, same assignee
         }
 
         var rule = RecurrenceRule.FromChore(chore);
@@ -521,7 +510,7 @@ public class ChoreService
     }
 
     /// <summary>All completions per chore id (newest-first within each chore), for both the
-    /// last-completion affordance and frequency-progress counting. SQLite can't ORDER BY a
+    /// last-completion affordance and per-occurrence progress counting. SQLite can't ORDER BY a
     /// DateTimeOffset, so ordering happens client-side.</summary>
     private async Task<Dictionary<Guid, List<ChoreCompletion>>> CompletionsByChoreAsync(
         List<Guid> choreIds, CancellationToken ct)
@@ -544,12 +533,9 @@ public class ChoreService
     {
         var latest = completions?.FirstOrDefault();
         int? progress = null;
-        if (chore is { RepeatType: RepeatType.Custom, CustomMode: CustomRecurrenceMode.Frequency, FrequencyPeriod: { } period })
-        {
-            var start = RecurrenceCalculator.PeriodStart(period, now);
-            var end = RecurrenceCalculator.PeriodEnd(period, now);
-            progress = completions?.Count(x => !x.IsSkip && x.CompletedAt >= start && x.CompletedAt < end) ?? 0;
-        }
+        if (chore.CompletionsRequired > 1)
+            // Completions + skips logged against the current occurrence (they share its due date).
+            progress = completions?.Count(x => x.OccurrenceDueAt == chore.DueAt) ?? 0;
         var next = PredictNextAssignee(chore, completions, assignments, now);
         return ChoreDto.FromEntity(chore, latest, progress, next);
     }
@@ -581,7 +567,7 @@ public class ChoreService
         if (Validators.Points(req.Points) is { } pointsError)
             return Result.Fail<List<User>>(pointsError);
         if (Validators.Recurrence(req.RepeatType, req.CustomMode, req.IntervalCount, req.IntervalUnit,
-                req.Weekdays, req.DaysOfMonth, req.Months, req.FrequencyCount, req.FrequencyPeriod) is { } recurrenceError)
+                req.Weekdays, req.DaysOfMonth, req.Months, req.CompletionsRequired) is { } recurrenceError)
             return Result.Fail<List<User>>(recurrenceError);
         if (Validators.DueTime(req.DueTime, out _) is { } dueTimeError)
             return Result.Fail<List<User>>(dueTimeError);
@@ -616,9 +602,7 @@ public class ChoreService
         a.IntervalUnit != b.IntervalUnit ||
         !a.Weekdays.SequenceEqual(b.Weekdays) ||
         !a.DaysOfMonth.SequenceEqual(b.DaysOfMonth) ||
-        !a.Months.SequenceEqual(b.Months) ||
-        a.FrequencyCount != b.FrequencyCount ||
-        a.FrequencyPeriod != b.FrequencyPeriod;
+        !a.Months.SequenceEqual(b.Months);
 
     private void Apply(Chore chore, IChoreInput req, List<User> assignees)
     {
@@ -649,12 +633,15 @@ public class ChoreService
         chore.Months = mode == CustomRecurrenceMode.DaysOfMonth
             ? (req.Months ?? []).Distinct().OrderBy(m => m).ToList()
             : new List<int>();
-        chore.FrequencyCount = mode == CustomRecurrenceMode.Frequency ? req.FrequencyCount : null;
-        chore.FrequencyPeriod = mode == CustomRecurrenceMode.Frequency ? req.FrequencyPeriod : null;
 
-        // A specific due time is meaningless for Frequency chores (they're due at the period boundary).
+        // "Complete N times per occurrence" rides only on the non-custom repeat types; custom
+        // recurrences always close on a single completion.
+        chore.CompletionsRequired = isCustom ? 1 : Math.Max(1, req.CompletionsRequired);
+        // Per-completion rotation only means anything when more than one completion is required.
+        chore.RotateOnEachCompletion = chore.CompletionsRequired > 1 && req.RotateOnEachCompletion;
+
         Validators.DueTime(req.DueTime, out var dueTime); // format already checked in ValidateAsync
-        chore.DueTime = mode == CustomRecurrenceMode.Frequency ? null : dueTime;
+        chore.DueTime = dueTime;
 
         chore.Assignees.Clear();
         foreach (var a in assignees) chore.Assignees.Add(a);

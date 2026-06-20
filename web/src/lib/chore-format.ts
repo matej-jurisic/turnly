@@ -51,8 +51,9 @@ export const MONTH_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Au
 // ── display helpers ──────────────────────────────────────────────────────────
 
 export function repeatLabel(chore: Chore): string {
-  if (chore.repeatType !== 'Custom')
+  if (chore.repeatType !== 'Custom') {
     return REPEAT_OPTIONS.find((o) => o.value === chore.repeatType)?.label ?? chore.repeatType
+  }
 
   switch (chore.customMode) {
     case 'Interval': {
@@ -70,11 +71,26 @@ export function repeatLabel(chore: Chore): string {
       const months = [...chore.months].sort((a, b) => a - b).map((m) => MONTH_SHORT[m - 1]).join(', ')
       return `Days ${days}${months ? ` · ${months}` : ''}`
     }
-    case 'Frequency':
-      return `${chore.frequencyCount ?? 1}×/${(chore.frequencyPeriod ?? 'Week').toLowerCase()}`
     default:
       return 'Custom'
   }
+}
+
+/** The period word for a repeat type, used in the completion-progress pill (e.g. "this week"). */
+const PERIOD_LABELS: Partial<Record<RepeatType, string>> = {
+  Daily: 'today',
+  Weekly: 'this week',
+  Monthly: 'this month',
+  Yearly: 'this year',
+}
+
+/**
+ * Per-occurrence completion progress, e.g. "0/3 this week". Falls back to "0/3 done" for repeat
+ * types without a natural period (OneTime). Only meaningful when `completionsRequired > 1`.
+ */
+export function completionProgressLabel(chore: Chore): string {
+  const period = PERIOD_LABELS[chore.repeatType] ?? 'done'
+  return `${chore.occurrenceProgress ?? 0}/${chore.completionsRequired} ${period}`
 }
 
 const NOTIFICATION_TYPE_LABELS = {

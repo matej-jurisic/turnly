@@ -10,9 +10,16 @@ Self-hosted family chore-management web app (PWA). **Phases 1–8 are complete.*
 (Chores – Core): chore CRUD (name, description, emoji, tags, assignees, points), basic
 recurrence (one-time/daily/weekly/monthly/yearly + start date), mark complete + undo, and a
 per-user points log. Phase 3 (Chores – Advanced): custom recurrence (`Custom` repeat type with
-Interval / DaysOfWeek / DaysOfMonth / Frequency modes — day granularity, hourly deferred to
+Interval / DaysOfWeek / DaysOfMonth modes — day granularity, hourly deferred to
 a later phase), six assignment strategies that rotate the current assignee on each new occurrence, and
-three scheduling preferences for the next due date. Phase 4 (Dashboard): today / overdue /
+three scheduling preferences for the next due date. **Post-Phase-3 refactor:** the old "N times per
+period" custom mode (`Frequency`) was generalised into an orthogonal per-occurrence completion count
+— `Chore.CompletionsRequired` (default 1, offered only on the non-custom repeat types
+OneTime/Daily/Weekly/Monthly/Yearly). An occurrence now closes after N completions/skips (counted by
+`ChoreCompletion.OccurrenceDueAt == Chore.DueAt`), then advances via the normal
+`RecurrenceCalculator.NextDue` path and rotates — so the scheduling preferences apply uniformly. The
+`Frequency`/`FrequencyPeriod` enums and the `PeriodStart`/`PeriodEnd` calendar-window machinery are
+gone. Phase 4 (Dashboard): today / overdue /
 upcoming chore views, per-user point totals, filtering by tag and assignee, and global search
 (chores by name/description/tags). Phase 5 (History & Stats): completion log with filters,
 per-user stats, completions-per-week bar chart. Phase 6 (Awards & Redemption): admin award CRUD
@@ -86,7 +93,7 @@ copy the nearest existing example. Paths are under `src/` / `web/src/` / `tests/
   `PointsLogEntry` carries both a `ChoreCompletionId` and a `RedemptionId` link so undo/cancel can
   reverse the matching deduction the same way.
 - `Enums/` — `UserRole, RepeatType, PointsLogType, RedemptionStatus` + Phase 3's `CustomRecurrenceMode,
-  RecurrenceUnit, FrequencyPeriod, AssignmentStrategy, SchedulingPreference` + Phase 8's
+  RecurrenceUnit, AssignmentStrategy, SchedulingPreference` + Phase 8's
   `NotificationType, NotificationTiming, NotificationOffsetUnit, NotificationRecipients`; **stored as
   strings** (`HasConversion<string>`) and serialized as strings in JSON.
 - `Data/TurnlyDbContext.cs` — DbSets + fluent config in `OnModelCreating`. Many-to-many via
@@ -115,10 +122,12 @@ copy the nearest existing example. Paths are under `src/` / `web/src/` / `tests/
   subscriptions — plus `ListInboxAsync`/`MarkInboxReadAsync` for the in-app inbox.
 - `Recurrence/` — pure, unit-tested. `RecurrenceCalculator` works off a `RecurrenceRule` record
   (`FromChore`): `FirstOccurrence(rule, start)` + `NextDue(rule, pref, scheduledDue, completedAt,
-  now)` (interval stepping, fixed-slot scanning, scheduling prefs) plus `PeriodStart/PeriodEnd`
-  for frequency. `AssignmentPicker.Pick(...)` implements the six strategies (inject `Random`).
-  **Frequency is NOT in `NextDue`** — it needs completion counts, so `ChoreService` handles its
-  period rollover (and computes `FrequencyProgress` for the DTO) client-side.
+  now)` (interval stepping, fixed-slot scanning, scheduling prefs).
+  `AssignmentPicker.Pick(...)` implements the six strategies (inject `Random`).
+  **The per-occurrence completion count is NOT in `NextDue`** — it needs DB completion counts, so
+  `ChoreService.AdvanceScheduleAsync` gates the advance: an occurrence only closes (and then calls
+  `NextDue` + rotates) once `CompletionsRequired` completions/skips share the current `DueAt`;
+  earlier ones leave `DueAt`/assignee untouched. `ToDto` computes `OccurrenceProgress` the same way.
 - `Notifications/` — `NotificationPlanner.FireTime(entry, dueAt)` is pure + unit-tested (before/at/
   after offset math). `VapidOptions` (`IsConfigured`), `IPushSender`/`WebPushSender` (WebPush lib;
   maps 404/410 → `Gone` so the service prunes the subscription).

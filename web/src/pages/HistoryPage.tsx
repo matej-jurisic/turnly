@@ -1,7 +1,8 @@
 import { useState } from 'react'
 import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import { choresApi, historyApi, tagsApi, usersApi } from '@/lib/api'
-import type { ChartWeek, UserStats } from '@/lib/types'
+import type { ChartWeek, ChoreHistoryEntry, UserStats } from '@/lib/types'
+import type { BadgeTone } from '@/components/ui/Badge'
 import { Badge } from '@/components/ui/Badge'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { Avatar } from '@/components/ui/Modal'
@@ -153,6 +154,9 @@ export function HistoryPage() {
             <ul className="divide-y divide-border">
               {history.map((entry) => {
                 const subject = entry.actor ?? entry.toAssignee ?? entry.fromAssignee
+                const onTime = entry.occurrenceDueAt
+                  ? new Date(entry.at) <= new Date(entry.occurrenceDueAt)
+                  : null
                 return (
                   <li key={entry.id} className="flex items-start gap-3 px-5 py-3">
                     <Avatar
@@ -161,29 +165,22 @@ export function HistoryPage() {
                       size={32}
                     />
                     <div className="min-w-0 flex-1">
-                      <div className="flex flex-wrap items-baseline gap-x-2">
+                      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                         <span className="text-sm font-medium text-foreground">
                           {entry.choreName}
                         </span>
-                        {entry.kind === 'reassignment' ? (
-                          <span className="text-xs text-muted-foreground">
-                            reassigned from {entry.fromAssignee?.displayName ?? 'nobody'} to{' '}
-                            {entry.toAssignee?.displayName ?? 'nobody'}
-                            {entry.actor && ` by ${entry.actor.displayName}`}
-                          </span>
-                        ) : (
-                          <span className="text-xs text-muted-foreground">
-                            {entry.kind === 'skip' ? 'skipped' : 'by'} {entry.actor?.displayName}
-                          </span>
-                        )}
-                        {entry.kind === 'skip' && <Badge tone="neutral">Skipped</Badge>}
-                        {entry.kind === 'reassignment' && <Badge tone="blue">Reassigned</Badge>}
+                        <Badge tone={ACTIVITY_BADGE[entry.kind].tone}>
+                          {ACTIVITY_BADGE[entry.kind].label}
+                        </Badge>
                       </div>
+                      <p className="mt-0.5 text-xs text-muted-foreground">
+                        {activityDetail(entry)}
+                      </p>
                       {entry.notes && (
-                        <p className="mt-0.5 text-xs text-muted-foreground">{entry.notes}</p>
+                        <p className="mt-0.5 text-xs italic text-muted-foreground">{entry.notes}</p>
                       )}
                     </div>
-                    <div className="flex shrink-0 items-center gap-2 text-xs">
+                    <div className="flex shrink-0 flex-col items-end gap-1 text-xs">
                       <time
                         dateTime={entry.at}
                         title={new Date(entry.at).toLocaleString()}
@@ -191,18 +188,16 @@ export function HistoryPage() {
                       >
                         {formatRelative(entry.at)}
                       </time>
-                      {entry.kind === 'completion' && entry.occurrenceDueAt && (
-                        <span className={cn(
-                          new Date(entry.at) <= new Date(entry.occurrenceDueAt)
-                            ? 'text-success'
-                            : 'text-destructive',
-                        )}>
-                          {new Date(entry.at) <= new Date(entry.occurrenceDueAt) ? 'on time' : 'late'}
-                        </span>
-                      )}
-                      {entry.pointsAwarded > 0 && (
-                        <span className="text-success">+{entry.pointsAwarded} pts</span>
-                      )}
+                      <div className="flex items-center gap-2">
+                        {onTime !== null && (
+                          <span className={cn(onTime ? 'text-success' : 'text-destructive')}>
+                            {onTime ? 'on time' : 'late'}
+                          </span>
+                        )}
+                        {entry.pointsAwarded > 0 && (
+                          <span className="text-success">+{entry.pointsAwarded} pts</span>
+                        )}
+                      </div>
                     </div>
                   </li>
                 )
@@ -404,6 +399,21 @@ function UserStatsTable({ userStats }: { userStats: UserStats[] }) {
       </CardContent>
     </Card>
   )
+}
+
+const ACTIVITY_BADGE: Record<ChoreHistoryEntry['kind'], { tone: BadgeTone; label: string }> = {
+  completion: { tone: 'green', label: 'Completed' },
+  skip: { tone: 'neutral', label: 'Skipped' },
+  reassignment: { tone: 'blue', label: 'Reassigned' },
+}
+
+/** One consistent "who did it" line per entry; the badge already names the action. */
+function activityDetail(entry: ChoreHistoryEntry): string {
+  if (entry.kind === 'reassignment') {
+    const detail = `${entry.fromAssignee?.displayName ?? 'nobody'} → ${entry.toAssignee?.displayName ?? 'nobody'}`
+    return entry.actor ? `${detail} · by ${entry.actor.displayName}` : detail
+  }
+  return `by ${entry.actor?.displayName ?? 'someone'}`
 }
 
 function formatRelative(iso: string): string {

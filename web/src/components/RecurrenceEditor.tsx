@@ -1,6 +1,5 @@
 import type {
   CustomRecurrenceMode,
-  FrequencyPeriod,
   RecurrenceFields,
   RecurrenceUnit,
   Weekday,
@@ -11,7 +10,6 @@ const MODE_OPTIONS: { value: CustomRecurrenceMode; label: string }[] = [
   { value: 'Interval', label: 'Every…' },
   { value: 'DaysOfWeek', label: 'Days of week' },
   { value: 'DaysOfMonth', label: 'Days of month' },
-  { value: 'Frequency', label: 'Times per period' },
 ]
 
 const UNIT_OPTIONS: { value: RecurrenceUnit; label: string }[] = [
@@ -19,13 +17,6 @@ const UNIT_OPTIONS: { value: RecurrenceUnit; label: string }[] = [
   { value: 'Week', label: 'weeks' },
   { value: 'Month', label: 'months' },
   { value: 'Year', label: 'years' },
-]
-
-const PERIOD_OPTIONS: { value: FrequencyPeriod; label: string }[] = [
-  { value: 'Day', label: 'day' },
-  { value: 'Week', label: 'week' },
-  { value: 'Month', label: 'month' },
-  { value: 'Year', label: 'year' },
 ]
 
 // Monday-first display, but values are the .NET DayOfWeek names the API expects.
@@ -176,30 +167,6 @@ export function RecurrenceEditor({ value, onChange }: Props) {
             Days that don't exist in a selected month are skipped (e.g. the 31st only fires in
             months that have one).
           </p>
-        </div>
-      )}
-
-      {mode === 'Frequency' && (
-        <div className="flex items-end gap-2">
-          <div className="w-20">
-            <IntegerInput
-              value={value.frequencyCount ?? 1}
-              onCommit={(n) => set({ frequencyCount: n })}
-              aria-label="Times per period"
-            />
-          </div>
-          <span className="pb-2 text-sm text-muted-foreground">times per</span>
-          <div className="flex-1">
-            <Select
-              value={value.frequencyPeriod ?? 'Week'}
-              onChange={(e) => set({ frequencyPeriod: e.target.value as FrequencyPeriod })}
-              aria-label="Frequency period"
-            >
-              {PERIOD_OPTIONS.map((o) => (
-                <option key={o.value} value={o.value}>{o.label}</option>
-              ))}
-            </Select>
-          </div>
         </div>
       )}
     </div>

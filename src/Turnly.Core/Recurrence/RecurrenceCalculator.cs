@@ -7,10 +7,10 @@ namespace Turnly.Core.Recurrence;
 /// scheduling preferences (Phase 3). Given the occurrence that was just completed it returns the
 /// next occurrence's due date — or null when nothing follows (one-time chores).
 ///
-/// <para><see cref="CustomRecurrenceMode.Frequency"/> is intentionally NOT handled here: it
-/// depends on how many completions exist in the current period, which is database state. The
-/// period helpers (<see cref="PeriodStart"/>/<see cref="PeriodEnd"/>) support that logic, which
-/// lives in <c>ChoreService</c>.</para>
+/// <para>A chore's "complete N times per occurrence" count is NOT handled here: it depends on how
+/// many completions exist for the current occurrence, which is database state. That gate lives in
+/// <c>ChoreService.AdvanceScheduleAsync</c>, which only calls into this calculator once the
+/// occurrence has actually closed.</para>
 /// </summary>
 public static class RecurrenceCalculator
 {
@@ -25,8 +25,6 @@ public static class RecurrenceCalculator
     {
         if (IsFixedSlot(rule))
             return FixedSlotOnOrAfter(rule, start);
-        if (IsFrequency(rule))
-            return PeriodEnd(rule.FrequencyPeriod!.Value, start);
         // One-time and all interval-style schedules start exactly at the start date.
         return start;
     }
@@ -75,9 +73,6 @@ public static class RecurrenceCalculator
     private static bool IsFixedSlot(RecurrenceRule rule) =>
         rule.Type == RepeatType.Custom &&
         rule.CustomMode is CustomRecurrenceMode.DaysOfWeek or CustomRecurrenceMode.DaysOfMonth;
-
-    private static bool IsFrequency(RecurrenceRule rule) =>
-        rule.Type == RepeatType.Custom && rule.CustomMode == CustomRecurrenceMode.Frequency;
 
     // ── Interval stepping ─────────────────────────────────────────────────────────────────
 
@@ -132,38 +127,4 @@ public static class RecurrenceCalculator
         CustomRecurrenceMode.DaysOfMonth => rule.DaysOfMonth.Contains(date.Day) && rule.Months.Contains(date.Month),
         _ => false,
     };
-
-    // ── Frequency period boundaries ───────────────────────────────────────────────────────
-
-    /// <summary>Start of the period (containing <paramref name="instant"/>) for a frequency chore.
-    /// Day/Month/Year are calendar-aligned; Week is a 7-day window aligned to the instant's date.</summary>
-    public static DateTimeOffset PeriodStart(FrequencyPeriod period, DateTimeOffset instant) => period switch
-    {
-        FrequencyPeriod.Day => new DateTimeOffset(instant.Date, instant.Offset),
-        FrequencyPeriod.Week => new DateTimeOffset(StartOfWeek(instant.Date), instant.Offset),
-        FrequencyPeriod.Month => new DateTimeOffset(new DateTime(instant.Year, instant.Month, 1), instant.Offset),
-        FrequencyPeriod.Year => new DateTimeOffset(new DateTime(instant.Year, 1, 1), instant.Offset),
-        _ => new DateTimeOffset(instant.Date, instant.Offset),
-    };
-
-    /// <summary>End (exclusive) of the period containing <paramref name="instant"/>.</summary>
-    public static DateTimeOffset PeriodEnd(FrequencyPeriod period, DateTimeOffset instant)
-    {
-        var start = PeriodStart(period, instant);
-        return period switch
-        {
-            FrequencyPeriod.Day => start.AddDays(1),
-            FrequencyPeriod.Week => start.AddDays(7),
-            FrequencyPeriod.Month => start.AddMonths(1),
-            FrequencyPeriod.Year => start.AddYears(1),
-            _ => start.AddDays(1),
-        };
-    }
-
-    // Week starts on Monday (ISO), so "3× per week" is predictable regardless of locale.
-    private static DateTime StartOfWeek(DateTime date)
-    {
-        var diff = ((int)date.DayOfWeek - (int)DayOfWeek.Monday + 7) % 7;
-        return date.AddDays(-diff);
-    }
 }

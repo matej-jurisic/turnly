@@ -22,7 +22,7 @@ public class ChoreManagementTests : IDisposable
     }
 
     private static CreateChoreRequest NewChore(Guid assignee, string[]? tags = null) =>
-        new("Dishes", "Wash up", "🍽️", 10, RepeatType.Daily, null, null, null, null, null, null, null, null,
+        new("Dishes", "Wash up", "🍽️", 10, RepeatType.Daily, null, null, null, null, null, null, 1, false,
             AssignmentStrategy.KeepLastAssigned, SchedulingPreference.FromScheduledDate,
             Start, [assignee], assignee, tags);
 
@@ -122,7 +122,7 @@ public class ChoreManagementTests : IDisposable
         // Custom days-of-week chore, round robin across both users (admin created first).
         var request = new CreateChoreRequest(
             "Trash", null, "🗑️", 5, RepeatType.Custom, CustomRecurrenceMode.DaysOfWeek,
-            null, null, [DayOfWeek.Monday, DayOfWeek.Thursday], null, null, null, null,
+            null, null, [DayOfWeek.Monday, DayOfWeek.Thursday], null, null, 1, false,
             AssignmentStrategy.RoundRobin, SchedulingPreference.FromScheduledDate,
             Start, [adminAuth.User.Id, memberAuth.User.Id], adminAuth.User.Id, null);
 

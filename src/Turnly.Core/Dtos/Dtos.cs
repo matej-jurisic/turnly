@@ -62,8 +62,8 @@ public record ChoreDto(
     DayOfWeek[] Weekdays,
     int[] DaysOfMonth,
     int[] Months,
-    int? FrequencyCount,
-    FrequencyPeriod? FrequencyPeriod,
+    int CompletionsRequired,
+    bool RotateOnEachCompletion,
     AssignmentStrategy AssignmentStrategy,
     SchedulingPreference SchedulingPreference,
     DateTimeOffset StartDate,
@@ -75,14 +75,14 @@ public record ChoreDto(
     string[] Tags,
     ChoreNotificationDto[] Notifications,
     ChoreCompletionDto? LastCompletion,
-    int? FrequencyProgress,
+    int? OccurrenceProgress,
     DateTimeOffset CreatedAt)
 {
-    public static ChoreDto FromEntity(Chore c, ChoreCompletion? lastCompletion = null, int? frequencyProgress = null, User? nextAssignee = null) =>
+    public static ChoreDto FromEntity(Chore c, ChoreCompletion? lastCompletion = null, int? occurrenceProgress = null, User? nextAssignee = null) =>
         new(c.Id, c.Name, c.Description, c.Emoji, c.Points, c.RepeatType,
             c.CustomMode, c.IntervalCount, c.IntervalUnit,
             c.Weekdays.ToArray(), c.DaysOfMonth.ToArray(), c.Months.ToArray(),
-            c.FrequencyCount, c.FrequencyPeriod, c.AssignmentStrategy, c.SchedulingPreference,
+            c.CompletionsRequired, c.RotateOnEachCompletion, c.AssignmentStrategy, c.SchedulingPreference,
             c.StartDate, c.DueTime?.ToString("HH\\:mm"), c.DueAt,
             c.CurrentAssignee is null ? null : UserDto.FromEntity(c.CurrentAssignee),
             nextAssignee is null ? null : UserDto.FromEntity(nextAssignee),
@@ -90,7 +90,7 @@ public record ChoreDto(
             c.Tags.Select(t => t.Name).OrderBy(n => n).ToArray(),
             c.Notifications.OrderBy(n => n.CreatedAt).Select(ChoreNotificationDto.FromEntity).ToArray(),
             lastCompletion is null ? null : ChoreCompletionDto.FromEntity(lastCompletion),
-            frequencyProgress,
+            occurrenceProgress,
             c.CreatedAt);
 }
 
@@ -129,8 +129,8 @@ public interface IChoreInput
     DayOfWeek[]? Weekdays { get; }
     int[]? DaysOfMonth { get; }
     int[]? Months { get; }
-    int? FrequencyCount { get; }
-    FrequencyPeriod? FrequencyPeriod { get; }
+    int CompletionsRequired { get; }
+    bool RotateOnEachCompletion { get; }
     AssignmentStrategy AssignmentStrategy { get; }
     SchedulingPreference SchedulingPreference { get; }
     DateTimeOffset StartDate { get; }
@@ -155,8 +155,8 @@ public record CreateChoreRequest(
     DayOfWeek[]? Weekdays,
     int[]? DaysOfMonth,
     int[]? Months,
-    int? FrequencyCount,
-    FrequencyPeriod? FrequencyPeriod,
+    int CompletionsRequired,
+    bool RotateOnEachCompletion,
     AssignmentStrategy AssignmentStrategy,
     SchedulingPreference SchedulingPreference,
     DateTimeOffset StartDate,
@@ -178,8 +178,8 @@ public record UpdateChoreRequest(
     DayOfWeek[]? Weekdays,
     int[]? DaysOfMonth,
     int[]? Months,
-    int? FrequencyCount,
-    FrequencyPeriod? FrequencyPeriod,
+    int CompletionsRequired,
+    bool RotateOnEachCompletion,
     AssignmentStrategy AssignmentStrategy,
     SchedulingPreference SchedulingPreference,
     DateTimeOffset StartDate,

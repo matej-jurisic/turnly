@@ -48,11 +48,9 @@ export interface UpdateUserRequest {
 
 export type RepeatType = 'OneTime' | 'Daily' | 'Weekly' | 'Monthly' | 'Yearly' | 'Custom'
 
-export type CustomRecurrenceMode = 'Interval' | 'DaysOfWeek' | 'DaysOfMonth' | 'Frequency'
+export type CustomRecurrenceMode = 'Interval' | 'DaysOfWeek' | 'DaysOfMonth'
 
 export type RecurrenceUnit = 'Day' | 'Week' | 'Month' | 'Year'
-
-export type FrequencyPeriod = 'Day' | 'Week' | 'Month' | 'Year'
 
 export type AssignmentStrategy =
   | 'Random'
@@ -132,8 +130,6 @@ export interface RecurrenceFields {
   weekdays: Weekday[]
   daysOfMonth: number[]
   months: number[]
-  frequencyCount?: number | null
-  frequencyPeriod?: FrequencyPeriod | null
 }
 
 export interface Chore extends RecurrenceFields {
@@ -143,6 +139,12 @@ export interface Chore extends RecurrenceFields {
   emoji?: string | null
   points: number
   repeatType: RepeatType
+  /** Completions (skips included) needed to close one occurrence before it advances. 1 for the
+   * usual chore; >1 = "complete N times" (only on the non-custom repeat types). */
+  completionsRequired: number
+  /** For multi-completion chores: rotate the assignee after each completion rather than only when
+   * the occurrence is fully complete. */
+  rotateOnEachCompletion: boolean
   assignmentStrategy: AssignmentStrategy
   schedulingPreference: SchedulingPreference
   startDate: string
@@ -157,8 +159,8 @@ export interface Chore extends RecurrenceFields {
   tags: string[]
   notifications: ChoreNotification[]
   lastCompletion?: ChoreCompletion | null
-  /** Completions in the current period (frequency chores only). */
-  frequencyProgress?: number | null
+  /** Completions logged against the current occurrence (only for multi-completion chores). */
+  occurrenceProgress?: number | null
   createdAt: string
 }
 
@@ -168,6 +170,8 @@ export interface ChoreRequest extends RecurrenceFields {
   emoji?: string | null
   points: number
   repeatType: RepeatType
+  completionsRequired: number
+  rotateOnEachCompletion: boolean
   assignmentStrategy: AssignmentStrategy
   schedulingPreference: SchedulingPreference
   startDate: string

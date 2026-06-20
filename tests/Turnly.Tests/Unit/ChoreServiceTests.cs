@@ -29,13 +29,13 @@ public class ChoreServiceTests
         RecurrenceUnit? intervalUnit = null,
         int[]? daysOfMonth = null,
         int[]? months = null,
-        int? frequencyCount = null,
-        FrequencyPeriod? frequencyPeriod = null,
+        int completionsRequired = 1,
+        bool rotateOnEachCompletion = false,
         AssignmentStrategy strategy = AssignmentStrategy.KeepLastAssigned,
         SchedulingPreference scheduling = SchedulingPreference.FromScheduledDate,
         DateTimeOffset? start = null) =>
         new("Dishes", null, "🍽️", points, repeat, customMode, intervalCount, intervalUnit,
-            weekdays, daysOfMonth, months, frequencyCount, frequencyPeriod,
+            weekdays, daysOfMonth, months, completionsRequired, rotateOnEachCompletion,
             strategy, scheduling, start ?? Start, assignees, currentAssignee, tags);
 
     [Fact]
@@ -126,18 +126,32 @@ public class ChoreServiceTests
     }
 
     [Fact]
-    public async Task CreateAsync_ignores_due_time_for_frequency_chores()
+    public async Task CreateAsync_keeps_due_time_for_multi_completion_chores()
+    {
+        using var ctx = new TestContext();
+        var (_, member) = await SeedUsersAsync(ctx);
+
+        var result = await ctx.Chores.CreateAsync(
+            NewChore(member, [member], RepeatType.Weekly, completionsRequired: 3) with { DueTime = "09:30" });
+
+        Assert.True(result.Succeeded);
+        Assert.Equal("09:30", result.Value!.DueTime);
+        Assert.Equal(3, result.Value!.CompletionsRequired);
+    }
+
+    [Fact]
+    public async Task CreateAsync_rejects_completion_count_on_custom_recurrence()
     {
         using var ctx = new TestContext();
         var (_, member) = await SeedUsersAsync(ctx);
 
         var result = await ctx.Chores.CreateAsync(
             NewChore(member, [member], RepeatType.Custom,
-                customMode: CustomRecurrenceMode.Frequency, frequencyCount: 3,
-                frequencyPeriod: FrequencyPeriod.Week) with { DueTime = "09:30" });
+                customMode: CustomRecurrenceMode.Interval, intervalCount: 2,
+                intervalUnit: RecurrenceUnit.Week, completionsRequired: 3));
 
-        Assert.True(result.Succeeded);
-        Assert.Null(result.Value!.DueTime);
+        Assert.False(result.Succeeded);
+        Assert.Equal(ErrorType.Validation, result.Error!.Type);
     }
 
     [Fact]
@@ -363,23 +377,59 @@ public class ChoreServiceTests
     }
 
     [Fact]
-    public async Task CompleteAsync_frequency_tracks_progress_then_rolls_over()
+    public async Task CompleteAsync_multi_completion_tracks_progress_then_advances()
     {
         using var ctx = new TestContext();
         var (_, member) = await SeedUsersAsync(ctx);
-        var chore = (await ctx.Chores.CreateAsync(NewChore(member, [member], RepeatType.Custom,
-            customMode: CustomRecurrenceMode.Frequency, frequencyCount: 2,
-            frequencyPeriod: FrequencyPeriod.Week, start: DateTimeOffset.UtcNow))).Value!;
+        var chore = (await ctx.Chores.CreateAsync(NewChore(member, [member], RepeatType.Weekly,
+            completionsRequired: 2, start: DateTimeOffset.UtcNow))).Value!;
 
-        var periodEnd = chore.DueAt;
+        var originalDue = chore.DueAt;
 
         var first = await ctx.Chores.CompleteAsync(chore.Id, member, new CompleteChoreRequest(null));
-        Assert.Equal(1, first.Value!.FrequencyProgress);
-        Assert.Equal(periodEnd, first.Value!.DueAt); // still due this period
+        Assert.Equal(1, first.Value!.OccurrenceProgress);
+        Assert.Equal(originalDue, first.Value!.DueAt); // occurrence still open
 
         var second = await ctx.Chores.CompleteAsync(chore.Id, member, new CompleteChoreRequest(null));
-        Assert.True(second.Value!.DueAt > periodEnd); // rolled into the next period
-        Assert.Equal(2, second.Value!.FrequencyProgress); // quota met for the current period
+        Assert.True(second.Value!.DueAt > originalDue); // occurrence closed, advanced a week
+        Assert.Equal(0, second.Value!.OccurrenceProgress); // fresh occurrence starts empty
+    }
+
+    [Fact]
+    public async Task CompleteAsync_rotates_on_each_completion_when_enabled()
+    {
+        using var ctx = new TestContext();
+        var (admin, member) = await SeedUsersAsync(ctx);
+        var chore = (await ctx.Chores.CreateAsync(NewChore(admin, [admin, member], RepeatType.Weekly,
+            completionsRequired: 2, rotateOnEachCompletion: true,
+            strategy: AssignmentStrategy.RoundRobin, start: DateTimeOffset.UtcNow))).Value!;
+
+        var originalDue = chore.DueAt;
+        Assert.Equal(admin, chore.CurrentAssignee!.Id);
+
+        // First (1/2) completion keeps the occurrence open but still rotates to the next assignee.
+        var first = await ctx.Chores.CompleteAsync(chore.Id, admin, new CompleteChoreRequest(null));
+        Assert.Equal(originalDue, first.Value!.DueAt); // occurrence still open
+        Assert.Equal(member, first.Value!.CurrentAssignee!.Id); // but rotated mid-occurrence
+
+        // Second completion closes the occurrence and rotates again.
+        var second = await ctx.Chores.CompleteAsync(chore.Id, member, new CompleteChoreRequest(null));
+        Assert.True(second.Value!.DueAt > originalDue);
+        Assert.Equal(admin, second.Value!.CurrentAssignee!.Id);
+    }
+
+    [Fact]
+    public async Task CompleteAsync_keeps_assignee_mid_occurrence_by_default()
+    {
+        using var ctx = new TestContext();
+        var (admin, member) = await SeedUsersAsync(ctx);
+        var chore = (await ctx.Chores.CreateAsync(NewChore(admin, [admin, member], RepeatType.Weekly,
+            completionsRequired: 2, strategy: AssignmentStrategy.RoundRobin,
+            start: DateTimeOffset.UtcNow))).Value!;
+
+        // Without rotate-on-each, the 1/2 completion leaves the assignee untouched.
+        var first = await ctx.Chores.CompleteAsync(chore.Id, admin, new CompleteChoreRequest(null));
+        Assert.Equal(admin, first.Value!.CurrentAssignee!.Id);
     }
 
     [Fact]
@@ -433,18 +483,23 @@ public class ChoreServiceTests
     }
 
     [Fact]
-    public async Task SkipAsync_does_not_count_toward_frequency_progress()
+    public async Task SkipAsync_counts_toward_occurrence_without_advancing_early()
     {
         using var ctx = new TestContext();
         var (_, member) = await SeedUsersAsync(ctx);
-        var chore = (await ctx.Chores.CreateAsync(NewChore(member, [member], RepeatType.Custom,
-            customMode: CustomRecurrenceMode.Frequency, frequencyCount: 2,
-            frequencyPeriod: FrequencyPeriod.Week, start: DateTimeOffset.UtcNow))).Value!;
+        var chore = (await ctx.Chores.CreateAsync(NewChore(member, [member], RepeatType.Weekly,
+            completionsRequired: 2, start: DateTimeOffset.UtcNow))).Value!;
 
+        var originalDue = chore.DueAt;
         var skipped = await ctx.Chores.SkipAsync(chore.Id, member, new SkipChoreRequest(null));
 
         Assert.True(skipped.Succeeded);
-        Assert.Equal(0, skipped.Value!.FrequencyProgress); // skip is not a completion
+        Assert.Equal(1, skipped.Value!.OccurrenceProgress); // a skip counts as one of the N
+        Assert.Equal(originalDue, skipped.Value!.DueAt); // but the occurrence isn't closed yet
+
+        // A completion closes the 2nd slot → occurrence advances.
+        var done = await ctx.Chores.CompleteAsync(chore.Id, member, new CompleteChoreRequest(null));
+        Assert.True(done.Value!.DueAt > originalDue);
     }
 
     [Fact]
@@ -620,8 +675,8 @@ public class ChoreServiceTests
 
     private static UpdateChoreRequest ToUpdate(CreateChoreRequest c) =>
         new(c.Name, c.Description, c.Emoji, c.Points, c.RepeatType, c.CustomMode, c.IntervalCount,
-            c.IntervalUnit, c.Weekdays, c.DaysOfMonth, c.Months, c.FrequencyCount, c.FrequencyPeriod,
-            c.AssignmentStrategy, c.SchedulingPreference, c.StartDate, c.AssigneeIds,
+            c.IntervalUnit, c.Weekdays, c.DaysOfMonth, c.Months, c.CompletionsRequired,
+            c.RotateOnEachCompletion, c.AssignmentStrategy, c.SchedulingPreference, c.StartDate, c.AssigneeIds,
             c.CurrentAssigneeId, c.TagNames, c.Notifications, c.DueTime);
 
     [Fact]

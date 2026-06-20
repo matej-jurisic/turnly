@@ -12,9 +12,7 @@ public record RecurrenceRule(
     RecurrenceUnit? IntervalUnit = null,
     IReadOnlyCollection<DayOfWeek>? Weekdays = null,
     IReadOnlyCollection<int>? DaysOfMonth = null,
-    IReadOnlyCollection<int>? Months = null,
-    int? FrequencyCount = null,
-    FrequencyPeriod? FrequencyPeriod = null)
+    IReadOnlyCollection<int>? Months = null)
 {
     public IReadOnlyCollection<DayOfWeek> Weekdays { get; init; } = Weekdays ?? Array.Empty<DayOfWeek>();
     public IReadOnlyCollection<int> DaysOfMonth { get; init; } = DaysOfMonth ?? Array.Empty<int>();
@@ -22,5 +20,5 @@ public record RecurrenceRule(
 
     public static RecurrenceRule FromChore(Chore c) => new(
         c.RepeatType, c.CustomMode, c.IntervalCount, c.IntervalUnit,
-        c.Weekdays, c.DaysOfMonth, c.Months, c.FrequencyCount, c.FrequencyPeriod);
+        c.Weekdays, c.DaysOfMonth, c.Months);
 }

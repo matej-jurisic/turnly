@@ -12,7 +12,7 @@ public static class Validators
     public const int MaxAwardNameLength = 128;
     public const int MaxPoints = 100_000;
     public const int MaxInterval = 365;
-    public const int MaxFrequency = 100;
+    public const int MaxCompletionsRequired = 100;
     public const int MaxNotificationsPerChore = 20;
     public const int MaxNotificationOffset = 365;
 
@@ -88,9 +88,14 @@ public static class Validators
         IReadOnlyCollection<DayOfWeek>? weekdays,
         IReadOnlyCollection<int>? daysOfMonth,
         IReadOnlyCollection<int>? months,
-        int? frequencyCount,
-        FrequencyPeriod? frequencyPeriod)
+        int completionsRequired)
     {
+        // "Complete N times per occurrence" is only offered on the non-custom repeat types.
+        if (completionsRequired < 1 || completionsRequired > MaxCompletionsRequired)
+            return Error.Validation($"The number of times must be between 1 and {MaxCompletionsRequired}.");
+        if (type == RepeatType.Custom && completionsRequired != 1)
+            return Error.Validation("A custom recurrence can't also set a per-occurrence completion count.");
+
         if (type != RepeatType.Custom)
             return null;
 
@@ -124,13 +129,6 @@ public static class Validators
                 // selected day must fit the most generous selected month.
                 if (daysOfMonth.Min() > months.Max(MaxDayInMonth))
                     return Error.Validation("The selected day never occurs in any of the selected months.");
-                break;
-
-            case CustomRecurrenceMode.Frequency:
-                if (frequencyPeriod is null)
-                    return Error.Validation("A frequency recurrence must specify a period.");
-                if (frequencyCount is not { } f || f < 1 || f > MaxFrequency)
-                    return Error.Validation($"The frequency must be between 1 and {MaxFrequency}.");
                 break;
         }
 

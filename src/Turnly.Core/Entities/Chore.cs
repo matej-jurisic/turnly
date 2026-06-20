@@ -29,9 +29,16 @@ public class Chore
     public List<int> DaysOfMonth { get; set; } = new();
     public List<int> Months { get; set; } = new();
 
-    /// <summary>Required completions per period for <see cref="CustomRecurrenceMode.Frequency"/>.</summary>
-    public int? FrequencyCount { get; set; }
-    public FrequencyPeriod? FrequencyPeriod { get; set; }
+    /// <summary>How many completions (skips count too) are needed to close the current occurrence
+    /// before it advances to the next due date — e.g. 3 = "three times per occurrence". 1 for the
+    /// usual one-completion-per-occurrence chore. Only meaningful for the non-custom repeat types
+    /// (OneTime/Daily/Weekly/Monthly/Yearly); custom recurrences are always 1.</summary>
+    public int CompletionsRequired { get; set; } = 1;
+
+    /// <summary>For multi-completion chores (<see cref="CompletionsRequired"/> &gt; 1): rotate the
+    /// assignee after every single completion rather than only when the occurrence is fully complete.
+    /// Ignored (and stored false) when only one completion is required. Skips never rotate either way.</summary>
+    public bool RotateOnEachCompletion { get; set; }
 
     /// <summary>How the next assignee is chosen when the chore advances to a new occurrence.</summary>
     public AssignmentStrategy AssignmentStrategy { get; set; } = AssignmentStrategy.KeepLastAssigned;
@@ -46,7 +53,7 @@ public class Chore
 
     /// <summary>The user-chosen local time-of-day a chore is due, or <c>null</c> for "no specific
     /// time" (treated as end of day). Stored only so the UI can show/round-trip it; the authoritative
-    /// instant lives in <see cref="StartDate"/>/<see cref="DueAt"/>. Not applicable to Frequency chores.</summary>
+    /// instant lives in <see cref="StartDate"/>/<see cref="DueAt"/>.</summary>
     public TimeOnly? DueTime { get; set; }
 
     /// <summary>Due date of the current/next occurrence. Null means nothing is scheduled

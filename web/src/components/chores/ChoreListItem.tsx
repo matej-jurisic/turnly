@@ -2,7 +2,7 @@ import type { Chore } from '@/lib/types'
 import { Badge } from '@/components/ui/Badge'
 import { Card } from '@/components/ui/Card'
 import { Avatar } from '@/components/ui/Modal'
-import { formatDate, formatDueTime, repeatLabel } from '@/lib/chore-format'
+import { completionProgressLabel, formatDate, formatDueTime, repeatLabel } from '@/lib/chore-format'
 import { CheckIcon } from '@/components/chores/icons'
 import { ChoreMenu } from '@/components/chores/ChoreMenu'
 import { SwipeRow } from '@/components/chores/SwipeRow'
@@ -43,9 +43,9 @@ export function ChoreListItem({
             Due {formatDate(chore.dueAt)}{chore.dueTime && ` · ${formatDueTime(chore.dueTime)}`}
           </Badge>
         )}
-        {chore.customMode === 'Frequency' ? (
+        {chore.completionsRequired > 1 ? (
           <Badge tone="violet" className="border border-primary bg-card">
-            {chore.frequencyProgress ?? 0}/{chore.frequencyCount ?? 1} this {(chore.frequencyPeriod ?? 'Week').toLowerCase()}
+            {completionProgressLabel(chore)}
           </Badge>
         ) : (
           <Badge tone="blue" className="border border-info bg-card">{repeatLabel(chore)}</Badge>

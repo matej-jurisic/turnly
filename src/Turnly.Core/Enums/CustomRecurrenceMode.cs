@@ -9,7 +9,5 @@ public enum CustomRecurrenceMode
     /// <summary>Repeats on the selected <c>Weekdays</c> (e.g. Mon, Wed, Fri).</summary>
     DaysOfWeek = 1,
     /// <summary>Repeats on the selected <c>DaysOfMonth</c> within the selected <c>Months</c>.</summary>
-    DaysOfMonth = 2,
-    /// <summary>Must be completed {FrequencyCount} times per {FrequencyPeriod}; days not fixed.</summary>
-    Frequency = 3
+    DaysOfMonth = 2
 }

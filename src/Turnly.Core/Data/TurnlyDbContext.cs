@@ -64,7 +64,6 @@ public class TurnlyDbContext : DbContext
             e.Property(x => x.RepeatType).HasConversion<string>().HasMaxLength(16);
             e.Property(x => x.CustomMode).HasConversion<string>().HasMaxLength(16);
             e.Property(x => x.IntervalUnit).HasConversion<string>().HasMaxLength(16);
-            e.Property(x => x.FrequencyPeriod).HasConversion<string>().HasMaxLength(16);
             e.Property(x => x.AssignmentStrategy).HasConversion<string>().HasMaxLength(32);
             e.Property(x => x.SchedulingPreference).HasConversion<string>().HasMaxLength(32);
             e.Property(x => x.Weekdays).HasConversion(WeekdaysConverter, WeekdaysComparer);

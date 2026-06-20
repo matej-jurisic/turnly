@@ -26,7 +26,7 @@ public class NotificationServiceTests
     {
         var req = new CreateChoreRequest(
             "Dishes", null, "🍽️", 10, RepeatType.Daily, null, null, null,
-            null, null, null, null, null,
+            null, null, null, 1, false,
             AssignmentStrategy.KeepLastAssigned, SchedulingPreference.FromScheduledDate,
             dueAt.AddDays(-1), assignees, currentAssignee, null, [notification]);
 

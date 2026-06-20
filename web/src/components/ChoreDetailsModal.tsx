@@ -8,7 +8,7 @@ import { Modal, Avatar } from '@/components/ui/Modal'
 import { Badge } from '@/components/ui/Badge'
 import { TrashIcon } from '@/components/chores/icons'
 import {
-  calendarDaysAgo, choreDueStatus, formatDate, notificationRecipientsLabel,
+  calendarDaysAgo, choreDueStatus, completionProgressLabel, formatDate, notificationRecipientsLabel,
   notificationTimingLabel, notificationTypeLabel, relativeDayLabel, repeatLabel,
   STRATEGY_LABELS, SCHEDULING_LABELS,
 } from '@/lib/chore-format'
@@ -27,9 +27,7 @@ export function ChoreDetailsModal({ chore, onClose, onComplete }: ChoreDetailsMo
     </span>
   )
 
-  const showSchedulingPref =
-    chore.repeatType !== 'OneTime' &&
-    !(chore.repeatType === 'Custom' && chore.customMode === 'Frequency')
+  const showSchedulingPref = chore.repeatType !== 'OneTime'
 
   const overdueDays = chore.dueAt && choreDueStatus(chore) === 'overdue'
     ? calendarDaysAgo(chore.dueAt)
@@ -51,10 +49,8 @@ export function ChoreDetailsModal({ chore, onClose, onComplete }: ChoreDetailsMo
               : <Badge tone="amber">Due {formatDate(chore.dueAt)}</Badge>
           )}
           <Badge tone="violet">{chore.points} pts</Badge>
-          {chore.customMode === 'Frequency' && (
-            <Badge tone="neutral">
-              {chore.frequencyProgress ?? 0}/{chore.frequencyCount ?? 1} this {(chore.frequencyPeriod ?? 'Week').toLowerCase()}
-            </Badge>
+          {chore.completionsRequired > 1 && (
+            <Badge tone="neutral">{completionProgressLabel(chore)}</Badge>
           )}
         </div>
 
@@ -103,7 +99,12 @@ export function ChoreDetailsModal({ chore, onClose, onComplete }: ChoreDetailsMo
           {chore.repeatType !== 'OneTime' && (
             <div>
               <dt className="text-xs text-muted-foreground">Assignment</dt>
-              <dd className="text-foreground">{STRATEGY_LABELS[chore.assignmentStrategy] ?? chore.assignmentStrategy}</dd>
+              <dd className="text-foreground">
+                {STRATEGY_LABELS[chore.assignmentStrategy] ?? chore.assignmentStrategy}
+                {chore.rotateOnEachCompletion && (
+                  <span className="block text-xs text-muted-foreground">Rotates each completion</span>
+                )}
+              </dd>
             </div>
           )}
           {showSchedulingPref && (

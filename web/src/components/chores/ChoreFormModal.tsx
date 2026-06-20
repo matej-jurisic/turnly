@@ -12,7 +12,7 @@ import type {
   User,
 } from '@/lib/types'
 import { Button } from '@/components/ui/Button'
-import { Input, Label, Select } from '@/components/ui/Field'
+import { Input, IntegerInput, Label, Select } from '@/components/ui/Field'
 import { TimeField } from '@/components/ui/TimeField'
 import { Modal, Avatar } from '@/components/ui/Modal'
 import { RecurrenceEditor } from '@/components/RecurrenceEditor'
@@ -45,14 +45,14 @@ export function ChoreFormModal({ title, chore, onClose, onSaved }: ChoreFormModa
     weekdays: chore?.weekdays ?? [],
     daysOfMonth: chore?.daysOfMonth ?? [],
     months: chore?.months ?? [],
-    frequencyCount: chore?.frequencyCount ?? 1,
-    frequencyPeriod: chore?.frequencyPeriod ?? 'Week',
   })
+  const [completionsRequired, setCompletionsRequired] = useState(chore?.completionsRequired ?? 1)
+  const [rotateOnEachCompletion, setRotateOnEachCompletion] = useState(chore?.rotateOnEachCompletion ?? false)
   const [assignmentStrategy, setAssignmentStrategy] = useState<AssignmentStrategy>(
-    chore?.assignmentStrategy ?? 'KeepLastAssigned',
+    chore?.assignmentStrategy ?? 'LeastCompleted',
   )
   const [schedulingPreference, setSchedulingPreference] = useState<SchedulingPreference>(
-    chore?.schedulingPreference ?? 'FromScheduledDate',
+    chore?.schedulingPreference ?? 'ToFirstNextRepeat',
   )
   const [startDate, setStartDate] = useState(
     (chore?.startDate ?? new Date().toISOString()).slice(0, 10),
@@ -82,7 +82,8 @@ export function ChoreFormModal({ title, chore, onClose, onSaved }: ChoreFormModa
     })
   }
 
-  const isFrequency = repeatType === 'Custom' && recurrence.customMode === 'Frequency'
+  // "Complete N times" only rides on the non-custom repeat types; custom recurrences are always 1.
+  const isCustom = repeatType === 'Custom'
 
   const mutation = useMutation({
     mutationFn: () => {
@@ -93,10 +94,12 @@ export function ChoreFormModal({ title, chore, onClose, onSaved }: ChoreFormModa
         points: Number(points) || 0,
         repeatType,
         ...recurrence,
+        completionsRequired: isCustom ? 1 : Math.max(1, completionsRequired),
+        rotateOnEachCompletion: !isCustom && completionsRequired > 1 && rotateOnEachCompletion,
         assignmentStrategy,
         schedulingPreference,
-        startDate: toLocalDueInstant(startDate, isFrequency ? '' : dueTime),
-        dueTime: isFrequency ? null : dueTime || null,
+        startDate: toLocalDueInstant(startDate, dueTime),
+        dueTime: dueTime || null,
         assigneeIds,
         currentAssigneeId,
         tagNames: selectedTags,
@@ -142,25 +145,57 @@ export function ChoreFormModal({ title, chore, onClose, onSaved }: ChoreFormModa
           <Label htmlFor="description">Description</Label>
           <Input id="description" value={description} onChange={(e) => setDescription(e.target.value)} />
         </div>
-        <div>
-          <Label htmlFor="repeat">Repeat</Label>
-          <Select id="repeat" value={repeatType} onChange={(e) => setRepeatType(e.target.value as RepeatType)}>
-            {REPEAT_OPTIONS.map((o) => (
-              <option key={o.value} value={o.value}>{o.label}</option>
-            ))}
-          </Select>
+        <div className="flex gap-3">
+          <div className="flex-1">
+            <Label htmlFor="repeat">Repeat</Label>
+            <Select id="repeat" value={repeatType} onChange={(e) => setRepeatType(e.target.value as RepeatType)}>
+              {REPEAT_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>{o.label}</option>
+              ))}
+            </Select>
+          </div>
+          {!isCustom && (
+            <div className="w-28">
+              <Label htmlFor="times">Times</Label>
+              <IntegerInput
+                id="times"
+                value={completionsRequired}
+                onCommit={(n) => setCompletionsRequired(Math.max(1, n))}
+                aria-label="Completions needed per occurrence"
+              />
+            </div>
+          )}
         </div>
+        {!isCustom && completionsRequired > 1 && (
+          <div className="-mt-1 space-y-2">
+            <p className="text-xs text-muted-foreground">
+              Must be completed {completionsRequired} times before it's due again.
+            </p>
+            <label className="flex items-start gap-2 text-sm text-foreground">
+              <input
+                type="checkbox"
+                checked={rotateOnEachCompletion}
+                onChange={(e) => setRotateOnEachCompletion(e.target.checked)}
+                className="mt-0.5 h-4 w-4 rounded border-border text-primary focus:ring-ring"
+              />
+              <span>
+                Rotate assignee after each completion
+                <span className="block text-xs text-muted-foreground">
+                  Otherwise the assignee only changes once all {completionsRequired} are done.
+                </span>
+              </span>
+            </label>
+          </div>
+        )}
         <div className="flex gap-3">
           <div className="flex-1">
             <Label htmlFor="start">Start date</Label>
             <Input id="start" type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} required />
           </div>
-          {!isFrequency && (
-            <div className="flex-1">
-              <Label htmlFor="dueTime">Due time</Label>
-              <TimeField id="dueTime" value={dueTime} onChange={setDueTime} />
-            </div>
-          )}
+          <div className="flex-1">
+            <Label htmlFor="dueTime">Due time</Label>
+            <TimeField id="dueTime" value={dueTime} onChange={setDueTime} />
+          </div>
         </div>
         {repeatType === 'Custom' && (
           <RecurrenceEditor value={recurrence} onChange={setRecurrence} />
@@ -179,20 +214,18 @@ export function ChoreFormModal({ title, chore, onClose, onSaved }: ChoreFormModa
                 ))}
               </Select>
             </div>
-            {!isFrequency && (
-              <div className="flex-1">
-                <Label htmlFor="scheduling">Next due</Label>
-                <Select
-                  id="scheduling"
-                  value={schedulingPreference}
-                  onChange={(e) => setSchedulingPreference(e.target.value as SchedulingPreference)}
-                >
-                  {SCHEDULING_OPTIONS.map((o) => (
-                    <option key={o.value} value={o.value}>{o.label}</option>
-                  ))}
-                </Select>
-              </div>
-            )}
+            <div className="flex-1">
+              <Label htmlFor="scheduling">Next due</Label>
+              <Select
+                id="scheduling"
+                value={schedulingPreference}
+                onChange={(e) => setSchedulingPreference(e.target.value as SchedulingPreference)}
+              >
+                {SCHEDULING_OPTIONS.map((o) => (
+                  <option key={o.value} value={o.value}>{o.label}</option>
+                ))}
+              </Select>
+            </div>
           </div>
         )}
         <div>

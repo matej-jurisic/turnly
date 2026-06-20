@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { choresApi, ApiError } from '@/lib/api'
@@ -81,18 +81,6 @@ export function ChoresPage() {
     }
     return [...map.values()].sort((a, b) => a.displayName.localeCompare(b.displayName))
   }, [chores])
-
-  // Default the view to "Mine" on first load — only when there are multiple members and the current
-  // user is actually one of the assignees (otherwise the default would be an empty list). Runs once;
-  // the user is free to clear or change it afterwards.
-  const didDefaultFilter = useRef(false)
-  useEffect(() => {
-    if (didDefaultFilter.current || !currentUser || !chores) return
-    didDefaultFilter.current = true
-    if (allAssignees.length > 1 && allAssignees.some((u) => u.id === currentUser.id)) {
-      setFilters({ ...emptyFilters, assignees: [currentUser.id] })
-    }
-  }, [currentUser, chores, allAssignees])
 
   const { overdue, today, upcoming, later } = useMemo(() => {
     const filtered = (chores ?? []).filter((c) => {
