@@ -14,6 +14,7 @@ import type {
   PushDevice,
   PushSubscribeRequest,
   ReassignChoreRequest,
+  RescheduleChoreRequest,
   Redemption,
   SetupRequest,
   SkipChoreRequest,
@@ -142,6 +143,8 @@ export const choresApi = {
     request<Chore>(`/chores/${id}/skip`, { method: 'POST', body: json(body) }),
   reassign: (id: string, body: ReassignChoreRequest) =>
     request<Chore>(`/chores/${id}/reassign`, { method: 'POST', body: json(body) }),
+  reschedule: (id: string, body: RescheduleChoreRequest) =>
+    request<Chore>(`/chores/${id}/reschedule`, { method: 'POST', body: json(body) }),
   undoCompletion: (completionId: string) =>
     request<void>(`/completions/${completionId}`, { method: 'DELETE' }),
   deleteActivity: (completionId: string) =>

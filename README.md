@@ -2,12 +2,15 @@
 
 Family chore management web app (PWA). Self-hosted, simple, actually works.
 
-This repository currently implements **Phases 1–8**: foundation (auth, users, roles, Docker),
+This repository currently implements **Phases 1–9**: foundation (auth, users, roles, Docker),
 chore CRUD with recurrence and assignment strategies, a dashboard with today/overdue/upcoming
 views, per-user point totals, filtering, and global search, a history/stats view, awards and
-point redemption, per-occurrence skip and one-off reassignment, and Web Push notifications
-(per-chore reminder/due/follow-up schedule via self-hosted VAPID keys).
-See [`specs.md`](./specs.md) for the full product spec and roadmap.
+point redemption, per-occurrence skip and one-off reassignment, Web Push notifications
+(per-chore reminder/due/follow-up schedule via self-hosted VAPID keys), and UX polish (swipe
+actions, completion confetti, admin complete-on-behalf and activity-entry deletion). **Shared
+chores** can also be set to "Everyone (independent)", giving each assignee their own schedule and
+per-person quota — one chore for "everyone does the dishes once a week" without anyone blocking
+anyone else. See [`specs.md`](./specs.md) for the full product spec and roadmap.
 
 ## Stack
 

@@ -2,8 +2,9 @@ import { useState } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { choresApi, usersApi, ApiError } from '@/lib/api'
 import { celebrate } from '@/lib/confetti'
+import { isIndependent } from '@/lib/chore-format'
 import { useAuthStore } from '@/store/auth'
-import type { Chore } from '@/lib/types'
+import type { Chore, User } from '@/lib/types'
 import { Button } from '@/components/ui/Button'
 import { Input, Label, Select } from '@/components/ui/Field'
 import { Modal } from '@/components/ui/Modal'
@@ -18,13 +19,22 @@ export function CompleteModal({ chore, onClose, onDone }: CompleteModalProps) {
   const currentUser = useAuthStore((s) => s.user)
   const isAdmin = currentUser?.role === 'Admin'
 
+  // Track-mode chores can only be completed for one of their assignees (each has their own
+  // schedule), so the credit picker is limited to them and defaults to a valid owner.
+  const isIndep = isIndependent(chore)
+  const trackUsers = chore.tracks.map((t) => t.user)
+  const viewerOwnsTrack = trackUsers.some((u) => u.id === currentUser?.id)
+
   const [notes, setNotes] = useState('')
-  const [completedByUserId, setCompletedByUserId] = useState(currentUser?.id ?? '')
+  const [completedByUserId, setCompletedByUserId] = useState(
+    isIndep && !viewerOwnsTrack ? trackUsers[0]?.id ?? '' : currentUser?.id ?? '',
+  )
   const [error, setError] = useState<string | null>(null)
 
   // Admins can credit the completion to another household member. The /users endpoint is
   // admin-only, which is fine since only admins see this picker.
-  const { data: users } = useQuery({ queryKey: ['users'], queryFn: usersApi.list, enabled: isAdmin })
+  const { data: allUsers } = useQuery({ queryKey: ['users'], queryFn: usersApi.list, enabled: isAdmin && !isIndep })
+  const users: User[] | undefined = isIndep ? trackUsers : allUsers
 
   const onBehalf = isAdmin && completedByUserId !== '' && completedByUserId !== currentUser?.id
 

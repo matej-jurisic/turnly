@@ -13,12 +13,21 @@ type Closer = () => void
 const openers: Closer[] = []
 let scheduledClose: ReturnType<typeof setTimeout> | undefined
 let listening = false
+// True while we're dropping our own sentinel via a programmatic `history.back()` (a UI/programmatic
+// close, not a user Back). The popstate it triggers must be ignored — the modal already removed
+// itself, so popping `openers` again would wrongly close the modal stacked beneath it.
+let selfPopping = false
 
 function hasSentinel(): boolean {
   return Boolean((window.history.state as { turnlyModal?: boolean } | null)?.turnlyModal)
 }
 
 function handlePopState(): void {
+  if (selfPopping) {
+    // Our own sentinel cleanup (see the deferred `history.back()` below); already accounted for.
+    selfPopping = false
+    return
+  }
   // Back/forward fired. A user Back supersedes any close we had deferred.
   if (scheduledClose !== undefined) {
     clearTimeout(scheduledClose)
@@ -56,7 +65,10 @@ export function registerModal(onClose: Closer): () => void {
     if (!hasSentinel()) return
     scheduledClose = setTimeout(() => {
       scheduledClose = undefined
-      if (hasSentinel()) window.history.back()
+      if (hasSentinel()) {
+        selfPopping = true
+        window.history.back()
+      }
     }, 0)
   }
 }

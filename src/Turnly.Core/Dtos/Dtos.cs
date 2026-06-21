@@ -60,6 +60,7 @@ public record ChoreDto(
     int? IntervalCount,
     RecurrenceUnit? IntervalUnit,
     DayOfWeek[] Weekdays,
+    int[] WeeksOfMonth,
     int[] DaysOfMonth,
     int[] Months,
     int CompletionsRequired,
@@ -77,12 +78,14 @@ public record ChoreDto(
     ChoreNotificationDto[] Notifications,
     ChoreCompletionDto? LastCompletion,
     int? OccurrenceProgress,
+    ChoreAssigneeTrackDto[] Tracks,
     DateTimeOffset CreatedAt)
 {
-    public static ChoreDto FromEntity(Chore c, ChoreCompletion? lastCompletion = null, int? occurrenceProgress = null, User? nextAssignee = null) =>
+    public static ChoreDto FromEntity(Chore c, ChoreCompletion? lastCompletion = null, int? occurrenceProgress = null,
+        User? nextAssignee = null, ChoreAssigneeTrackDto[]? tracks = null) =>
         new(c.Id, c.Name, c.Description, c.Emoji, c.Points, c.RepeatType,
             c.CustomMode, c.IntervalCount, c.IntervalUnit,
-            c.Weekdays.ToArray(), c.DaysOfMonth.ToArray(), c.Months.ToArray(),
+            c.Weekdays.ToArray(), c.WeeksOfMonth.ToArray(), c.DaysOfMonth.ToArray(), c.Months.ToArray(),
             c.CompletionsRequired, c.RotateOnEachCompletion, c.AssignmentStrategy, c.SchedulingPreference,
             c.GraceMinutes, c.StartDate, c.DueTime?.ToString("HH\\:mm"), c.DueAt,
             c.CurrentAssignee is null ? null : UserDto.FromEntity(c.CurrentAssignee),
@@ -92,8 +95,21 @@ public record ChoreDto(
             c.Notifications.OrderBy(n => n.CreatedAt).Select(ChoreNotificationDto.FromEntity).ToArray(),
             lastCompletion is null ? null : ChoreCompletionDto.FromEntity(lastCompletion),
             occurrenceProgress,
+            tracks ?? [],
             c.CreatedAt);
 }
+
+/// <summary>One assignee's independent schedule on a track-mode chore: their own due date, quota,
+/// and how many completions/skips they have logged toward the current occurrence. <c>Started</c> is
+/// false until they have logged any completion/skip — it tells a future due date that is just the
+/// not-yet-reached first occurrence (the chore's start date is in the future) apart from one that is
+/// in the future because the assignee completed the prior occurrence.</summary>
+public record ChoreAssigneeTrackDto(
+    UserDto User,
+    DateTimeOffset? DueAt,
+    int CompletionsRequired,
+    int Progress,
+    bool Started);
 
 public record ChoreNotificationDto(
     Guid Id,
@@ -128,6 +144,7 @@ public interface IChoreInput
     int? IntervalCount { get; }
     RecurrenceUnit? IntervalUnit { get; }
     DayOfWeek[]? Weekdays { get; }
+    int[]? WeeksOfMonth { get; }
     int[]? DaysOfMonth { get; }
     int[]? Months { get; }
     int CompletionsRequired { get; }
@@ -142,10 +159,18 @@ public interface IChoreInput
     /// client bakes the resolved instant into <see cref="StartDate"/>; this is stored for round-trip.</summary>
     string? DueTime { get; }
     Guid[] AssigneeIds { get; }
-    Guid CurrentAssigneeId { get; }
+    /// <summary>The current assignee for rotating chores; null for
+    /// <see cref="Enums.AssignmentStrategy.Independent"/> (per-assignee tracks instead).</summary>
+    Guid? CurrentAssigneeId { get; }
     string[]? TagNames { get; }
     ChoreNotificationInput[]? Notifications { get; }
+    /// <summary>Per-assignee quotas for <see cref="Enums.AssignmentStrategy.Independent"/> chores —
+    /// one entry per assignee. Ignored (and cleared) for rotating chores.</summary>
+    TrackInput[]? Tracks { get; }
 }
+
+/// <summary>One assignee's quota as supplied on create/update of a track-mode chore.</summary>
+public record TrackInput(Guid UserId, int CompletionsRequired);
 
 public record CreateChoreRequest(
     string Name,
@@ -157,6 +182,7 @@ public record CreateChoreRequest(
     int? IntervalCount,
     RecurrenceUnit? IntervalUnit,
     DayOfWeek[]? Weekdays,
+    int[]? WeeksOfMonth,
     int[]? DaysOfMonth,
     int[]? Months,
     int CompletionsRequired,
@@ -166,10 +192,11 @@ public record CreateChoreRequest(
     int? GraceMinutes,
     DateTimeOffset StartDate,
     Guid[] AssigneeIds,
-    Guid CurrentAssigneeId,
+    Guid? CurrentAssigneeId,
     string[]? TagNames,
     ChoreNotificationInput[]? Notifications = null,
-    string? DueTime = null) : IChoreInput;
+    string? DueTime = null,
+    TrackInput[]? Tracks = null) : IChoreInput;
 
 public record UpdateChoreRequest(
     string Name,
@@ -181,6 +208,7 @@ public record UpdateChoreRequest(
     int? IntervalCount,
     RecurrenceUnit? IntervalUnit,
     DayOfWeek[]? Weekdays,
+    int[]? WeeksOfMonth,
     int[]? DaysOfMonth,
     int[]? Months,
     int CompletionsRequired,
@@ -190,16 +218,23 @@ public record UpdateChoreRequest(
     int? GraceMinutes,
     DateTimeOffset StartDate,
     Guid[] AssigneeIds,
-    Guid CurrentAssigneeId,
+    Guid? CurrentAssigneeId,
     string[]? TagNames,
     ChoreNotificationInput[]? Notifications = null,
-    string? DueTime = null) : IChoreInput;
+    string? DueTime = null,
+    TrackInput[]? Tracks = null) : IChoreInput;
 
 public record CompleteChoreRequest(string? Notes, Guid? CompletedByUserId = null);
 
-public record SkipChoreRequest(string? Notes);
+/// <summary><see cref="UserId"/> names whose track to skip on a track-mode chore (required there);
+/// ignored for rotating chores, which only have one schedule to skip.</summary>
+public record SkipChoreRequest(string? Notes, Guid? UserId = null);
 
 public record ReassignChoreRequest(Guid AssigneeId);
+
+/// <summary><see cref="UserId"/> names whose track to reschedule on a track-mode chore (required
+/// there); ignored for rotating chores.</summary>
+public record RescheduleChoreRequest(DateTimeOffset DueAt, string? DueTime, Guid? UserId = null);
 
 public record ChoreCompletionDto(
     Guid Id,

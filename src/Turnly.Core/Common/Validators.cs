@@ -88,7 +88,8 @@ public static class Validators
         IReadOnlyCollection<DayOfWeek>? weekdays,
         IReadOnlyCollection<int>? daysOfMonth,
         IReadOnlyCollection<int>? months,
-        int completionsRequired)
+        int completionsRequired,
+        IReadOnlyCollection<int>? weeksOfMonth = null)
     {
         // "Complete N times per occurrence" is only offered on the non-custom repeat types.
         if (completionsRequired < 1 || completionsRequired > MaxCompletionsRequired)
@@ -114,6 +115,9 @@ public static class Validators
             case CustomRecurrenceMode.DaysOfWeek:
                 if (weekdays is null || weekdays.Count == 0)
                     return Error.Validation("Select at least one weekday.");
+                // Empty = every week; otherwise each value is an nth occurrence (1–4) or last (-1).
+                if (weeksOfMonth is not null && weeksOfMonth.Any(w => w is not (1 or 2 or 3 or 4 or -1)))
+                    return Error.Validation("Week-of-month occurrences must be the 1st–4th or last.");
                 break;
 
             case CustomRecurrenceMode.DaysOfMonth:

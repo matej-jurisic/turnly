@@ -2,6 +2,7 @@ import type {
   AssignmentStrategy,
   Chore,
   ChoreNotification,
+  ChoreTrack,
   CustomRecurrenceMode,
   RepeatType,
   SchedulingPreference,
@@ -26,6 +27,7 @@ export const STRATEGY_OPTIONS: { value: AssignmentStrategy; label: string }[] = 
   { value: 'RandomExceptLastAssigned', label: 'Random (except last)' },
   { value: 'LeastAssigned', label: 'Least assigned' },
   { value: 'LeastCompleted', label: 'Least completed' },
+  { value: 'Independent', label: 'Everyone (independent)' },
 ]
 
 export const SCHEDULING_OPTIONS: { value: SchedulingPreference; label: string }[] = [
@@ -82,6 +84,10 @@ export const WEEKDAY_SHORT: Record<Weekday, string> = {
   Thursday: 'Thu', Friday: 'Fri', Saturday: 'Sat',
 }
 export const WEEKDAY_ORDER: Weekday[] = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+/** Labels for DaysOfWeek week-of-month occurrences: 1–4 for the nth, -1 for last. */
+export const WEEK_OCCURRENCE_SHORT: Record<number, string> = {
+  1: '1st', 2: '2nd', 3: '3rd', 4: '4th', [-1]: 'Last',
+}
 export const MONTH_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 
 // ── display helpers ──────────────────────────────────────────────────────────
@@ -97,11 +103,19 @@ export function repeatLabel(chore: Chore): string {
       const n = chore.intervalCount ?? 1
       return n === 1 ? `Every ${unit}` : `Every ${n} ${unit}s`
     }
-    case 'DaysOfWeek':
-      return [...chore.weekdays]
-        .sort((a, b) => WEEKDAY_ORDER.indexOf(a) - WEEKDAY_ORDER.indexOf(b))
-        .map((d) => WEEKDAY_SHORT[d])
-        .join(', ') || 'Days of week'
+    case 'DaysOfWeek': {
+      const days =
+        [...chore.weekdays]
+          .sort((a, b) => WEEKDAY_ORDER.indexOf(a) - WEEKDAY_ORDER.indexOf(b))
+          .map((d) => WEEKDAY_SHORT[d])
+          .join(', ') || 'Days of week'
+      if (!chore.weeksOfMonth?.length) return days
+      const weeks = [...chore.weeksOfMonth]
+        .sort((a, b) => (a === -1 ? 99 : a) - (b === -1 ? 99 : b))
+        .map((w) => WEEK_OCCURRENCE_SHORT[w] ?? w)
+        .join(', ')
+      return `${weeks} · ${days}`
+    }
     case 'DaysOfMonth': {
       const days = [...chore.daysOfMonth].sort((a, b) => a - b).join(', ')
       const months = [...chore.months].sort((a, b) => a - b).map((m) => MONTH_SHORT[m - 1]).join(', ')
@@ -127,6 +141,18 @@ const PERIOD_LABELS: Partial<Record<RepeatType, string>> = {
 export function completionProgressLabel(chore: Chore): string {
   const period = PERIOD_LABELS[chore.repeatType] ?? 'done'
   return `${chore.occurrenceProgress ?? 0}/${chore.completionsRequired} ${period}`
+}
+
+/** Whether a chore uses per-assignee independent schedules (track mode). */
+export function isIndependent(chore: Pick<Chore, 'assignmentStrategy'>): boolean {
+  return chore.assignmentStrategy === 'Independent'
+}
+
+/** A track's own progress pill, e.g. "1/2 this week" (or "Done" once the quota is met). */
+export function trackProgressLabel(chore: Chore, track: ChoreTrack): string {
+  const period = PERIOD_LABELS[chore.repeatType] ?? 'done'
+  if (track.completionsRequired <= 1) return ''
+  return `${track.progress}/${track.completionsRequired} ${period}`
 }
 
 const NOTIFICATION_TYPE_LABELS = {
@@ -204,9 +230,9 @@ export function relativeDayLabel(iso: string): string {
   return d > 0 ? `${d} days ago` : `in ${-d} days`
 }
 
-export function choreDueStatus(chore: Chore): 'overdue' | 'today' | 'upcoming' | 'later' {
-  if (!chore.dueAt) return 'later'
-  const due = new Date(chore.dueAt)
+export function dueStatus(dueAt?: string | null): 'overdue' | 'today' | 'upcoming' | 'later' {
+  if (!dueAt) return 'later'
+  const due = new Date(dueAt)
   const todayStart = startOfDay(new Date())
   const tomorrowStart = new Date(todayStart.getTime() + 86_400_000)
   const weekEnd = new Date(todayStart.getTime() + 7 * 86_400_000)
@@ -214,4 +240,30 @@ export function choreDueStatus(chore: Chore): 'overdue' | 'today' | 'upcoming' |
   if (due < tomorrowStart) return 'today'
   if (due <= weekEnd) return 'upcoming'
   return 'later'
+}
+
+export function choreDueStatus(chore: Chore): 'overdue' | 'today' | 'upcoming' | 'later' {
+  return dueStatus(chore.dueAt)
+}
+
+/** Whether a track owner has completed their current obligation (next occurrence is in the future).
+ * A not-yet-started track (future start date, no activity) is scheduled — not done. */
+export function trackIsDone(track: ChoreTrack): boolean {
+  if (!track.started) return false
+  const s = dueStatus(track.dueAt)
+  return s === 'upcoming' || s === 'later'
+}
+
+/** Short status phrase for one assignee's track, e.g. "done · next in 3 days", "due today", "overdue",
+ * "due in 6 days" (a not-yet-started future occurrence). */
+export function trackStatusText(chore: Chore, track: ChoreTrack): string {
+  const progress = trackProgressLabel(chore, track)
+  const s = dueStatus(track.dueAt)
+  const base =
+    s === 'overdue' ? `overdue${track.dueAt ? ` · was due ${relativeDayLabel(track.dueAt)}` : ''}`
+    : s === 'today' ? 'due today'
+    : !track.dueAt ? 'done'
+    : track.started ? `done · next ${relativeDayLabel(track.dueAt)}`
+    : `due ${relativeDayLabel(track.dueAt)}`
+  return progress ? `${progress} · ${base}` : base
 }

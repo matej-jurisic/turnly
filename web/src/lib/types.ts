@@ -59,6 +59,8 @@ export type AssignmentStrategy =
   | 'KeepLastAssigned'
   | 'RandomExceptLastAssigned'
   | 'RoundRobin'
+  /** Everyone independently: each assignee has their own schedule (a track) and quota; no rotation. */
+  | 'Independent'
 
 export type SchedulingPreference =
   | 'FromScheduledDate'
@@ -126,12 +128,27 @@ export interface ChoreHistoryEntry {
   toAssignee?: User | null
 }
 
+/** One assignee's independent schedule on a track-mode (`Independent`) chore. */
+export interface ChoreTrack {
+  user: User
+  dueAt?: string | null
+  completionsRequired: number
+  /** Completions/skips this assignee has logged toward their current occurrence. */
+  progress: number
+  /** False until the assignee has logged any completion/skip — distinguishes a future due date that
+   * is just the not-yet-reached first occurrence (start date in the future) from one reached by
+   * completing the prior occurrence. */
+  started: boolean
+}
+
 /** Custom-recurrence parameters; which fields apply depends on `customMode`. */
 export interface RecurrenceFields {
   customMode?: CustomRecurrenceMode | null
   intervalCount?: number | null
   intervalUnit?: RecurrenceUnit | null
   weekdays: Weekday[]
+  /** Restricts DaysOfWeek to specific monthly occurrences: 1–4 for the nth, -1 for last. Empty = every week. */
+  weeksOfMonth: number[]
   daysOfMonth: number[]
   months: number[]
 }
@@ -165,8 +182,12 @@ export interface Chore extends RecurrenceFields {
   tags: string[]
   notifications: ChoreNotification[]
   lastCompletion?: ChoreCompletion | null
-  /** Completions logged against the current occurrence (only for multi-completion chores). */
+  /** Completions logged against the current occurrence (only for multi-completion chores). For
+   * track-mode chores this is the *viewing user's* track progress. */
   occurrenceProgress?: number | null
+  /** Per-assignee schedules, present only for `Independent` chores. `dueAt`/`occurrenceProgress`
+   * above are personalised to the viewing user's own track. */
+  tracks: ChoreTrack[]
   createdAt: string
 }
 
@@ -184,9 +205,11 @@ export interface ChoreRequest extends RecurrenceFields {
   startDate: string
   dueTime?: string | null
   assigneeIds: string[]
-  currentAssigneeId: string
+  currentAssigneeId: string | null
   tagNames: string[]
   notifications: ChoreNotificationInput[]
+  /** Per-assignee quotas for `Independent` chores — one per assignee. Omitted for rotating chores. */
+  tracks?: { userId: string; completionsRequired: number }[]
 }
 
 export type CreateChoreRequest = ChoreRequest
@@ -200,10 +223,19 @@ export interface CompleteChoreRequest {
 
 export interface SkipChoreRequest {
   notes?: string | null
+  /** Track-mode only: whose schedule to skip (defaults to the caller). */
+  userId?: string | null
 }
 
 export interface ReassignChoreRequest {
   assigneeId: string
+}
+
+export interface RescheduleChoreRequest {
+  dueAt: string
+  dueTime?: string | null
+  /** Track-mode only: whose schedule to reschedule. */
+  userId?: string | null
 }
 
 export interface Tag {

@@ -2,7 +2,10 @@ import type { Chore } from '@/lib/types'
 import { Badge } from '@/components/ui/Badge'
 import { Card } from '@/components/ui/Card'
 import { Avatar } from '@/components/ui/Modal'
-import { completionProgressLabel, formatDate, formatDueTime, repeatLabel } from '@/lib/chore-format'
+import {
+  completionProgressLabel, dueStatus, formatDate, formatDueTime, isIndependent,
+  repeatLabel, trackIsDone, trackStatusText,
+} from '@/lib/chore-format'
 import { CheckIcon } from '@/components/chores/icons'
 import { ChoreMenu } from '@/components/chores/ChoreMenu'
 import { SwipeRow } from '@/components/chores/SwipeRow'
@@ -17,6 +20,7 @@ export function ChoreListItem({
   onUndo,
   onSkip,
   onReassign,
+  onReschedule,
   onEdit,
   onDelete,
   onDetails,
@@ -30,6 +34,7 @@ export function ChoreListItem({
   onUndo: () => void
   onSkip: () => void
   onReassign: () => void
+  onReschedule: () => void
   onEdit: () => void
   onDelete: () => void
   onDetails: () => void
@@ -80,6 +85,7 @@ export function ChoreListItem({
                   onUndo={onUndo}
                   onSkip={onSkip}
                   onReassign={onReassign}
+                  onReschedule={onReschedule}
                   onEdit={onEdit}
                   onDelete={onDelete}
                 />
@@ -96,7 +102,33 @@ export function ChoreListItem({
                   <Badge key={tag} tone="neutral">{tag}</Badge>
                 ))}
               </div>
-              {chore.currentAssignee && (
+              {isIndependent(chore) ? (
+                <div className="flex shrink-0 items-center -space-x-1.5">
+                  {chore.tracks.map((t) => {
+                    const done = trackIsDone(t)
+                    const overdue = dueStatus(t.dueAt) === 'overdue'
+                    return (
+                      <span
+                        key={t.user.id}
+                        title={`${t.user.displayName}: ${trackStatusText(chore, t)}`}
+                        className={
+                          'relative inline-flex rounded-full ring-2 ring-card ' +
+                          (overdue ? 'ring-warning' : '')
+                        }
+                      >
+                        <span className={done ? 'grayscale' : ''}>
+                          <Avatar color={t.user.avatarColor} name={t.user.displayName} size={24} />
+                        </span>
+                        {done && (
+                          <span className="absolute -bottom-0.5 -right-0.5 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-success text-success-foreground">
+                            <CheckIcon />
+                          </span>
+                        )}
+                      </span>
+                    )
+                  })}
+                </div>
+              ) : chore.currentAssignee && (
                 <div className="flex shrink-0 items-center gap-2">
                   <span className="text-sm text-muted-foreground">{chore.currentAssignee.displayName}</span>
                   <Avatar color={chore.currentAssignee.avatarColor} name={chore.currentAssignee.displayName} size={24} />

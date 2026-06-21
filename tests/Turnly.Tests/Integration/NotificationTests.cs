@@ -65,7 +65,7 @@ public class NotificationTests : IDisposable
             NotificationType.Reminder, NotificationTiming.Before, 2, NotificationOffsetUnit.Hours,
             NotificationRecipients.AllAssignees);
         var request = new CreateChoreRequest(
-            "Dishes", null, "🍽️", 10, RepeatType.Daily, null, null, null, null, null, null, 1, false,
+            "Dishes", null, "🍽️", 10, RepeatType.Daily, null, null, null, null, null, null, null, 1, false,
             AssignmentStrategy.KeepLastAssigned, SchedulingPreference.FromScheduledDate, null,
             Start, [adminAuth.User.Id], adminAuth.User.Id, null, [notification]);
 

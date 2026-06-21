@@ -24,6 +24,10 @@ public class Chore
     /// <summary>Selected weekdays for <see cref="CustomRecurrenceMode.DaysOfWeek"/>; empty otherwise.</summary>
     public List<DayOfWeek> Weekdays { get; set; } = new();
 
+    /// <summary>Restricts <see cref="CustomRecurrenceMode.DaysOfWeek"/> to specific occurrences within
+    /// each month: 1–4 for the nth weekday, -1 for the last. Empty means every week (the default).</summary>
+    public List<int> WeeksOfMonth { get; set; } = new();
+
     /// <summary>Selected days (1–31) and months (1–12) for
     /// <see cref="CustomRecurrenceMode.DaysOfMonth"/>; empty otherwise.</summary>
     public List<int> DaysOfMonth { get; set; } = new();
@@ -83,4 +87,9 @@ public class Chore
 
     /// <summary>Per-chore notification schedule (reminder/due/follow-up entries).</summary>
     public ICollection<ChoreNotification> Notifications { get; set; } = new List<ChoreNotification>();
+
+    /// <summary>Per-assignee independent schedules — populated only when
+    /// <see cref="AssignmentStrategy"/> is <see cref="Enums.AssignmentStrategy.Independent"/>. Each
+    /// holds one assignee's own <c>DueAt</c> + quota; <see cref="DueAt"/> mirrors the earliest of them.</summary>
+    public ICollection<ChoreAssigneeTrack> AssigneeTracks { get; set; } = new List<ChoreAssigneeTrack>();
 }

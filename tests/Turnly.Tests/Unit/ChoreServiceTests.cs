@@ -27,6 +27,7 @@ public class ChoreServiceTests
         CustomRecurrenceMode? customMode = null,
         int? intervalCount = null,
         RecurrenceUnit? intervalUnit = null,
+        int[]? weeksOfMonth = null,
         int[]? daysOfMonth = null,
         int[]? months = null,
         int completionsRequired = 1,
@@ -36,7 +37,7 @@ public class ChoreServiceTests
         int? graceMinutes = null,
         DateTimeOffset? start = null) =>
         new("Dishes", null, "🍽️", points, repeat, customMode, intervalCount, intervalUnit,
-            weekdays, daysOfMonth, months, completionsRequired, rotateOnEachCompletion,
+            weekdays, weeksOfMonth, daysOfMonth, months, completionsRequired, rotateOnEachCompletion,
             strategy, scheduling, graceMinutes, start ?? Start, assignees, currentAssignee, tags);
 
     [Fact]
@@ -271,6 +272,36 @@ public class ChoreServiceTests
             customMode: CustomRecurrenceMode.DaysOfMonth, daysOfMonth: [31], months: [1, 2]));
 
         Assert.True(result.Succeeded);
+    }
+
+    [Fact]
+    public async Task CreateAsync_persists_days_of_week_occurrence_restriction()
+    {
+        using var ctx = new TestContext();
+        var (_, member) = await SeedUsersAsync(ctx);
+
+        var result = await ctx.Chores.CreateAsync(NewChore(member, [member], RepeatType.Custom,
+            customMode: CustomRecurrenceMode.DaysOfWeek, weekdays: [DayOfWeek.Monday],
+            weeksOfMonth: [3, 1, -1]));
+
+        Assert.True(result.Succeeded);
+        // -1 (last) is normalised to sort after the numbered occurrences.
+        Assert.Equal(new[] { 1, 3, -1 }, result.Value!.WeeksOfMonth);
+    }
+
+    [Fact]
+    public async Task CreateAsync_rejects_invalid_week_of_month_occurrence()
+    {
+        using var ctx = new TestContext();
+        var (_, member) = await SeedUsersAsync(ctx);
+
+        // 5 isn't an offered occurrence (only 1–4 and -1/last).
+        var result = await ctx.Chores.CreateAsync(NewChore(member, [member], RepeatType.Custom,
+            customMode: CustomRecurrenceMode.DaysOfWeek, weekdays: [DayOfWeek.Monday],
+            weeksOfMonth: [5]));
+
+        Assert.False(result.Succeeded);
+        Assert.Equal(ErrorType.Validation, result.Error!.Type);
     }
 
     [Fact]
@@ -562,6 +593,37 @@ public class ChoreServiceTests
     }
 
     [Fact]
+    public async Task RescheduleAsync_sets_new_due_and_time_without_rotating()
+    {
+        using var ctx = new TestContext();
+        var (admin, member) = await SeedUsersAsync(ctx);
+        var chore = (await ctx.Chores.CreateAsync(
+            NewChore(member, [admin, member], strategy: AssignmentStrategy.RoundRobin))).Value!;
+
+        var newDue = Start.AddDays(5);
+        var result = await ctx.Chores.RescheduleAsync(chore.Id, new RescheduleChoreRequest(newDue, "09:30"));
+
+        Assert.True(result.Succeeded);
+        Assert.Equal(newDue, result.Value!.DueAt);
+        Assert.Equal("09:30", result.Value!.DueTime);
+        Assert.Equal(member, result.Value!.CurrentAssignee!.Id); // no rotation
+        Assert.Empty(ctx.Db.ChoreCompletions); // not a completion or skip
+    }
+
+    [Fact]
+    public async Task RescheduleAsync_rejects_bad_time_format()
+    {
+        using var ctx = new TestContext();
+        var (_, member) = await SeedUsersAsync(ctx);
+        var chore = (await ctx.Chores.CreateAsync(NewChore(member, [member]))).Value!;
+
+        var result = await ctx.Chores.RescheduleAsync(chore.Id, new RescheduleChoreRequest(Start.AddDays(1), "9am"));
+
+        Assert.False(result.Succeeded);
+        Assert.Equal(ErrorType.Validation, result.Error!.Type);
+    }
+
+    [Fact]
     public async Task UndoCompletion_restores_previous_assignee()
     {
         using var ctx = new TestContext();
@@ -678,7 +740,7 @@ public class ChoreServiceTests
 
     private static UpdateChoreRequest ToUpdate(CreateChoreRequest c) =>
         new(c.Name, c.Description, c.Emoji, c.Points, c.RepeatType, c.CustomMode, c.IntervalCount,
-            c.IntervalUnit, c.Weekdays, c.DaysOfMonth, c.Months, c.CompletionsRequired,
+            c.IntervalUnit, c.Weekdays, c.WeeksOfMonth, c.DaysOfMonth, c.Months, c.CompletionsRequired,
             c.RotateOnEachCompletion, c.AssignmentStrategy, c.SchedulingPreference, c.GraceMinutes,
             c.StartDate, c.AssigneeIds, c.CurrentAssigneeId, c.TagNames, c.Notifications, c.DueTime);
 

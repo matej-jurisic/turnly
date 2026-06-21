@@ -12,12 +12,14 @@ public static class ChoreEndpoints
         // create/edit/delete.
         var group = app.MapGroup("/api/chores").RequireAuthorization();
 
-        group.MapGet("", async (ChoreService chores, CancellationToken ct) =>
-            Results.Ok(await chores.ListAsync(ct)));
+        // The viewer id personalises track-mode chores to the logged-in user (their own track's due
+        // date / progress surface on the card so it buckets where it matters to them).
+        group.MapGet("", async (ChoreService chores, ClaimsPrincipal principal, CancellationToken ct) =>
+            Results.Ok(await chores.ListAsync(principal.GetUserId(), ct)));
 
-        group.MapGet("/{id:guid}", async (Guid id, ChoreService chores, CancellationToken ct) =>
+        group.MapGet("/{id:guid}", async (Guid id, ChoreService chores, ClaimsPrincipal principal, CancellationToken ct) =>
         {
-            var result = await chores.GetAsync(id, ct);
+            var result = await chores.GetAsync(id, principal.GetUserId(), ct);
             return result.Succeeded ? Results.Ok(result.Value) : result.Error!.ToProblem();
         });
 
@@ -70,6 +72,14 @@ public static class ChoreEndpoints
             var result = await chores.ReassignAsync(id, userId, req, ct);
             return result.Succeeded ? Results.Ok(result.Value) : result.Error!.ToProblem();
         });
+
+        // Manually reschedule the current occurrence's due date/time (admin only).
+        group.MapPost("/{id:guid}/reschedule", async (Guid id, RescheduleChoreRequest req,
+            ChoreService chores, CancellationToken ct) =>
+        {
+            var result = await chores.RescheduleAsync(id, req, ct);
+            return result.Succeeded ? Results.Ok(result.Value) : result.Error!.ToProblem();
+        }).RequireAuthorization("Admin");
 
         // Undo a completion (any member may undo their own; admins may undo any).
         var completions = app.MapGroup("/api/completions").RequireAuthorization();

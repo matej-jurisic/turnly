@@ -22,7 +22,7 @@ public class HistoryTests : IDisposable
     }
 
     private static CreateChoreRequest NewChore(Guid assignee, string name = "Dishes", string[]? tags = null) =>
-        new(name, null, "🍽️", 10, RepeatType.Daily, null, null, null, null, null, null, 1, false,
+        new(name, null, "🍽️", 10, RepeatType.Daily, null, null, null, null, null, null, null, 1, false,
             AssignmentStrategy.KeepLastAssigned, SchedulingPreference.FromScheduledDate, null,
             Start, [assignee], assignee, tags);
 
@@ -52,7 +52,7 @@ public class HistoryTests : IDisposable
         var memberAuth = await member.LoginAsync("kid", "kidpass1");
 
         var chore = await (await admin.PostJsonAsync("/api/chores",
-            new CreateChoreRequest("Dishes", null, "🍽️", 10, RepeatType.Daily, null, null, null, null, null, null, 1, false,
+            new CreateChoreRequest("Dishes", null, "🍽️", 10, RepeatType.Daily, null, null, null, null, null, null, null, 1, false,
                 AssignmentStrategy.KeepLastAssigned, SchedulingPreference.FromScheduledDate, null,
                 Start, [adminAuth.User.Id, memberAuth.User.Id], adminAuth.User.Id, null)))
             .ReadAsync<ChoreDto>();
@@ -153,7 +153,7 @@ public class HistoryTests : IDisposable
         var memberAuth = await member.LoginAsync("kid", "kidpass1");
 
         var chore = await (await admin.PostJsonAsync("/api/chores",
-            new CreateChoreRequest("Dishes", null, "🍽️", 10, RepeatType.Daily, null, null, null, null, null, null, 1, false,
+            new CreateChoreRequest("Dishes", null, "🍽️", 10, RepeatType.Daily, null, null, null, null, null, null, null, 1, false,
                 AssignmentStrategy.KeepLastAssigned, SchedulingPreference.FromScheduledDate, null,
                 Start, [adminAuth.User.Id, memberAuth.User.Id], adminAuth.User.Id, null)))
             .ReadAsync<ChoreDto>();

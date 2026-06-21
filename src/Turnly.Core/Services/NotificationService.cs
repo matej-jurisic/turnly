@@ -222,6 +222,7 @@ public class NotificationService
         var chores = await _db.Chores
             .Include(c => c.Notifications)
             .Include(c => c.Assignees)
+            .Include(c => c.AssigneeTracks)
             .Where(c => c.DueAt != null && c.Notifications.Any())
             .AsSplitQuery()
             .ToListAsync(ct);
@@ -231,11 +232,13 @@ public class NotificationService
 
         var choreIds = chores.Select(c => c.Id).ToList();
 
-        // Dedup set keyed by (entry, occurrence). UtcTicks avoids any DateTimeOffset round-trip drift.
+        // Dedup set keyed by (entry, occurrence, track owner). UtcTicks avoids any DateTimeOffset
+        // round-trip drift; UserId is null for rotating chores (one row per occurrence) and the track
+        // owner for Independent chores (one row per assignee per occurrence).
         var delivered = (await _db.NotificationDeliveries
                 .Where(d => choreIds.Contains(d.ChoreId))
                 .ToListAsync(ct))
-            .Select(d => (d.ChoreNotificationId, d.OccurrenceDueAt.UtcTicks))
+            .Select(d => (d.ChoreNotificationId, d.OccurrenceDueAt.UtcTicks, d.UserId))
             .ToHashSet();
 
         // Preload subscriptions for everyone who could receive one of these chores.
@@ -253,27 +256,31 @@ public class NotificationService
         var fired = 0;
         foreach (var chore in chores)
         {
-            var dueAt = chore.DueAt!.Value;
             foreach (var entry in chore.Notifications)
             {
-                var fireAt = NotificationPlanner.FireTime(entry, dueAt);
-                if (fireAt > now || fireAt < now - StaleWindow)
-                    continue;
-
-                var key = (entry.Id, dueAt.UtcTicks);
-                if (!delivered.Add(key))
-                    continue;
-
-                await SendEntryAsync(chore, entry, subsByUser, now, ct);
-
-                _db.NotificationDeliveries.Add(new NotificationDelivery
+                if (chore.AssignmentStrategy == AssignmentStrategy.Independent)
                 {
-                    ChoreId = chore.Id,
-                    ChoreNotificationId = entry.Id,
-                    OccurrenceDueAt = dueAt,
-                    SentAt = now
-                });
-                fired++;
+                    // Fire per assignee track, off that track's own due date, to the track owner.
+                    foreach (var track in chore.AssigneeTracks)
+                    {
+                        if (track.DueAt is not { } trackDue) continue;
+                        if (await TryFireAsync(chore, entry, trackDue, track.UserId, [track.UserId],
+                                delivered, subsByUser, now, ct))
+                            fired++;
+                    }
+                }
+                else
+                {
+                    var dueAt = chore.DueAt!.Value;
+                    var recipients = (entry.Recipients == NotificationRecipients.AllAssignees
+                            ? chore.Assignees.Select(a => a.Id)
+                            : chore.CurrentAssigneeId is { } cur ? [cur] : Enumerable.Empty<Guid>())
+                        .Distinct()
+                        .ToList();
+                    if (await TryFireAsync(chore, entry, dueAt, dedupUserId: null, recipients,
+                            delivered, subsByUser, now, ct))
+                        fired++;
+                }
             }
         }
 
@@ -282,17 +289,43 @@ public class NotificationService
         return fired;
     }
 
+    /// <summary>Fires a single entry for one occurrence if its moment has arrived and it hasn't already
+    /// fired (per the dedup key). <paramref name="dedupUserId"/> is the track owner in Independent mode
+    /// (null otherwise) and is also the assignee whose name drives the message.</summary>
+    private async Task<bool> TryFireAsync(
+        Chore chore, ChoreNotification entry, DateTimeOffset occurrenceDueAt, Guid? dedupUserId,
+        IReadOnlyList<Guid> recipientIds, HashSet<(Guid, long, Guid?)> delivered,
+        Dictionary<Guid, List<PushSubscription>> subsByUser, DateTimeOffset now, CancellationToken ct)
+    {
+        var fireAt = NotificationPlanner.FireTime(entry, occurrenceDueAt);
+        if (fireAt > now || fireAt < now - StaleWindow)
+            return false;
+
+        var key = (entry.Id, occurrenceDueAt.UtcTicks, dedupUserId);
+        if (!delivered.Add(key))
+            return false;
+
+        // In track mode the message names the track owner; otherwise the chore's current assignee.
+        await SendEntryAsync(chore, entry, occurrenceDueAt, recipientIds,
+            dedupUserId ?? chore.CurrentAssigneeId, subsByUser, now, ct);
+
+        _db.NotificationDeliveries.Add(new NotificationDelivery
+        {
+            ChoreId = chore.Id,
+            ChoreNotificationId = entry.Id,
+            OccurrenceDueAt = occurrenceDueAt,
+            UserId = dedupUserId,
+            SentAt = now
+        });
+        return true;
+    }
+
     private async Task SendEntryAsync(
-        Chore chore, ChoreNotification entry, Dictionary<Guid, List<PushSubscription>> subsByUser,
+        Chore chore, ChoreNotification entry, DateTimeOffset occurrenceDueAt, IReadOnlyList<Guid> recipientIds,
+        Guid? messageAssigneeId, Dictionary<Guid, List<PushSubscription>> subsByUser,
         DateTimeOffset now, CancellationToken ct)
     {
-        var recipientIds = (entry.Recipients == NotificationRecipients.AllAssignees
-                ? chore.Assignees.Select(a => a.Id)
-                : chore.CurrentAssigneeId is { } cur ? [cur] : Enumerable.Empty<Guid>())
-            .Distinct()
-            .ToList();
-
-        var (title, body) = BuildMessage(chore, entry, now);
+        var (title, body) = BuildMessage(chore, entry, occurrenceDueAt, messageAssigneeId, now);
         var payload = JsonSerializer.Serialize(new
         {
             title,
@@ -341,15 +374,17 @@ public class NotificationService
                 chore.Name, entry.Recipients);
     }
 
-    private static (string Title, string Body) BuildMessage(Chore chore, ChoreNotification entry, DateTimeOffset now)
+    private static (string Title, string Body) BuildMessage(Chore chore, ChoreNotification entry,
+        DateTimeOffset occurrenceDueAt, Guid? assigneeId, DateTimeOffset now)
     {
         var title = string.IsNullOrWhiteSpace(chore.Emoji) ? chore.Name : $"{chore.Emoji} {chore.Name}";
 
-        // CurrentAssignee is one of the loaded Assignees, so resolve the name without an extra include.
-        var assignee = chore.Assignees.FirstOrDefault(a => a.Id == chore.CurrentAssigneeId)?.DisplayName;
+        // The named assignee (current assignee, or the track owner in Independent mode) is one of the
+        // loaded Assignees, so resolve the name without an extra include.
+        var assignee = chore.Assignees.FirstOrDefault(a => a.Id == assigneeId)?.DisplayName;
         var prefix = assignee is null ? "" : $"{assignee} - ";
         var points = chore.Points > 0 ? $" ({chore.Points} pts)" : "";
-        var dueAt = chore.DueAt ?? now;
+        var dueAt = occurrenceDueAt;
 
         var body = entry.Type switch
         {

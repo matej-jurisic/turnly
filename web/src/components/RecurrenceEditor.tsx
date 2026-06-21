@@ -30,6 +30,15 @@ const WEEKDAYS: { value: Weekday; label: string }[] = [
   { value: 'Sunday', label: 'Sun' },
 ]
 
+// nth occurrence of the chosen weekday within a month; -1 is the last one.
+const WEEK_OCCURRENCES: { value: number; label: string }[] = [
+  { value: 1, label: '1st' },
+  { value: 2, label: '2nd' },
+  { value: 3, label: '3rd' },
+  { value: 4, label: '4th' },
+  { value: -1, label: 'Last' },
+]
+
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 
 // Highest day a month can hold (Feb = 29 so leap-year-only chores stay valid).
@@ -108,17 +117,46 @@ export function RecurrenceEditor({ value, onChange }: Props) {
       )}
 
       {mode === 'DaysOfWeek' && (
-        <div className="flex flex-wrap gap-1">
-          {WEEKDAYS.map((d) => (
-            <button
-              key={d.value}
-              type="button"
-              onClick={() => set({ weekdays: toggle(value.weekdays, d.value) })}
-              className={pillClass(value.weekdays.includes(d.value))}
+        <div className="space-y-2">
+          <div className="flex flex-wrap gap-1">
+            {WEEKDAYS.map((d) => (
+              <button
+                key={d.value}
+                type="button"
+                onClick={() => set({ weekdays: toggle(value.weekdays, d.value) })}
+                className={pillClass(value.weekdays.includes(d.value))}
+              >
+                {d.label}
+              </button>
+            ))}
+          </div>
+          <div>
+            <Label htmlFor="weeks-scope">Occurs</Label>
+            <Select
+              id="weeks-scope"
+              value={value.weeksOfMonth.length ? 'specific' : 'every'}
+              // Switching to "every week" clears the occurrence restriction; switching to "specific"
+              // seeds the 1st so the user always has at least one selected.
+              onChange={(e) => set({ weeksOfMonth: e.target.value === 'specific' ? [1] : [] })}
             >
-              {d.label}
-            </button>
-          ))}
+              <option value="every">Every week</option>
+              <option value="specific">Specific occurrences in the month</option>
+            </Select>
+          </div>
+          {value.weeksOfMonth.length > 0 && (
+            <div className="flex flex-wrap gap-1">
+              {WEEK_OCCURRENCES.map((o) => (
+                <button
+                  key={o.value}
+                  type="button"
+                  onClick={() => set({ weeksOfMonth: toggle(value.weeksOfMonth, o.value) })}
+                  className={pillClass(value.weeksOfMonth.includes(o.value))}
+                >
+                  {o.label}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       )}
 

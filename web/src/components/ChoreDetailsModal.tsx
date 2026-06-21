@@ -6,11 +6,11 @@ import { toast } from '@/lib/toast'
 import { useAuthStore } from '@/store/auth'
 import { Modal, Avatar } from '@/components/ui/Modal'
 import { Badge } from '@/components/ui/Badge'
-import { TrashIcon } from '@/components/chores/icons'
+import { SkipIcon, TrashIcon } from '@/components/chores/icons'
 import {
-  calendarDaysAgo, choreDueStatus, completionProgressLabel, formatDate, formatGrace,
-  notificationRecipientsLabel, notificationTimingLabel, notificationTypeLabel, relativeDayLabel,
-  repeatLabel, STRATEGY_LABELS, SCHEDULING_LABELS,
+  calendarDaysAgo, choreDueStatus, completionProgressLabel, dueStatus, formatDate, formatGrace,
+  isIndependent, notificationRecipientsLabel, notificationTimingLabel, notificationTypeLabel,
+  relativeDayLabel, repeatLabel, trackIsDone, trackStatusText, STRATEGY_LABELS, SCHEDULING_LABELS,
 } from '@/lib/chore-format'
 
 interface ChoreDetailsModalProps {
@@ -20,6 +20,28 @@ interface ChoreDetailsModalProps {
 }
 
 export function ChoreDetailsModal({ chore, onClose, onComplete }: ChoreDetailsModalProps) {
+  const queryClient = useQueryClient()
+  const isAdmin = useAuthStore((s) => s.user?.role === 'Admin')
+
+  const skipMutation = useMutation({
+    mutationFn: (userId: string) => choresApi.skip(chore.id, { userId }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['chores'] })
+      void queryClient.invalidateQueries({ queryKey: ['history'] })
+    },
+    onError: (err) => toast.error(err instanceof ApiError ? err.message : 'Skip failed'),
+  })
+
+  const onSkipTrack = async (userId: string, name: string) => {
+    if (await confirm({
+      title: 'Skip occurrence',
+      message: `Skip ${name}'s current occurrence? It advances their schedule with no points.`,
+      confirmLabel: 'Skip',
+    })) {
+      skipMutation.mutate(userId)
+    }
+  }
+
   const title = (
     <span className="flex items-center gap-2">
       {chore.emoji && <span>{chore.emoji}</span>}
@@ -54,8 +76,51 @@ export function ChoreDetailsModal({ chore, onClose, onComplete }: ChoreDetailsMo
           )}
         </div>
 
-        {/* Assignees */}
-        {chore.assignees.length > 0 && (
+        {/* Per-person schedules (track mode) */}
+        {isIndependent(chore) ? (
+          <div>
+            <p className="mb-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+              Per-person schedule
+            </p>
+            <div className="space-y-1.5">
+              {chore.tracks.map((t) => {
+                const overdue = dueStatus(t.dueAt) === 'overdue'
+                return (
+                  <div
+                    key={t.user.id}
+                    className="flex items-center justify-between gap-2 rounded-lg border border-border bg-accent/50 px-3 py-2"
+                  >
+                    <div className="flex min-w-0 items-center gap-2">
+                      <Avatar color={t.user.avatarColor} name={t.user.displayName} size={20} />
+                      <div className="min-w-0">
+                        <span className="block truncate text-sm text-foreground">{t.user.displayName}</span>
+                        <span
+                          className={
+                            'block text-xs ' +
+                            (overdue ? 'text-warning' : trackIsDone(t) ? 'text-success' : 'text-muted-foreground')
+                          }
+                        >
+                          {trackStatusText(chore, t)}
+                        </span>
+                      </div>
+                    </div>
+                    {isAdmin && t.dueAt && (
+                      <button
+                        type="button"
+                        onClick={() => onSkipTrack(t.user.id, t.user.displayName)}
+                        disabled={skipMutation.isPending}
+                        aria-label={`Skip ${t.user.displayName}'s occurrence`}
+                        className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
+                      >
+                        <SkipIcon />
+                      </button>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        ) : chore.assignees.length > 0 && (
           <div>
             <p className="mb-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">Assignees</p>
             <div className="flex flex-wrap gap-2">

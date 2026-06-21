@@ -22,7 +22,7 @@ public class ChoreManagementTests : IDisposable
     }
 
     private static CreateChoreRequest NewChore(Guid assignee, string[]? tags = null) =>
-        new("Dishes", "Wash up", "🍽️", 10, RepeatType.Daily, null, null, null, null, null, null, 1, false,
+        new("Dishes", "Wash up", "🍽️", 10, RepeatType.Daily, null, null, null, null, null, null, null, 1, false,
             AssignmentStrategy.KeepLastAssigned, SchedulingPreference.FromScheduledDate, null,
             Start, [assignee], assignee, tags);
 
@@ -68,6 +68,36 @@ public class ChoreManagementTests : IDisposable
             new CompleteChoreRequest("all done"))).ReadAsync<ChoreDto>();
         Assert.Equal(Start.AddDays(1), completed.DueAt);
         Assert.NotNull(completed.LastCompletion);
+    }
+
+    [Fact]
+    public async Task Independent_chore_tracks_advance_per_assignee_and_personalise_to_viewer()
+    {
+        var (admin, _) = await AdminClientAsync();
+        await admin.PostJsonAsync("/api/users", new CreateUserRequest("alice", "Alice", "alicepw1", UserRole.Member, null));
+        await admin.PostJsonAsync("/api/users", new CreateUserRequest("bob", "Bob", "bobpw123", UserRole.Member, null));
+        var alice = _factory.CreateClient();
+        var aAuth = await alice.LoginAsync("alice", "alicepw1");
+        var bob = _factory.CreateClient();
+        var bAuth = await bob.LoginAsync("bob", "bobpw123");
+
+        var req = new CreateChoreRequest("Dishes", null, "🍽️", 10, RepeatType.Weekly, null, null, null,
+            null, null, null, null, 1, false, AssignmentStrategy.Independent,
+            SchedulingPreference.FromScheduledDate, null, Start,
+            [aAuth.User.Id, bAuth.User.Id], aAuth.User.Id, null, null, null,
+            [new TrackInput(aAuth.User.Id, 1), new TrackInput(bAuth.User.Id, 1)]);
+
+        var chore = await (await admin.PostJsonAsync("/api/chores", req)).ReadAsync<ChoreDto>();
+        Assert.Null(chore.CurrentAssignee);
+        Assert.Equal(2, chore.Tracks.Length);
+
+        // Alice completes her share; only her track rolls to next week.
+        await alice.PostJsonAsync($"/api/chores/{chore.Id}/complete", new CompleteChoreRequest(null));
+
+        var aliceList = await (await alice.GetAsync("/api/chores")).ReadAsync<ChoreDto[]>();
+        var bobList = await (await bob.GetAsync("/api/chores")).ReadAsync<ChoreDto[]>();
+        Assert.Equal(Start.AddDays(7), aliceList.Single().DueAt); // personalised to Alice's advanced track
+        Assert.Equal(Start, bobList.Single().DueAt);              // Bob's own track is untouched
     }
 
     [Fact]
@@ -122,7 +152,7 @@ public class ChoreManagementTests : IDisposable
         // Custom days-of-week chore, round robin across both users (admin created first).
         var request = new CreateChoreRequest(
             "Trash", null, "🗑️", 5, RepeatType.Custom, CustomRecurrenceMode.DaysOfWeek,
-            null, null, [DayOfWeek.Monday, DayOfWeek.Thursday], null, null, 1, false,
+            null, null, [DayOfWeek.Monday, DayOfWeek.Thursday], null, null, null, 1, false,
             AssignmentStrategy.RoundRobin, SchedulingPreference.FromScheduledDate, null,
             Start, [adminAuth.User.Id, memberAuth.User.Id], adminAuth.User.Id, null);
 

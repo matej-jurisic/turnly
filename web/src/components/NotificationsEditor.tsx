@@ -41,10 +41,13 @@ const DEFAULT_ENTRY: ChoreNotificationInput = {
 interface Props {
   value: ChoreNotificationInput[]
   onChange: (next: ChoreNotificationInput[]) => void
+  /** Track-mode chore: reminders always go to each person about their own schedule, so the
+   * recipients selector is hidden (the choice is moot). */
+  independent?: boolean
 }
 
 /** Editor for a chore's notification schedule — a list of reminder/due/follow-up entries. */
-export function NotificationsEditor({ value, onChange }: Props) {
+export function NotificationsEditor({ value, onChange, independent = false }: Props) {
   const update = (i: number, patch: Partial<ChoreNotificationInput>) =>
     onChange(value.map((e, idx) => (idx === i ? { ...e, ...patch } : e)))
   const remove = (i: number) => onChange(value.filter((_, idx) => idx !== i))
@@ -127,15 +130,19 @@ export function NotificationsEditor({ value, onChange }: Props) {
                 </div>
               </div>
 
-              <Select
-                value={entry.recipients}
-                onChange={(e) => update(i, { recipients: e.target.value as NotificationRecipients })}
-                aria-label="Notification recipients"
-              >
-                {RECIPIENT_OPTIONS.map((o) => (
-                  <option key={o.value} value={o.value}>{o.label}</option>
-                ))}
-              </Select>
+              {independent ? (
+                <p className="text-xs text-muted-foreground">Sent to each person about their own schedule.</p>
+              ) : (
+                <Select
+                  value={entry.recipients}
+                  onChange={(e) => update(i, { recipients: e.target.value as NotificationRecipients })}
+                  aria-label="Notification recipients"
+                >
+                  {RECIPIENT_OPTIONS.map((o) => (
+                    <option key={o.value} value={o.value}>{o.label}</option>
+                  ))}
+                </Select>
+              )}
             </div>
           ))}
         </div>

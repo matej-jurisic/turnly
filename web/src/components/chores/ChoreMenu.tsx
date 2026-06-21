@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import type { Chore } from '@/lib/types'
+import { isIndependent } from '@/lib/chore-format'
 import {
-  DotsIcon, InfoIcon, SkipIcon, ReassignIcon, UndoIcon, EditIcon, TrashIcon,
+  DotsIcon, InfoIcon, SkipIcon, ReassignIcon, UndoIcon, CalendarIcon, EditIcon, TrashIcon,
 } from '@/components/chores/icons'
 
 export interface ChoreMenuProps {
@@ -14,18 +15,22 @@ export interface ChoreMenuProps {
   onUndo: () => void
   onSkip: () => void
   onReassign: () => void
+  onReschedule: () => void
   onEdit: () => void
   onDelete: () => void
 }
 
-export function ChoreMenu({ chore, isAdmin, undoPending, skipPending, deletePending, onDetails, onUndo, onSkip, onReassign, onEdit, onDelete }: ChoreMenuProps) {
+export function ChoreMenu({ chore, isAdmin, undoPending, skipPending, deletePending, onDetails, onUndo, onSkip, onReassign, onReschedule, onEdit, onDelete }: ChoreMenuProps) {
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
 
   const hasUndo = Boolean(chore.lastCompletion)
   const undoLabel = chore.lastCompletion?.isSkip ? 'Undo skip' : 'Undo'
-  const canSkip = isAdmin && chore.repeatType !== 'OneTime' && Boolean(chore.dueAt)
-  const canReassign = chore.assignees.length > 1
+  // Skip/reschedule in track mode target a specific person's schedule, so they're handled from the
+  // details modal's per-person rows; the card menu only drives them for rotating chores.
+  const canSkip = isAdmin && chore.repeatType !== 'OneTime' && Boolean(chore.dueAt) && !isIndependent(chore)
+  const canReassign = !isIndependent(chore) && chore.assignees.length > 1
+  const canReschedule = isAdmin && Boolean(chore.dueAt) && !isIndependent(chore)
 
   useEffect(() => {
     if (!open) return
@@ -88,6 +93,16 @@ export function ChoreMenu({ chore, isAdmin, undoPending, skipPending, deletePend
             >
               <UndoIcon />
               {undoLabel}
+            </button>
+          )}
+          {canReschedule && (
+            <button
+              type="button"
+              onClick={() => { setOpen(false); onReschedule() }}
+              className="flex w-full items-center gap-2 px-3 py-2 text-sm text-foreground transition-colors hover:bg-accent"
+            >
+              <CalendarIcon />
+              Reschedule
             </button>
           )}
           {isAdmin && (

@@ -15,5 +15,9 @@ public enum AssignmentStrategy
     /// <summary>Random, but exclude whoever was assigned last.</summary>
     RandomExceptLastAssigned = 4,
     /// <summary>Cycle through the assignees in a stable order.</summary>
-    RoundRobin = 5
+    RoundRobin = 5,
+    /// <summary>No rotation: every assignee gets their own independent schedule (a
+    /// <see cref="Entities.ChoreAssigneeTrack"/>) with its own due date and per-occurrence quota. Used for
+    /// shared chores like "everyone does the dishes once a week".</summary>
+    Independent = 6
 }

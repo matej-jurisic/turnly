@@ -13,6 +13,7 @@ import { ChoreSection } from '@/components/chores/ChoreSection'
 import { ChoreListItem } from '@/components/chores/ChoreListItem'
 import { ChoreFormModal } from '@/components/chores/ChoreFormModal'
 import { ReassignModal } from '@/components/chores/ReassignModal'
+import { RescheduleModal } from '@/components/chores/RescheduleModal'
 import { ChoreFilters, emptyFilters, type ChoreFilterState } from '@/components/chores/ChoreFilters'
 import { choreDueStatus } from '@/lib/chore-format'
 
@@ -30,6 +31,7 @@ export function ChoresPage() {
   const [creating, setCreating] = useState(false)
   const [completing, setCompleting] = useState<Chore | null>(null)
   const [reassigning, setReassigning] = useState<Chore | null>(null)
+  const [rescheduling, setRescheduling] = useState<Chore | null>(null)
   const [details, setDetails] = useState<Chore | null>(null)
   const [filters, setFilters] = useState<ChoreFilterState>(emptyFilters)
 
@@ -78,6 +80,7 @@ export function ChoresPage() {
     for (const c of chores ?? []) {
       if (c.currentAssignee) map.set(c.currentAssignee.id, c.currentAssignee)
       if (c.nextAssignee) map.set(c.nextAssignee.id, c.nextAssignee)
+      for (const t of c.tracks) map.set(t.user.id, t.user)
     }
     return [...map.values()].sort((a, b) => a.displayName.localeCompare(b.displayName))
   }, [chores])
@@ -87,8 +90,10 @@ export function ChoresPage() {
       // OR within each dimension, AND across dimensions.
       if (filters.tags.length && !filters.tags.some((t) => c.tags.includes(t))) return false
       if (filters.assignees.length) {
-        const ids = [c.currentAssignee?.id]
-        if (filters.includeNext) ids.push(c.nextAssignee?.id)
+        // Track-mode chores have no single current assignee — match any of their track owners.
+        const ids = c.tracks.length
+          ? c.tracks.map((t) => t.user.id as string | undefined)
+          : [c.currentAssignee?.id, ...(filters.includeNext ? [c.nextAssignee?.id] : [])]
         if (!filters.assignees.some((a) => ids.includes(a))) return false
       }
       if (filters.repeat.length && !filters.repeat.includes(c.repeatType)) return false
@@ -134,6 +139,7 @@ export function ChoresPage() {
       }
     },
     onReassign: () => setReassigning(chore),
+    onReschedule: () => setRescheduling(chore),
     onEdit: () => setEditing(chore),
     onDelete: async () => {
       if (
@@ -238,6 +244,17 @@ export function ChoresPage() {
           onClose={() => setReassigning(null)}
           onDone={() => {
             setReassigning(null)
+            invalidate()
+          }}
+        />
+      )}
+
+      {rescheduling && (
+        <RescheduleModal
+          chore={rescheduling}
+          onClose={() => setRescheduling(null)}
+          onDone={() => {
+            setRescheduling(null)
             invalidate()
           }}
         />

@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Turnly.Core.Data;
 
@@ -10,9 +11,11 @@ using Turnly.Core.Data;
 namespace Turnly.Core.Migrations
 {
     [DbContext(typeof(TurnlyDbContext))]
-    partial class TurnlyDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260620234543_AddWeeksOfMonth")]
+    partial class AddWeeksOfMonth
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "10.0.9");
@@ -172,36 +175,6 @@ namespace Turnly.Core.Migrations
                     b.ToTable("Chores");
                 });
 
-            modelBuilder.Entity("Turnly.Core.Entities.ChoreAssigneeTrack", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("TEXT");
-
-                    b.Property<Guid>("ChoreId")
-                        .HasColumnType("TEXT");
-
-                    b.Property<int>("CompletionsRequired")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("TEXT");
-
-                    b.Property<DateTimeOffset?>("DueAt")
-                        .HasColumnType("TEXT");
-
-                    b.Property<Guid>("UserId")
-                        .HasColumnType("TEXT");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("ChoreId");
-
-                    b.HasIndex("UserId");
-
-                    b.ToTable("ChoreAssigneeTracks");
-                });
-
             modelBuilder.Entity("Turnly.Core.Entities.ChoreAssignment", b =>
                 {
                     b.Property<Guid>("Id")
@@ -339,12 +312,9 @@ namespace Turnly.Core.Migrations
                     b.Property<DateTimeOffset>("SentAt")
                         .HasColumnType("TEXT");
 
-                    b.Property<Guid?>("UserId")
-                        .HasColumnType("TEXT");
-
                     b.HasKey("Id");
 
-                    b.HasIndex("ChoreNotificationId", "OccurrenceDueAt", "UserId")
+                    b.HasIndex("ChoreNotificationId", "OccurrenceDueAt")
                         .IsUnique();
 
                     b.ToTable("NotificationDeliveries");
@@ -648,25 +618,6 @@ namespace Turnly.Core.Migrations
                     b.Navigation("CurrentAssignee");
                 });
 
-            modelBuilder.Entity("Turnly.Core.Entities.ChoreAssigneeTrack", b =>
-                {
-                    b.HasOne("Turnly.Core.Entities.Chore", "Chore")
-                        .WithMany("AssigneeTracks")
-                        .HasForeignKey("ChoreId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.HasOne("Turnly.Core.Entities.User", "User")
-                        .WithMany()
-                        .HasForeignKey("UserId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.Navigation("Chore");
-
-                    b.Navigation("User");
-                });
-
             modelBuilder.Entity("Turnly.Core.Entities.ChoreAssignment", b =>
                 {
                     b.HasOne("Turnly.Core.Entities.User", "AssignedBy")
@@ -817,8 +768,6 @@ namespace Turnly.Core.Migrations
 
             modelBuilder.Entity("Turnly.Core.Entities.Chore", b =>
                 {
-                    b.Navigation("AssigneeTracks");
-
                     b.Navigation("Assignments");
 
                     b.Navigation("Completions");

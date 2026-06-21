@@ -5,13 +5,14 @@ and 9-phase roadmap, and `README.md` for user-facing setup.
 
 ## What this is
 
-Self-hosted family chore-management web app (PWA). **Phases 1–8 are complete.** Phase 1
+Self-hosted family chore-management web app (PWA). **Phases 1–9 are complete.** Phase 1
 (Foundation): auth, user CRUD + roles, password management, DB schema, Docker. Phase 2
 (Chores – Core): chore CRUD (name, description, emoji, tags, assignees, points), basic
 recurrence (one-time/daily/weekly/monthly/yearly + start date), mark complete + undo, and a
 per-user points log. Phase 3 (Chores – Advanced): custom recurrence (`Custom` repeat type with
 Interval / DaysOfWeek / DaysOfMonth modes — day granularity, hourly deferred to
-a later phase), six assignment strategies that rotate the current assignee on each new occurrence, and
+a later phase; DaysOfWeek can be further restricted by `Chore.WeeksOfMonth` to specific monthly
+occurrences — 1–4 for the nth weekday, -1 for the last; empty = every week), six assignment strategies that rotate the current assignee on each new occurrence, and
 four scheduling preferences for the next due date (`FromScheduledDate`, `FromCompletionDate`,
 `ToFirstNextRepeat`, and `SmartScheduling` — the last holds the planned cadence but never schedules
 sooner than one interval after the actual completion, i.e. `max(FromScheduledDate, FromCompletionDate)`,
@@ -61,6 +62,27 @@ from the member undo at `DELETE /api/completions/{id}`; surfaced as an Activity 
 `web/src/components/chores/*` + shared helpers in `web/src/lib/chore-format.ts`). The originally
 planned **mobile bottom tab bar was dropped**.
 
+**Post-Phase-9 addition — per-assignee independent tracks ("Everyone independently").** A seventh
+`AssignmentStrategy.Independent` makes a *shared* chore give **each assignee their own schedule and
+per-person quota** instead of one rotating assignee — so "everyone does the dishes once a week"
+(all quotas 1) or an uneven "Alice 3× / Bob 2×" is **one chore**, and a slow person never blocks a
+fast one. Model: a new child entity `ChoreAssigneeTrack { ChoreId, UserId, DueAt?, CompletionsRequired }`
+(one row per assignee, holding their own due date + quota); `Chore.AssigneeTracks` nav. In track mode
+`CurrentAssigneeId` is null, the scalar `CompletionsRequired`/`RotateOnEachCompletion` are unused, and
+there is **no rotation**. Two tricks keep the blast radius small: (1) `chore.DueAt` is kept as a
+**mirror = the earliest track `DueAt`** (`ChoreService.EarliestTrackDue`) so every existing
+`DueAt != null` check (listing order, "nothing scheduled" guards, the notification chore-load filter)
+keeps working; (2) `ChoreService.ToDto(..., viewerId)` **personalises** the top-level `DueAt`/
+`OccurrenceProgress` to the viewing user's own track (else earliest), so the frontend's existing
+bucketing/ordering/complete-disabled logic gives per-user placement with no bucket rewrite —
+`viewerId` is threaded from `ChoreEndpoints` (`principal.GetUserId()`) into list/get.
+`Complete`/`Skip`/`Undo`/`Reschedule` branch to a per-track path (`AdvanceTrackAsync` gates on the
+per-person quota, never rotates); `SkipChoreRequest`/`RescheduleChoreRequest` gained an optional
+`UserId` to target one assignee's track (skip is surfaced per-track in `ChoreDetailsModal`);
+`ReassignAsync` is rejected in track mode. Notifications fan out **per track** (see
+`NotificationDelivery.UserId` below). Recurring-only in v1 — `OneTime`-shared, "all assignees"
+notification recipients in track mode, and history migration on strategy switch are out of scope.
+
 ## Stack & layout
 
 - **Backend:** ASP.NET Core (.NET 10) minimal APIs, EF Core. Solution file is `Turnly.slnx`.
@@ -82,12 +104,16 @@ copy the nearest existing example. Paths are under `src/` / `web/src/` / `tests/
 
 **Backend (`Turnly.Core`)**
 - `Entities/` — POCOs; convention is `Guid Id = Guid.NewGuid()` + `DateTimeOffset CreatedAt`,
-  no base class. `User, RefreshToken, Chore, Tag, ChoreCompletion, ChoreAssignment, PointsLogEntry,
-  Award, Redemption, ChoreNotification, PushSubscription, NotificationDelivery, UserNotification`.
+  no base class. `User, RefreshToken, Chore, Tag, ChoreCompletion, ChoreAssignment, ChoreAssigneeTrack,
+  PointsLogEntry, Award, Redemption, ChoreNotification, PushSubscription, NotificationDelivery,
+  UserNotification`. `ChoreAssigneeTrack` is one assignee's own `DueAt` + quota for an
+  `AssignmentStrategy.Independent` chore (one row per assignee; absent for rotating chores, where the
+  single `Chore.DueAt`/`CurrentAssigneeId` apply).
   `ChoreNotification` is a chore's notification-schedule entry; `PushSubscription` is one Web Push
-  device per user; `NotificationDelivery` is a `(ChoreNotificationId, OccurrenceDueAt)`-unique dedup
-  marker that makes each entry fire once per occurrence (and is how notifications "stop on
-  completion"); `UserNotification` is a per-user in-app inbox row (Title/Body/ChoreId/ReadAt) written
+  device per user; `NotificationDelivery` is a `(ChoreNotificationId, OccurrenceDueAt, UserId)`-unique
+  dedup marker that makes each entry fire once per occurrence — `UserId` is the track owner in
+  Independent mode (one row per assignee) and null for rotating chores (one row per occurrence); it's
+  how notifications "stop on completion"; `UserNotification` is a per-user in-app inbox row (Title/Body/ChoreId/ReadAt) written
   when a notification fires or a test is sent — `ChoreId` FK is `SetNull` so the record outlives the
   chore. `ChoreAssignment`
   logs every assignment (initial + each rotation) — backs
@@ -98,19 +124,24 @@ copy the nearest existing example. Paths are under `src/` / `web/src/` / `tests/
   `PointsLogEntry` carries both a `ChoreCompletionId` and a `RedemptionId` link so undo/cancel can
   reverse the matching deduction the same way.
 - `Enums/` — `UserRole, RepeatType, PointsLogType, RedemptionStatus` + Phase 3's `CustomRecurrenceMode,
-  RecurrenceUnit, AssignmentStrategy, SchedulingPreference` + Phase 8's
+  RecurrenceUnit, AssignmentStrategy` (which now also has the post-Phase-9 `Independent` value),
+  `SchedulingPreference` + Phase 8's
   `NotificationType, NotificationTiming, NotificationOffsetUnit, NotificationRecipients`; **stored as
   strings** (`HasConversion<string>`) and serialized as strings in JSON.
 - `Data/TurnlyDbContext.cs` — DbSets + fluent config in `OnModelCreating`. Many-to-many via
-  skip navs (`Chore.Assignees`, `Chore.Tags`). `Chore.Weekdays` (`List<DayOfWeek>`, custom
-  DaysOfWeek mode) and `Chore.DaysOfMonth`/`Chore.Months` (`List<int>`) are stored via CSV
+  skip navs (`Chore.Assignees`, `Chore.Tags`); `Chore.AssigneeTracks`/`Notifications` are cascade
+  child collections. `Chore.Weekdays` (`List<DayOfWeek>`, custom
+  DaysOfWeek mode), `Chore.WeeksOfMonth` (`List<int>`, optional nth-occurrence restriction for
+  DaysOfWeek) and `Chore.DaysOfMonth`/`Chore.Months` (`List<int>`) are stored via CSV
   `ValueConverter` + `ValueComparer` (`WeekdaysConverter` / `IntListConverter`).
 - `Common/Result.cs` — `Result`/`Result<T>` + `Error(ErrorType, msg)` (Validation/NotFound/
   Conflict/Unauthorized/Forbidden). **Expected failures return Results, not exceptions.**
 - `Common/Validators.cs` — shared static rules returning `Error?` (`Username`, `Password`,
   `ChoreName`, `Points`, …); membership/cross-field rules live in the service.
 - `Dtos/Dtos.cs` — request/response records, each domain DTO has a static `FromEntity`.
-  `ChoreDto.FromEntity(chore, lastCompletion?)` embeds the latest completion for undo.
+  `ChoreDto.FromEntity(chore, lastCompletion?)` embeds the latest completion for undo; `ChoreDto.Tracks`
+  (`ChoreAssigneeTrackDto[]`) carries the per-assignee schedules for `Independent` chores, and the
+  chore-input records carry `TrackInput[] Tracks` (per-assignee quotas).
 - `Services/*Service.cs` — ctor-inject `TurnlyDbContext` (+ deps); methods return `Result`/
   `Result<T>`. `AuthService, UserService, SetupService, TagService, ChoreService, AwardService,
   RedemptionService, NotificationService`. Registered in `ServiceCollectionExtensions.AddTurnlyCore`
@@ -119,20 +150,33 @@ copy the nearest existing example. Paths are under `src/` / `web/src/` / `tests/
   decrements `User.Points`; `CancelAsync` reverses it like `UndoCompletionAsync`. `ChoreService.SkipAsync`
   mirrors `CompleteAsync` minus points/rotation (advances the schedule, writes an `IsSkip` completion);
   `ReassignAsync` sets `CurrentAssigneeId` + logs a `ChoreAssignment` (same as the edit path).
+  For `Independent` chores these branch instead to a per-track path: `Apply` nulls the current
+  assignee + zeroes the scalar count, `SyncTracks` reconciles `chore.AssigneeTracks` from the request's
+  `Tracks` (preserving each track's advanced `DueAt` unless the schedule changed; new assignees join at
+  the current cadence; inserts via the DbSet per the [[turnly-ef-child-collection-rebuild]] gotcha),
+  and `Complete`/`Skip`/`Undo` move only the relevant track's `DueAt` (recomputing the `chore.DueAt`
+  mirror) with no rotation; `ReassignAsync` is rejected.
   Chore notifications ride the existing chore create/update path: `ChoreService.Apply` rebuilds
   `chore.Notifications` from the request (so `Query()` includes them). `NotificationService` owns
   `SubscribeAsync`/`UnsubscribeAsync` (upsert/delete `PushSubscription` by endpoint) and
   `ProcessDueAsync(now)` — the scan that fires due entries via `IPushSender`, writes a
   `UserNotification` inbox row per recipient, records a `NotificationDelivery`, and prunes `Gone`
-  subscriptions — plus `ListInboxAsync`/`MarkInboxReadAsync` for the in-app inbox.
+  subscriptions. For an `Independent` chore the scan iterates `chore.AssigneeTracks` and fires each
+  entry **per track**, off that track's own `DueAt`, to the track owner (dedup keyed by the track's
+  `UserId`), so "stop on completion" works per person — plus `ListInboxAsync`/`MarkInboxReadAsync` for
+  the in-app inbox.
 - `Recurrence/` — pure, unit-tested. `RecurrenceCalculator` works off a `RecurrenceRule` record
   (`FromChore`): `FirstOccurrence(rule, start)` + `NextDue(rule, pref, scheduledDue, completedAt,
   now)` (interval stepping, fixed-slot scanning, scheduling prefs).
-  `AssignmentPicker.Pick(...)` implements the six strategies (inject `Random`).
+  `AssignmentPicker.Pick(...)` implements the six **rotating** strategies (inject `Random`); the
+  seventh, `Independent`, has no rotation and is handled entirely in `ChoreService` (per-assignee
+  tracks), not here.
   **The per-occurrence completion count is NOT in `NextDue`** — it needs DB completion counts, so
   `ChoreService.AdvanceScheduleAsync` gates the advance: an occurrence only closes (and then calls
   `NextDue` + rotates) once `CompletionsRequired` completions/skips share the current `DueAt`;
   earlier ones leave `DueAt`/assignee untouched. `ToDto` computes `OccurrenceProgress` the same way.
+  `Independent` chores use the parallel `AdvanceTrackAsync`, gated the same way but on each track's
+  own per-person quota and `DueAt`.
 - `Notifications/` — `NotificationPlanner.FireTime(entry, dueAt)` is pure + unit-tested (before/at/
   after offset math). `VapidOptions` (`IsConfigured`), `IPushSender`/`WebPushSender` (WebPush lib;
   maps 404/410 → `Gone` so the service prunes the subscription).
@@ -148,7 +192,10 @@ copy the nearest existing example. Paths are under `src/` / `web/src/` / `tests/
   parse → call service → `result.Succeeded ? Results.Ok/... : result.Error!.ToProblem()`.
   Per-endpoint `.RequireAuthorization("Admin")` for admin-only ops (e.g. chore create/edit/
   delete, and chores/skip). Chores/complete + chores/reassign + completions/undo are open to any
-  member; chores/skip is admin-only (skipping advances past the due date with no points).
+  member; chores/skip is admin-only (skipping advances past the due date with no points). The
+  chore list/get handlers pass `principal.GetUserId()` as the viewer id so track-mode chores are
+  personalised to the caller; `skip`/`reschedule` take an optional `UserId` to target one assignee's
+  track.
   `AwardEndpoints` follows the
   same split: listing awards + redeeming (`POST /api/awards/{id}/redeem`) and `GET /api/redemptions`
   (own for members, all for admins) are member-open; award create/edit/delete and redemption
@@ -172,6 +219,12 @@ copy the nearest existing example. Paths are under `src/` / `web/src/` / `tests/
   `['points-log', id]` so balances refresh. `awardsApi`/`redemptionsApi` live in `lib/api.ts`.
 - `lib/api.ts` — `request<T>` (bearer + one-shot 401 refresh); per-resource objects
   (`usersApi`, `choresApi`, `tagsApi`, `notificationsApi`). `lib/types.ts` mirrors the backend DTOs.
+- **Independent chores (track mode):** `ChoreFormModal`'s "Everyone (independent)" strategy swaps the
+  current-assignee picker + "Times" field for a **per-assignee quota editor**; `ChoreListItem` and
+  `ChoreDetailsModal` render the per-person roster (avatars with a done-check / overdue ring) instead
+  of the single current→next assignee, the details modal exposing an admin per-track Skip; `ChoreMenu`
+  hides Reassign; `CompleteModal` limits the admin "Completed by" picker to the chore's assignees.
+  Helpers (`isIndependent`, `dueStatus`, `trackIsDone`, `trackStatusText`) live in `lib/chore-format.ts`.
 - **Notifications (Phase 8):** `lib/push.ts` wraps the browser Push API
   (`enablePush`/`disablePush`/`isPushEnabled`, VAPID key decode); `web/public/sw.js` is the service
   worker (push + `notificationclick` opens `/chores?chore=<id>`, shows the app's `icon-192.png` +
@@ -182,7 +235,9 @@ copy the nearest existing example. Paths are under `src/` / `web/src/` / `tests/
   unread badge, marks read on close, click opens the chore via `Layout`'s details modal);
   `ChoresPage` reads `?chore=<id>` to open the same modal from a push deep-link.
   `components/NotificationsEditor.tsx` is the
-  per-chore schedule sub-form (modeled on `RecurrenceEditor`, embedded in the `ChoresPage` form);
+  per-chore schedule sub-form (modeled on `RecurrenceEditor`, embedded in the `ChoresPage` form;
+  hides the recipients selector for `Independent` chores, where reminders always go to each track
+  owner);
   `SettingsPage`'s Notifications card has enable/disable-on-this-device, a list of the user's
   registered devices (label + "This device" marker + per-device remove), and an admin-only "Send
   test notification" button.

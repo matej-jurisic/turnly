@@ -62,6 +62,60 @@ public class RecurrenceCalculatorTests
     }
 
     [Fact]
+    public void DaysOfWeek_restricts_to_selected_occurrences_in_the_month()
+    {
+        // June 2026 Mondays: 1, 8, 15, 22, 29. "1st & 3rd Monday" → from Wed Jun 17 the next
+        // matching slot skips Jun 22 (4th) and Jun 29 (last) to land on Jul 6 (1st Monday).
+        var rule = new RecurrenceRule(RepeatType.Custom, CustomRecurrenceMode.DaysOfWeek,
+            Weekdays: new[] { DayOfWeek.Monday }, WeeksOfMonth: new[] { 1, 3 });
+        Assert.Equal(new DateTimeOffset(2026, 7, 6, 9, 0, 0, TimeSpan.Zero), Next(rule, Wed));
+    }
+
+    [Fact]
+    public void DaysOfWeek_last_occurrence_picks_the_final_weekday_of_the_month()
+    {
+        // "Last Monday" → from Wed Jun 17, Jun 22 isn't last but Jun 29 is.
+        var rule = new RecurrenceRule(RepeatType.Custom, CustomRecurrenceMode.DaysOfWeek,
+            Weekdays: new[] { DayOfWeek.Monday }, WeeksOfMonth: new[] { -1 });
+        Assert.Equal(new DateTimeOffset(2026, 6, 29, 9, 0, 0, TimeSpan.Zero), Next(rule, Wed));
+    }
+
+    [Fact]
+    public void DaysOfWeek_to_first_next_repeat_advances_past_the_due_date_when_completed_early()
+    {
+        // "Last Sunday" due Jun 28; completed a week early on Jun 21. ToFirstNextRepeat must still
+        // advance off the due date (not snap back to Jun 28) → next last Sunday is Jul 26.
+        var rule = new RecurrenceRule(RepeatType.Custom, CustomRecurrenceMode.DaysOfWeek,
+            Weekdays: new[] { DayOfWeek.Sunday }, WeeksOfMonth: new[] { -1 });
+        var due = new DateTimeOffset(2026, 6, 28, 9, 0, 0, TimeSpan.Zero);
+        var early = new DateTimeOffset(2026, 6, 21, 9, 0, 0, TimeSpan.Zero);
+        var next = Next(rule, due, SchedulingPreference.ToFirstNextRepeat, completedAt: early, now: early);
+        Assert.Equal(new DateTimeOffset(2026, 7, 26, 9, 0, 0, TimeSpan.Zero), next);
+    }
+
+    [Fact]
+    public void DaysOfWeek_to_first_next_repeat_skips_missed_occurrences_when_overdue()
+    {
+        // "Last Sunday" was due back in January but only completed now (Jun 21) — it should skip the
+        // missed occurrences to the first future slot, Jun 28.
+        var rule = new RecurrenceRule(RepeatType.Custom, CustomRecurrenceMode.DaysOfWeek,
+            Weekdays: new[] { DayOfWeek.Sunday }, WeeksOfMonth: new[] { -1 });
+        var due = new DateTimeOffset(2026, 1, 25, 9, 0, 0, TimeSpan.Zero);
+        var now = new DateTimeOffset(2026, 6, 21, 9, 0, 0, TimeSpan.Zero);
+        var next = Next(rule, due, SchedulingPreference.ToFirstNextRepeat, completedAt: now, now: now);
+        Assert.Equal(new DateTimeOffset(2026, 6, 28, 9, 0, 0, TimeSpan.Zero), next);
+    }
+
+    [Fact]
+    public void DaysOfWeek_empty_weeks_still_means_every_week()
+    {
+        // No occurrence restriction → behaves like the plain weekday schedule (next Monday Jun 22).
+        var rule = new RecurrenceRule(RepeatType.Custom, CustomRecurrenceMode.DaysOfWeek,
+            Weekdays: new[] { DayOfWeek.Monday });
+        Assert.Equal(new DateTimeOffset(2026, 6, 22, 9, 0, 0, TimeSpan.Zero), Next(rule, Wed));
+    }
+
+    [Fact]
     public void DaysOfMonth_skips_months_and_impossible_days()
     {
         // Day 31 only in months with 31 days; from mid-June the next is Jul 31.

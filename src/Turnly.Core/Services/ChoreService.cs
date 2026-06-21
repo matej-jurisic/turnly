@@ -19,7 +19,10 @@ public class ChoreService
         _tags = tags;
     }
 
-    public async Task<List<ChoreDto>> ListAsync(CancellationToken ct = default)
+    /// <summary><paramref name="viewerId"/> personalises track-mode chores to the logged-in user:
+    /// the chore's top-level <c>DueAt</c>/progress reflect that user's own track (so the card buckets
+    /// where it matters to them), falling back to the earliest track when they aren't an assignee.</summary>
+    public async Task<List<ChoreDto>> ListAsync(Guid? viewerId = null, CancellationToken ct = default)
     {
         // Order client-side: SQLite can't ORDER BY DateTimeOffset. Scheduled chores first
         // (earliest due), then unscheduled, then by name.
@@ -36,11 +39,11 @@ public class ChoreService
 
         return chores
             .Select(c => ToDto(c, completionsByChore.GetValueOrDefault(c.Id),
-                assignmentsByChore.GetValueOrDefault(c.Id, []), now))
+                assignmentsByChore.GetValueOrDefault(c.Id, []), now, viewerId))
             .ToList();
     }
 
-    public async Task<Result<ChoreDto>> GetAsync(Guid id, CancellationToken ct = default)
+    public async Task<Result<ChoreDto>> GetAsync(Guid id, Guid? viewerId = null, CancellationToken ct = default)
     {
         var chore = await Query().AsNoTracking().FirstOrDefaultAsync(c => c.Id == id, ct);
         if (chore is null)
@@ -49,7 +52,7 @@ public class ChoreService
         var completionsByChore = await CompletionsByChoreAsync([id], ct);
         var assignmentsByChore = await AssignmentsByChoreAsync([id], ct);
         return Result.Success(ToDto(chore, completionsByChore.GetValueOrDefault(id),
-            assignmentsByChore.GetValueOrDefault(id, []), DateTimeOffset.UtcNow));
+            assignmentsByChore.GetValueOrDefault(id, []), DateTimeOffset.UtcNow, viewerId));
     }
 
     public async Task<Result<ChoreDto>> CreateAsync(CreateChoreRequest req, CancellationToken ct = default)
@@ -64,11 +67,20 @@ public class ChoreService
         chore.DueAt = RecurrenceCalculator.FirstOccurrence(RecurrenceRule.FromChore(chore), req.StartDate);
 
         _db.Chores.Add(chore);
-        // Record the initial assignment so Least-Assigned counts and undo work from the start.
-        _db.ChoreAssignments.Add(new ChoreAssignment { ChoreId = chore.Id, UserId = req.CurrentAssigneeId });
+        if (IsIndependent(chore))
+        {
+            // Track-mode chore: give every assignee their own schedule; no single current assignee
+            // means no initial assignment / rotation history.
+            SyncTracks(chore, req, scheduleChanged: true);
+        }
+        else
+        {
+            // Record the initial assignment so Least-Assigned counts and undo work from the start.
+            _db.ChoreAssignments.Add(new ChoreAssignment { ChoreId = chore.Id, UserId = req.CurrentAssigneeId!.Value });
+        }
         await _db.SaveChangesAsync(ct);
 
-        return await GetAsync(chore.Id, ct);
+        return await GetAsync(chore.Id, ct: ct);
     }
 
     public async Task<Result<ChoreDto>> UpdateAsync(Guid id, UpdateChoreRequest req, CancellationToken ct = default)
@@ -81,6 +93,7 @@ public class ChoreService
             .Include(c => c.Assignees)
             .Include(c => c.Tags)
             .Include(c => c.Notifications)
+            .Include(c => c.AssigneeTracks)
             .FirstOrDefaultAsync(c => c.Id == id, ct);
         if (chore is null)
             return Result.Fail<ChoreDto>(Error.NotFound("Chore not found."));
@@ -91,21 +104,36 @@ public class ChoreService
 
         Apply(chore, req, validation.Value!);
 
-        // Only recompute DueAt when the schedule itself changed; editing name/points/assignees/tags
-        // must not silently reset a due date that has already been advanced by completions.
-        if (chore.StartDate != oldStartDate || ScheduleChanged(oldRule, RecurrenceRule.FromChore(chore)))
-            chore.DueAt = RecurrenceCalculator.FirstOccurrence(RecurrenceRule.FromChore(chore), req.StartDate);
+        var scheduleChanged = chore.StartDate != oldStartDate
+            || ScheduleChanged(oldRule, RecurrenceRule.FromChore(chore));
 
-        // Reassigning via edit is itself an assignment event (keeps Least-Assigned honest).
-        if (chore.CurrentAssigneeId != previousAssignee)
-            _db.ChoreAssignments.Add(new ChoreAssignment { ChoreId = chore.Id, UserId = req.CurrentAssigneeId });
+        if (IsIndependent(chore))
+        {
+            // Reconcile per-assignee tracks (preserving each track's advanced DueAt unless the
+            // schedule changed) and re-derive the mirror DueAt from them.
+            SyncTracks(chore, req, scheduleChanged);
+        }
+        else
+        {
+            // Switching away from track mode drops any leftover tracks.
+            SyncTracks(chore, req, scheduleChanged);
+
+            // Only recompute DueAt when the schedule itself changed; editing name/points/assignees/tags
+            // must not silently reset a due date that has already been advanced by completions.
+            if (scheduleChanged)
+                chore.DueAt = RecurrenceCalculator.FirstOccurrence(RecurrenceRule.FromChore(chore), req.StartDate);
+
+            // Reassigning via edit is itself an assignment event (keeps Least-Assigned honest).
+            if (chore.CurrentAssigneeId != previousAssignee)
+                _db.ChoreAssignments.Add(new ChoreAssignment { ChoreId = chore.Id, UserId = req.CurrentAssigneeId!.Value });
+        }
 
         var resolvedTags = await _tags.ResolveAsync(req.TagNames, ct);
         chore.Tags.Clear();
         foreach (var tag in resolvedTags) chore.Tags.Add(tag);
 
         await _db.SaveChangesAsync(ct);
-        return await GetAsync(chore.Id, ct);
+        return await GetAsync(chore.Id, ct: ct);
     }
 
     public async Task<Result> DeleteAsync(Guid id, CancellationToken ct = default)
@@ -143,6 +171,11 @@ public class ChoreService
         if (user is null)
             return Result.Fail<ChoreDto>(Error.NotFound("User not found."));
 
+        // In track mode the completer must own one of the chore's per-assignee schedules.
+        var track = IsIndependent(chore) ? chore.AssigneeTracks.FirstOrDefault(t => t.UserId == userId) : null;
+        if (IsIndependent(chore) && track is null)
+            return Result.Fail<ChoreDto>(Error.Validation("Only an assignee of this chore can complete their share."));
+
         var now = DateTimeOffset.UtcNow;
         var completion = new ChoreCompletion
         {
@@ -151,8 +184,8 @@ public class ChoreService
             CompletedAt = now,
             Notes = string.IsNullOrWhiteSpace(req.Notes) ? null : req.Notes.Trim(),
             PointsAwarded = chore.Points,
-            OccurrenceDueAt = chore.DueAt,
-            PreviousAssigneeId = chore.CurrentAssigneeId
+            OccurrenceDueAt = track?.DueAt ?? chore.DueAt,
+            PreviousAssigneeId = IsIndependent(chore) ? null : chore.CurrentAssigneeId
         };
         _db.ChoreCompletions.Add(completion);
 
@@ -169,16 +202,26 @@ public class ChoreService
             user.Points += chore.Points;
         }
 
-        // Advance the schedule and decide whether this completion opened a new occurrence (which
-        // is what triggers an assignee rotation). With RotateOnEachCompletion, a multi-completion
-        // chore also rotates on the in-between completions — but not when the occurrence just closed
-        // for good (DueAt null, e.g. a finished one-time chore), where a rotation would be pointless.
-        var advancedToNewOccurrence = await AdvanceScheduleAsync(chore, completion, now, ct);
-        if (advancedToNewOccurrence || (chore.RotateOnEachCompletion && chore.DueAt is not null))
-            await RotateAssigneeAsync(chore, completion, now, ct);
+        if (track is not null)
+        {
+            // Track mode: advance only this assignee's schedule, never rotate. Other tracks are
+            // untouched, so a slow assignee never blocks a fast one.
+            await AdvanceTrackAsync(chore, track, completion, userId, now, ct);
+            chore.DueAt = EarliestTrackDue(chore.AssigneeTracks);
+        }
+        else
+        {
+            // Advance the schedule and decide whether this completion opened a new occurrence (which
+            // is what triggers an assignee rotation). With RotateOnEachCompletion, a multi-completion
+            // chore also rotates on the in-between completions — but not when the occurrence just closed
+            // for good (DueAt null, e.g. a finished one-time chore), where a rotation would be pointless.
+            var advancedToNewOccurrence = await AdvanceScheduleAsync(chore, completion, now, ct);
+            if (advancedToNewOccurrence || (chore.RotateOnEachCompletion && chore.DueAt is not null))
+                await RotateAssigneeAsync(chore, completion, now, ct);
+        }
 
         await _db.SaveChangesAsync(ct);
-        return await GetAsync(chore.Id, ct);
+        return await GetAsync(chore.Id, ct: ct);
     }
 
     /// <summary>Skips the current occurrence of a recurring chore: advances the schedule to the
@@ -193,10 +236,18 @@ public class ChoreService
 
         if (chore.RepeatType == RepeatType.OneTime)
             return Result.Fail<ChoreDto>(Error.Validation("One-time chores cannot be skipped."));
-        if (chore.DueAt is null)
+
+        // Track mode: skip a specific assignee's schedule (defaults to the caller's own).
+        var track = IsIndependent(chore)
+            ? chore.AssigneeTracks.FirstOrDefault(t => t.UserId == (req.UserId ?? userId))
+            : null;
+        if (IsIndependent(chore) && track is null)
+            return Result.Fail<ChoreDto>(Error.Validation("That person isn't assigned to this chore."));
+        if ((track?.DueAt ?? chore.DueAt) is null)
             return Result.Fail<ChoreDto>(Error.Validation("This chore has nothing scheduled to skip."));
 
-        var user = await _db.Users.FindAsync([userId], ct);
+        var skippedUserId = track?.UserId ?? userId;
+        var user = await _db.Users.FindAsync([skippedUserId], ct);
         if (user is null)
             return Result.Fail<ChoreDto>(Error.NotFound("User not found."));
 
@@ -204,23 +255,31 @@ public class ChoreService
         var skip = new ChoreCompletion
         {
             ChoreId = chore.Id,
-            CompletedByUserId = userId,
+            CompletedByUserId = skippedUserId,
             CompletedAt = now,
             Notes = string.IsNullOrWhiteSpace(req.Notes) ? null : req.Notes.Trim(),
             PointsAwarded = 0,
             IsSkip = true,
-            OccurrenceDueAt = chore.DueAt,
-            PreviousAssigneeId = chore.CurrentAssigneeId
+            OccurrenceDueAt = track?.DueAt ?? chore.DueAt,
+            PreviousAssigneeId = IsIndependent(chore) ? null : chore.CurrentAssigneeId
         };
         _db.ChoreCompletions.Add(skip);
 
         // Advance the schedule, but keep the same assignee (a skip is not a completion, so it neither
         // awards points nor rotates). It still counts toward a multi-completion occurrence, so the
-        // due date only moves once the occurrence is fully closed — hence we ignore the return value.
-        await AdvanceScheduleAsync(chore, skip, now, ct);
+        // due date only moves once the occurrence is fully closed.
+        if (track is not null)
+        {
+            await AdvanceTrackAsync(chore, track, skip, skippedUserId, now, ct);
+            chore.DueAt = EarliestTrackDue(chore.AssigneeTracks);
+        }
+        else
+        {
+            await AdvanceScheduleAsync(chore, skip, now, ct);
+        }
 
         await _db.SaveChangesAsync(ct);
-        return await GetAsync(chore.Id, ct);
+        return await GetAsync(chore.Id, ct: ct);
     }
 
     /// <summary>One-off reassignment of the current occurrence to another eligible assignee. The
@@ -233,6 +292,9 @@ public class ChoreService
             .FirstOrDefaultAsync(c => c.Id == id, ct);
         if (chore is null)
             return Result.Fail<ChoreDto>(Error.NotFound("Chore not found."));
+
+        if (IsIndependent(chore))
+            return Result.Fail<ChoreDto>(Error.Validation("This chore is shared per person, so there's no single assignee to reassign."));
 
         if (chore.Assignees.All(a => a.Id != req.AssigneeId))
             return Result.Fail<ChoreDto>(Error.Validation("The new assignee must be one of the chore's assignees."));
@@ -251,7 +313,44 @@ public class ChoreService
             await _db.SaveChangesAsync(ct);
         }
 
-        return await GetAsync(chore.Id, ct);
+        return await GetAsync(chore.Id, ct: ct);
+    }
+
+    /// <summary>Admin-only manual reschedule of the current occurrence: sets a new due instant (and
+    /// matching wall-clock time) without completing, skipping, or rotating. The chore's recurrence
+    /// still drives future occurrences from this new date onward.</summary>
+    public async Task<Result<ChoreDto>> RescheduleAsync(Guid id, RescheduleChoreRequest req, CancellationToken ct = default)
+    {
+        if (Validators.DueTime(req.DueTime, out var dueTime) is { } dueTimeError)
+            return Result.Fail<ChoreDto>(dueTimeError);
+
+        var chore = await _db.Chores
+            .Include(c => c.AssigneeTracks)
+            .FirstOrDefaultAsync(c => c.Id == id, ct);
+        if (chore is null)
+            return Result.Fail<ChoreDto>(Error.NotFound("Chore not found."));
+        if (chore.DueAt is null)
+            return Result.Fail<ChoreDto>(Error.Validation("This chore has nothing scheduled to reschedule."));
+
+        if (IsIndependent(chore))
+        {
+            // Track mode: reschedule one assignee's own occurrence; the mirror follows.
+            if (req.UserId is not { } targetId)
+                return Result.Fail<ChoreDto>(Error.Validation("Choose whose schedule to reschedule."));
+            var track = chore.AssigneeTracks.FirstOrDefault(t => t.UserId == targetId);
+            if (track is null)
+                return Result.Fail<ChoreDto>(Error.Validation("That person isn't assigned to this chore."));
+            track.DueAt = req.DueAt;
+            chore.DueAt = EarliestTrackDue(chore.AssigneeTracks);
+        }
+        else
+        {
+            chore.DueAt = req.DueAt;
+        }
+        chore.DueTime = dueTime;
+        await _db.SaveChangesAsync(ct);
+
+        return await GetAsync(chore.Id, ct: ct);
     }
 
     public async Task<Result> UndoCompletionAsync(Guid completionId, Guid actingUserId, CancellationToken ct = default)
@@ -283,8 +382,19 @@ public class ChoreService
         // Restore the occurrence that was completed, including the assignee any rotation moved away.
         if (completion.Chore is { } chore)
         {
-            chore.DueAt = completion.OccurrenceDueAt;
-            chore.CurrentAssigneeId = completion.PreviousAssigneeId;
+            if (IsIndependent(chore))
+            {
+                // Track mode: rewind only the completer's own schedule, then re-derive the mirror.
+                var tracks = await _db.ChoreAssigneeTracks.Where(t => t.ChoreId == chore.Id).ToListAsync(ct);
+                var track = tracks.FirstOrDefault(t => t.UserId == completion.CompletedByUserId);
+                if (track is not null) track.DueAt = completion.OccurrenceDueAt;
+                chore.DueAt = EarliestTrackDue(tracks);
+            }
+            else
+            {
+                chore.DueAt = completion.OccurrenceDueAt;
+                chore.CurrentAssigneeId = completion.PreviousAssigneeId;
+            }
         }
         var rotationLog = await _db.ChoreAssignments.Where(a => a.ChoreCompletionId == completionId).ToListAsync(ct);
         _db.ChoreAssignments.RemoveRange(rotationLog);
@@ -391,7 +501,21 @@ public class ChoreService
         .Include(c => c.CurrentAssignee)
         .Include(c => c.Tags)
         .Include(c => c.Notifications)
+        .Include(c => c.AssigneeTracks)
         .AsSplitQuery();
+
+    private static bool IsIndependent(Chore chore) => chore.AssignmentStrategy == AssignmentStrategy.Independent;
+
+    /// <summary>The earliest scheduled track due — used to keep <c>chore.DueAt</c> as a mirror so all
+    /// the existing single-due checks (listing order, "nothing scheduled" guards, the notification
+    /// chore-load filter) keep working for track-mode chores.</summary>
+    private static DateTimeOffset? EarliestTrackDue(IEnumerable<ChoreAssigneeTrack> tracks)
+    {
+        DateTimeOffset? min = null;
+        foreach (var t in tracks)
+            if (t.DueAt is { } d && (min is null || d < min)) min = d;
+        return min;
+    }
 
     /// <summary>Advances <c>chore.DueAt</c> to the next occurrence and returns whether a brand-new
     /// occurrence was opened (true → rotate the assignee). A chore that needs N completions per
@@ -495,6 +619,7 @@ public class ChoreService
         IReadOnlyList<(Guid UserId, DateTimeOffset AssignedAt)> assignments, DateTimeOffset now)
     {
         if (chore.RepeatType == RepeatType.OneTime || chore.DueAt is null) return null;
+        if (IsIndependent(chore)) return null; // track-mode chores don't rotate
         if (chore.AssignmentStrategy is AssignmentStrategy.Random or AssignmentStrategy.RandomExceptLastAssigned) return null;
         if (chore.CurrentAssigneeId is not { } current) return null;
 
@@ -530,9 +655,41 @@ public class ChoreService
     }
 
     private static ChoreDto ToDto(Chore chore, List<ChoreCompletion>? completions,
-        IReadOnlyList<(Guid UserId, DateTimeOffset AssignedAt)> assignments, DateTimeOffset now)
+        IReadOnlyList<(Guid UserId, DateTimeOffset AssignedAt)> assignments, DateTimeOffset now, Guid? viewerId = null)
     {
         var latest = completions?.FirstOrDefault();
+
+        if (IsIndependent(chore))
+        {
+            // One DTO per chore, but with each assignee's own track and a top-level DueAt/progress
+            // personalised to the viewer (so the card buckets where it matters to them).
+            var usersById = chore.Assignees.ToDictionary(u => u.Id);
+            var trackDtos = chore.AssigneeTracks
+                .Where(t => usersById.ContainsKey(t.UserId))
+                .Select(t => new ChoreAssigneeTrackDto(
+                    UserDto.FromEntity(usersById[t.UserId]),
+                    t.DueAt,
+                    t.CompletionsRequired,
+                    completions?.Count(x => x.CompletedByUserId == t.UserId && x.OccurrenceDueAt == t.DueAt) ?? 0,
+                    // A future DueAt means "done" only once they've actually logged activity; otherwise
+                    // it's just a not-yet-reached first occurrence (start date in the future).
+                    completions?.Any(x => x.CompletedByUserId == t.UserId) ?? false))
+                .OrderBy(d => d.User.DisplayName)
+                .ToArray();
+
+            var viewerTrack = viewerId is { } vid ? chore.AssigneeTracks.FirstOrDefault(t => t.UserId == vid) : null;
+            var personalDue = viewerTrack?.DueAt ?? EarliestTrackDue(chore.AssigneeTracks);
+            int? personalProgress = viewerTrack is { CompletionsRequired: > 1 }
+                ? completions?.Count(x => x.CompletedByUserId == viewerTrack.UserId && x.OccurrenceDueAt == viewerTrack.DueAt) ?? 0
+                : null;
+
+            return ChoreDto.FromEntity(chore, latest, tracks: trackDtos) with
+            {
+                DueAt = personalDue,
+                OccurrenceProgress = personalProgress
+            };
+        }
+
         int? progress = null;
         if (chore.CompletionsRequired > 1)
             // Completions + skips logged against the current occurrence (they share its due date).
@@ -568,7 +725,7 @@ public class ChoreService
         if (Validators.Points(req.Points) is { } pointsError)
             return Result.Fail<List<User>>(pointsError);
         if (Validators.Recurrence(req.RepeatType, req.CustomMode, req.IntervalCount, req.IntervalUnit,
-                req.Weekdays, req.DaysOfMonth, req.Months, req.CompletionsRequired) is { } recurrenceError)
+                req.Weekdays, req.DaysOfMonth, req.Months, req.CompletionsRequired, req.WeeksOfMonth) is { } recurrenceError)
             return Result.Fail<List<User>>(recurrenceError);
         if (Validators.DueTime(req.DueTime, out _) is { } dueTimeError)
             return Result.Fail<List<User>>(dueTimeError);
@@ -590,8 +747,23 @@ public class ChoreService
         if (assignees.Count != ids.Count)
             return Result.Fail<List<User>>(Error.Validation("One or more assignees do not exist."));
 
-        if (!ids.Contains(req.CurrentAssigneeId))
+        if (req.AssignmentStrategy == AssignmentStrategy.Independent)
+        {
+            // Track mode: no single current assignee; instead every assignee carries a per-person quota.
+            if (req.RepeatType == RepeatType.OneTime)
+                return Result.Fail<List<User>>(Error.Validation("A one-time chore can't use per-person scheduling."));
+
+            var tracks = req.Tracks ?? [];
+            var trackIds = tracks.Select(t => t.UserId).Distinct().ToList();
+            if (trackIds.Count != ids.Count || !ids.All(trackIds.Contains))
+                return Result.Fail<List<User>>(Error.Validation("Each assignee must have exactly one per-person schedule."));
+            if (tracks.Any(t => t.CompletionsRequired < 1 || t.CompletionsRequired > Validators.MaxCompletionsRequired))
+                return Result.Fail<List<User>>(Error.Validation($"Each person's number of times must be between 1 and {Validators.MaxCompletionsRequired}."));
+        }
+        else if (req.CurrentAssigneeId is not { } current || !ids.Contains(current))
+        {
             return Result.Fail<List<User>>(Error.Validation("The current assignee must be one of the assignees."));
+        }
 
         return Result.Success(assignees);
     }
@@ -602,6 +774,7 @@ public class ChoreService
         a.IntervalCount != b.IntervalCount ||
         a.IntervalUnit != b.IntervalUnit ||
         !a.Weekdays.SequenceEqual(b.Weekdays) ||
+        !a.WeeksOfMonth.SequenceEqual(b.WeeksOfMonth) ||
         !a.DaysOfMonth.SequenceEqual(b.DaysOfMonth) ||
         !a.Months.SequenceEqual(b.Months);
 
@@ -619,7 +792,9 @@ public class ChoreService
         chore.GraceMinutes = req.SchedulingPreference == SchedulingPreference.SmartScheduling && req.GraceMinutes is > 0
             ? req.GraceMinutes
             : null;
-        chore.CurrentAssigneeId = req.CurrentAssigneeId;
+        // Track mode has no single current assignee (per-assignee tracks instead); rotating chores
+        // keep the chosen one.
+        chore.CurrentAssigneeId = req.AssignmentStrategy == AssignmentStrategy.Independent ? null : req.CurrentAssigneeId;
 
         // Keep only the recurrence parameters relevant to the chosen mode; null/clear the rest so
         // stale values can't leak into the recurrence math.
@@ -632,6 +807,10 @@ public class ChoreService
         chore.Weekdays = mode == CustomRecurrenceMode.DaysOfWeek
             ? (req.Weekdays ?? []).Distinct().OrderBy(d => d).ToList()
             : new List<DayOfWeek>();
+        // Empty = every week; -1 (last) sorts after the 1st–4th for a stable order.
+        chore.WeeksOfMonth = mode == CustomRecurrenceMode.DaysOfWeek
+            ? (req.WeeksOfMonth ?? []).Distinct().OrderBy(w => w == -1 ? int.MaxValue : w).ToList()
+            : new List<int>();
         chore.DaysOfMonth = mode == CustomRecurrenceMode.DaysOfMonth
             ? (req.DaysOfMonth ?? []).Distinct().OrderBy(d => d).ToList()
             : new List<int>();
@@ -640,10 +819,13 @@ public class ChoreService
             : new List<int>();
 
         // "Complete N times per occurrence" rides only on the non-custom repeat types; custom
-        // recurrences always close on a single completion.
-        chore.CompletionsRequired = isCustom ? 1 : Math.Max(1, req.CompletionsRequired);
-        // Per-completion rotation only means anything when more than one completion is required.
-        chore.RotateOnEachCompletion = chore.CompletionsRequired > 1 && req.RotateOnEachCompletion;
+        // recurrences always close on a single completion. Track mode keeps the scalar at 1 and uses
+        // the per-assignee quota on each ChoreAssigneeTrack instead.
+        var isIndependent = req.AssignmentStrategy == AssignmentStrategy.Independent;
+        chore.CompletionsRequired = isCustom || isIndependent ? 1 : Math.Max(1, req.CompletionsRequired);
+        // Per-completion rotation only means anything when more than one completion is required, and
+        // never applies in track mode (no rotation at all).
+        chore.RotateOnEachCompletion = !isIndependent && chore.CompletionsRequired > 1 && req.RotateOnEachCompletion;
 
         Validators.DueTime(req.DueTime, out var dueTime); // format already checked in ValidateAsync
         chore.DueTime = dueTime;
@@ -669,5 +851,97 @@ public class ChoreService
                 Recipients = n.Recipients
             });
         }
+    }
+
+    /// <summary>Reconciles a chore's per-assignee tracks with the request. Non-track-mode chores have
+    /// their tracks dropped. In track mode, existing tracks keep their advanced <c>DueAt</c> (only
+    /// reset when <paramref name="scheduleChanged"/>); newly added assignees start at the chore's
+    /// current schedule position; dropped assignees lose their track. Always re-derives the mirror
+    /// <c>chore.DueAt</c>. New tracks are inserted via the DbSet (not the navigation) for the same
+    /// client-set-Guid reason as the notification rebuild above.</summary>
+    private void SyncTracks(Chore chore, IChoreInput req, bool scheduleChanged)
+    {
+        if (req.AssignmentStrategy != AssignmentStrategy.Independent)
+        {
+            if (chore.AssigneeTracks.Count > 0)
+            {
+                _db.ChoreAssigneeTracks.RemoveRange(chore.AssigneeTracks);
+                chore.AssigneeTracks.Clear();
+            }
+            return;
+        }
+
+        var rule = RecurrenceRule.FromChore(chore);
+        var first = RecurrenceCalculator.FirstOccurrence(rule, chore.StartDate);
+        // The position a newly added assignee joins at: the chore's current cadence, or the first
+        // occurrence on a brand-new chore.
+        var baseline = chore.DueAt ?? first;
+
+        var desired = (req.Tracks ?? []).ToDictionary(t => t.UserId, t => Math.Max(1, t.CompletionsRequired));
+        var existing = chore.AssigneeTracks.ToList();
+
+        foreach (var track in existing)
+        {
+            if (desired.TryGetValue(track.UserId, out var quota))
+            {
+                track.CompletionsRequired = quota;
+                if (scheduleChanged) track.DueAt = first; // recurrence grid moved — realign
+            }
+            else
+            {
+                _db.ChoreAssigneeTracks.Remove(track); // assignee removed
+                chore.AssigneeTracks.Remove(track);
+            }
+        }
+
+        var existingIds = existing.Select(t => t.UserId).ToHashSet();
+        foreach (var (userId, quota) in desired)
+        {
+            if (existingIds.Contains(userId)) continue;
+            _db.ChoreAssigneeTracks.Add(new ChoreAssigneeTrack
+            {
+                ChoreId = chore.Id,
+                UserId = userId,
+                CompletionsRequired = quota,
+                DueAt = scheduleChanged ? first : baseline
+            });
+        }
+
+        // Mirror reflects every track, including the ones just added via the DbSet (not yet in the nav).
+        var dues = existing
+            .Where(t => desired.ContainsKey(t.UserId))
+            .Select(t => t.DueAt)
+            .Concat(desired.Keys.Where(id => !existingIds.Contains(id))
+                .Select(_ => (DateTimeOffset?)(scheduleChanged ? first : baseline)))
+            .Where(d => d is not null)
+            .Select(d => d!.Value)
+            .ToList();
+        chore.DueAt = dues.Count == 0 ? null : dues.Min();
+    }
+
+    /// <summary>Advances one assignee's track to their next occurrence, gated by their personal quota:
+    /// the track only moves once <see cref="ChoreAssigneeTrack.CompletionsRequired"/> completions/skips
+    /// (by that user, sharing the track's current <c>DueAt</c>) have been logged — the just-added
+    /// <paramref name="entry"/> included. Other tracks are never touched.</summary>
+    private async Task AdvanceTrackAsync(Chore chore, ChoreAssigneeTrack track, ChoreCompletion entry,
+        Guid userId, DateTimeOffset now, CancellationToken ct)
+    {
+        if (track.CompletionsRequired > 1)
+        {
+            // SQLite can't compare DateTimeOffset in SQL, so match client-side; +1 for the row we just
+            // added to the context but haven't saved yet.
+            var dues = await _db.ChoreCompletions
+                .Where(x => x.ChoreId == chore.Id && x.CompletedByUserId == userId)
+                .Select(x => x.OccurrenceDueAt)
+                .ToListAsync(ct);
+            var doneThisOccurrence = dues.Count(d => d == entry.OccurrenceDueAt) + 1;
+            if (doneThisOccurrence < track.CompletionsRequired)
+                return; // this assignee's occurrence still open
+        }
+
+        var rule = RecurrenceRule.FromChore(chore);
+        var scheduledDue = entry.OccurrenceDueAt ?? now;
+        var grace = chore.GraceMinutes is { } m ? TimeSpan.FromMinutes(m) : (TimeSpan?)null;
+        track.DueAt = RecurrenceCalculator.NextDue(rule, chore.SchedulingPreference, scheduledDue, now, now, grace);
     }
 }

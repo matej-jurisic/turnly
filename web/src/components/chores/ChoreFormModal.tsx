@@ -44,6 +44,7 @@ export function ChoreFormModal({ title, chore, onClose, onSaved }: ChoreFormModa
     intervalCount: chore?.intervalCount ?? 1,
     intervalUnit: chore?.intervalUnit ?? 'Week',
     weekdays: chore?.weekdays ?? [],
+    weeksOfMonth: chore?.weeksOfMonth ?? [],
     daysOfMonth: chore?.daysOfMonth ?? [],
     months: chore?.months ?? [],
   })
@@ -51,6 +52,10 @@ export function ChoreFormModal({ title, chore, onClose, onSaved }: ChoreFormModa
   const [rotateOnEachCompletion, setRotateOnEachCompletion] = useState(chore?.rotateOnEachCompletion ?? false)
   const [assignmentStrategy, setAssignmentStrategy] = useState<AssignmentStrategy>(
     chore?.assignmentStrategy ?? 'LeastCompleted',
+  )
+  // Per-assignee quotas for track ("Everyone independent") mode, keyed by user id.
+  const [trackQuotas, setTrackQuotas] = useState<Record<string, number>>(
+    Object.fromEntries((chore?.tracks ?? []).map((t) => [t.user.id, t.completionsRequired])),
   )
   const [schedulingPreference, setSchedulingPreference] = useState<SchedulingPreference>(
     chore?.schedulingPreference ?? 'ToFirstNextRepeat',
@@ -88,6 +93,8 @@ export function ChoreFormModal({ title, chore, onClose, onSaved }: ChoreFormModa
 
   // "Complete N times" only rides on the non-custom repeat types; custom recurrences are always 1.
   const isCustom = repeatType === 'Custom'
+  // Track mode: every assignee gets their own schedule + quota, no rotation, no single current assignee.
+  const isIndependent = assignmentStrategy === 'Independent'
 
   // Smart scheduling is only offered for interval-style repeats (fixed-slot recurrences always hold
   // their grid). If it was selected and the repeat type is no longer interval-style, fall back.
@@ -107,17 +114,20 @@ export function ChoreFormModal({ title, chore, onClose, onSaved }: ChoreFormModa
         points: Number(points) || 0,
         repeatType,
         ...recurrence,
-        completionsRequired: isCustom ? 1 : Math.max(1, completionsRequired),
-        rotateOnEachCompletion: !isCustom && completionsRequired > 1 && rotateOnEachCompletion,
+        completionsRequired: isCustom || isIndependent ? 1 : Math.max(1, completionsRequired),
+        rotateOnEachCompletion: !isCustom && !isIndependent && completionsRequired > 1 && rotateOnEachCompletion,
         assignmentStrategy,
         schedulingPreference: effectiveScheduling,
         graceMinutes,
         startDate: toLocalDueInstant(startDate, dueTime),
         dueTime: dueTime || null,
         assigneeIds,
-        currentAssigneeId,
+        currentAssigneeId: isIndependent ? null : currentAssigneeId,
         tagNames: selectedTags,
         notifications,
+        tracks: isIndependent
+          ? assigneeIds.map((id) => ({ userId: id, completionsRequired: Math.max(1, trackQuotas[id] ?? 1) }))
+          : undefined,
       }
       return isEdit && chore ? choresApi.update(chore.id, body) : choresApi.create(body)
     },
@@ -168,7 +178,7 @@ export function ChoreFormModal({ title, chore, onClose, onSaved }: ChoreFormModa
               ))}
             </Select>
           </div>
-          {!isCustom && (
+          {!isCustom && !isIndependent && (
             <div className="w-28">
               <Label htmlFor="times">Times</Label>
               <IntegerInput
@@ -180,7 +190,7 @@ export function ChoreFormModal({ title, chore, onClose, onSaved }: ChoreFormModa
             </div>
           )}
         </div>
-        {!isCustom && completionsRequired > 1 && (
+        {!isCustom && !isIndependent && completionsRequired > 1 && (
           <div className="-mt-1 space-y-2">
             <p className="text-xs text-muted-foreground">
               Must be completed {completionsRequired} times before it's due again.
@@ -315,20 +325,55 @@ export function ChoreFormModal({ title, chore, onClose, onSaved }: ChoreFormModa
             ))}
           </div>
         </div>
-        <div>
-          <Label htmlFor="current">Current assignee</Label>
-          <Select
-            id="current"
-            value={currentAssigneeId}
-            onChange={(e) => setCurrentAssigneeId(e.target.value)}
-            disabled={selectedAssignees.length === 0}
-          >
-            <option value="" disabled>Select an assignee</option>
-            {selectedAssignees.map((u) => (
-              <option key={u.id} value={u.id}>{u.displayName}</option>
-            ))}
-          </Select>
-        </div>
+        {isIndependent ? (
+          <div>
+            <Label>Per-person counts</Label>
+            <p className="-mt-0.5 mb-1.5 text-xs text-muted-foreground">
+              Each person does it on their own schedule, so one being late never blocks the others.
+            </p>
+            {selectedAssignees.length === 0 ? (
+              <p className="text-sm text-muted-foreground">Select assignees above.</p>
+            ) : (
+              <div className="space-y-1.5">
+                {selectedAssignees.map((u) => (
+                  <div key={u.id} className="flex items-center justify-between gap-2">
+                    <span className="flex items-center gap-1.5 text-sm text-foreground">
+                      <Avatar color={u.avatarColor} name={u.displayName} size={16} />
+                      {u.displayName}
+                    </span>
+                    <div className="flex items-center gap-1.5">
+                      <div className="w-16">
+                        <IntegerInput
+                          value={trackQuotas[u.id] ?? 1}
+                          onCommit={(n) =>
+                            setTrackQuotas((prev) => ({ ...prev, [u.id]: Math.max(1, n) }))
+                          }
+                          aria-label={`Times for ${u.displayName}`}
+                        />
+                      </div>
+                      <span className="text-xs text-muted-foreground">×</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        ) : (
+          <div>
+            <Label htmlFor="current">Current assignee</Label>
+            <Select
+              id="current"
+              value={currentAssigneeId}
+              onChange={(e) => setCurrentAssigneeId(e.target.value)}
+              disabled={selectedAssignees.length === 0}
+            >
+              <option value="" disabled>Select an assignee</option>
+              {selectedAssignees.map((u) => (
+                <option key={u.id} value={u.id}>{u.displayName}</option>
+              ))}
+            </Select>
+          </div>
+        )}
         <div>
           <Label>Tags</Label>
           {allTags && allTags.length > 0 ? (
@@ -352,10 +397,10 @@ export function ChoreFormModal({ title, chore, onClose, onSaved }: ChoreFormModa
               ))}
             </div>
           ) : (
-            <p className="text-sm text-muted-foreground">No tags yet — add them in Settings.</p>
+            <p className="text-sm text-muted-foreground">No tags yet. Add them in Settings.</p>
           )}
         </div>
-        <NotificationsEditor value={notifications} onChange={setNotifications} />
+        <NotificationsEditor value={notifications} onChange={setNotifications} independent={isIndependent} />
         {error && <p className="text-sm text-destructive">{error}</p>}
         <div className="flex justify-end gap-2">
           <Button type="button" variant="secondary" onClick={onClose}>Cancel</Button>

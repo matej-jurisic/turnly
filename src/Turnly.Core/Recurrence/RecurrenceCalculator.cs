@@ -78,7 +78,10 @@ public static class RecurrenceCalculator
             var baseInstant = pref switch
             {
                 SchedulingPreference.FromCompletionDate => completedAt,
-                SchedulingPreference.ToFirstNextRepeat => now,
+                // Anchor off the scheduled date like the interval path so an early completion still
+                // advances to the next slot, but never scan from before `now` — that keeps an overdue
+                // chore skipping the occurrences it already missed to the first future one.
+                SchedulingPreference.ToFirstNextRepeat => scheduledDue > now ? scheduledDue : now,
                 _ => scheduledDue,
             };
             result = FixedSlotAfter(rule, scheduledDue, baseInstant);
@@ -175,8 +178,21 @@ public static class RecurrenceCalculator
 
     private static bool MatchesSlot(RecurrenceRule rule, DateTime date) => rule.CustomMode switch
     {
-        CustomRecurrenceMode.DaysOfWeek => rule.Weekdays.Contains(date.DayOfWeek),
+        CustomRecurrenceMode.DaysOfWeek =>
+            rule.Weekdays.Contains(date.DayOfWeek) && MatchesWeekOfMonth(rule.WeeksOfMonth, date),
         CustomRecurrenceMode.DaysOfMonth => rule.DaysOfMonth.Contains(date.Day) && rule.Months.Contains(date.Month),
         _ => false,
     };
+
+    /// <summary>Whether <paramref name="date"/> falls on one of the selected occurrences of its weekday
+    /// within the month. An empty set means every week. Values 1–4 are the nth occurrence; -1 is the last
+    /// (the final time that weekday occurs in the month).</summary>
+    private static bool MatchesWeekOfMonth(IReadOnlyCollection<int> weeks, DateTime date)
+    {
+        if (weeks.Count == 0) return true;
+        var ordinal = (date.Day - 1) / 7 + 1;
+        if (weeks.Contains(ordinal)) return true;
+        var isLast = date.Day + 7 > DateTime.DaysInMonth(date.Year, date.Month);
+        return isLast && weeks.Contains(-1);
+    }
 }

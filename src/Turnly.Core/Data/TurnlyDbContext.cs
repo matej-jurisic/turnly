@@ -17,6 +17,7 @@ public class TurnlyDbContext : DbContext
     public DbSet<Tag> Tags => Set<Tag>();
     public DbSet<ChoreCompletion> ChoreCompletions => Set<ChoreCompletion>();
     public DbSet<ChoreAssignment> ChoreAssignments => Set<ChoreAssignment>();
+    public DbSet<ChoreAssigneeTrack> ChoreAssigneeTracks => Set<ChoreAssigneeTrack>();
     public DbSet<PointsLogEntry> PointsLog => Set<PointsLogEntry>();
     public DbSet<Award> Awards => Set<Award>();
     public DbSet<Redemption> Redemptions => Set<Redemption>();
@@ -67,6 +68,7 @@ public class TurnlyDbContext : DbContext
             e.Property(x => x.AssignmentStrategy).HasConversion<string>().HasMaxLength(32);
             e.Property(x => x.SchedulingPreference).HasConversion<string>().HasMaxLength(32);
             e.Property(x => x.Weekdays).HasConversion(WeekdaysConverter, WeekdaysComparer);
+            e.Property(x => x.WeeksOfMonth).HasConversion(IntListConverter, IntListComparer);
             e.Property(x => x.DaysOfMonth).HasConversion(IntListConverter, IntListComparer);
             e.Property(x => x.Months).HasConversion(IntListConverter, IntListComparer);
 
@@ -89,6 +91,11 @@ public class TurnlyDbContext : DbContext
                 .OnDelete(DeleteBehavior.Cascade);
 
             e.HasMany(x => x.Notifications)
+                .WithOne(x => x.Chore!)
+                .HasForeignKey(x => x.ChoreId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            e.HasMany(x => x.AssigneeTracks)
                 .WithOne(x => x.Chore!)
                 .HasForeignKey(x => x.ChoreId)
                 .OnDelete(DeleteBehavior.Cascade);
@@ -131,6 +138,16 @@ public class TurnlyDbContext : DbContext
                 .WithMany()
                 .HasForeignKey(x => x.AssignedByUserId)
                 .OnDelete(DeleteBehavior.SetNull);
+        });
+
+        b.Entity<ChoreAssigneeTrack>(e =>
+        {
+            e.HasKey(x => x.Id);
+
+            e.HasOne(x => x.User)
+                .WithMany()
+                .HasForeignKey(x => x.UserId)
+                .OnDelete(DeleteBehavior.Restrict);
         });
 
         b.Entity<PointsLogEntry>(e =>
@@ -194,8 +211,9 @@ public class TurnlyDbContext : DbContext
         b.Entity<NotificationDelivery>(e =>
         {
             e.HasKey(x => x.Id);
-            // Each schedule entry fires at most once per occurrence.
-            e.HasIndex(x => new { x.ChoreNotificationId, x.OccurrenceDueAt }).IsUnique();
+            // Each schedule entry fires at most once per occurrence (per track owner in
+            // Independent mode; UserId is null for rotating chores, giving one row per occurrence).
+            e.HasIndex(x => new { x.ChoreNotificationId, x.OccurrenceDueAt, x.UserId }).IsUnique();
 
             e.HasOne(x => x.ChoreNotification)
                 .WithMany()

@@ -32,6 +32,10 @@
   - `Keep Last Assigned` — reassign to the same person as the previous occurrence
   - `Random Except Last Assigned` — random, but exclude whoever did it last
   - `Round Robin` — cycle through assignees in order
+  - `Everyone (independent)` — no rotation: **every assignee gets their own independent schedule**
+    with its own due date and per-person quota. Lets one chore model "everyone does the dishes once a
+    week" (all quotas 1) or an uneven split ("Alice 3× / Bob 2×"); each person advances on their own,
+    so a late assignee never blocks the others. (Recurring chores only.)
 - Chores are visible to all household members
 
 ### Recurrence
@@ -42,11 +46,13 @@
   - Weekly
   - Monthly
   - Yearly
-  - Custom — one of four modes:
-    - **Interval** — every `{x}` `{hours / days / weeks / months / years}`
-    - **Days of the week** — repeats on selected weekdays (e.g. Mon, Wed, Fri)
+  - Custom — one of three modes:
+    - **Interval** — every `{x}` `{days / weeks / months / years}` (day granularity; hourly out of scope)
+    - **Days of the week** — repeats on selected weekdays (e.g. Mon, Wed, Fri); optionally restricted to specific occurrences within the month (any combination of 1st / 2nd / 3rd / 4th / last, e.g. "1st and 3rd Monday"), or every week by default
     - **Days of the month** — repeats on selected days (e.g. 1, 15) within selected months (e.g. Jan, Jun); any combination of one or more days and one or more months
-    - **Frequency** — must be completed `{x}` times per `{day / week / month / year}`; days are not fixed, just the count within the period
+- **Completion count** — for the non-custom repeat types, a chore can require being completed `{x}`
+  times before the occurrence advances (e.g. "3× per week"); each completion **or skip** counts toward
+  closing the occurrence. (For `Everyone (independent)` chores this count is set **per assignee**.)
 - **Start date / datetime** — when the first occurrence begins
 
 ### Scheduling Preference on Completion
@@ -56,6 +62,7 @@ Controls how the next due date is calculated after a chore is marked complete:
 - **From scheduled date** — next due = scheduled date + interval (ignores when it was actually done)
 - **From completion date** — next due = actual completion time + interval
 - **To first next repeat** — next due = the next naturally occurring occurrence after now (skips any missed ones)
+- **Smart scheduling** — holds the planned cadence but never schedules sooner than one interval after the actual completion (`max(from-scheduled, from-completion)`); an optional **grace window** resets the cadence from the completion when a chore is done more than that window early. Offered only for interval-style repeats.
 
 ### Notifications
 
@@ -101,7 +108,9 @@ Per-chore notification schedule — a list of notification entries, each with:
   - **Type:** `reminder` (upcoming), `due` (at due time), `follow-up` (after due time passes without completion)
   - **When:** `before` | `at due` | `after` — with an offset in minutes / hours / days
   - **Who:** `current assignee` | `all assignees`
-- All notifications for a chore instance stop firing once it is marked complete
+- All notifications for a chore instance stop firing once it is marked complete (for
+  `Everyone (independent)` chores, reminders fire **per assignee** and stop once that person completes
+  their own share)
 
 ---
 
@@ -221,9 +230,16 @@ Swipe actions on chores, completion delight, admin deletion of activity entries
 (completions and skips) from chore details, admin completing a chore on behalf of any user, and
 refactoring the chores page into multiple components.
 
+### Post-Phase-9 — Per-assignee independent tracks
+The `Everyone (independent)` assignment strategy: a shared chore gives each assignee their own
+schedule + per-person quota (no rotation), an admin manual **reschedule** of the current occurrence,
+and notifications that fan out per assignee.
+
 ---
 
 ## On wait
+
+- Complete at time
 
 - **Per-user time zone** — `User.TimeZoneId` (IANA); prerequisite for quiet hours + digest
   (everything currently runs in UTC). Set manually by an admin on the user add/edit form (a zone
