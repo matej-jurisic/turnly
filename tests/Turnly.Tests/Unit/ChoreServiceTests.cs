@@ -1257,7 +1257,7 @@ public class ChoreServiceTests
     }
 
     [Fact]
-    public async Task AutoAdvanceAsync_does_not_rotate_assignee()
+    public async Task AutoAdvanceAsync_rotates_assignee_after_expiry()
     {
         using var ctx = new TestContext();
         var (admin, member) = await SeedUsersAsync(ctx);
@@ -1268,9 +1268,9 @@ public class ChoreServiceTests
 
         await ctx.Chores.AutoAdvanceAsync(Start.AddHours(1));
 
-        // Auto-advance never rotates — admin should remain the current assignee.
+        // After auto-advance the occurrence expires on admin's watch → rotates to member.
         var stored = await ctx.Db.Chores.FindAsync(chore.Id);
-        Assert.Equal(admin, stored!.CurrentAssigneeId);
+        Assert.Equal(member, stored!.CurrentAssigneeId);
     }
 
     [Fact]

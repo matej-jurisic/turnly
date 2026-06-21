@@ -332,6 +332,7 @@ export interface UserStats {
   allTimeCount: number
   onTimeCount: number
   overdueCount: number
+  missedCount: number
 }
 
 export interface UserWeeklyCount {
@@ -350,4 +351,5 @@ export interface ChartWeek {
 export interface Stats {
   userStats: UserStats[]
   chart: ChartWeek[]
+  totalMissedCount: number
 }

@@ -96,10 +96,11 @@ export function repeatLabel(chore: Chore): string {
   return baseRepeatLabel(chore) + timesOfDaySuffix(chore)
 }
 
-/** " · 08:00, 20:00" for a multi-time-a-day chore; empty otherwise. */
+/** " · 08:00, 20:00" for two times; " · 3×" for three or more. */
 function timesOfDaySuffix(chore: Chore): string {
   if (!chore.timesOfDay || chore.timesOfDay.length < 2) return ''
-  return ` · ${chore.timesOfDay.map(formatDueTime).join(', ')}`
+  if (chore.timesOfDay.length === 2) return ` · ${chore.timesOfDay.map(formatDueTime).join(', ')}`
+  return ` · ${chore.timesOfDay.length}×`
 }
 
 function baseRepeatLabel(chore: Chore): string {

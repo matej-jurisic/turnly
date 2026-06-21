@@ -66,13 +66,14 @@ public class UserService
         var users = await _db.Users.OrderBy(u => u.DisplayName).ToListAsync(ct);
         var allCompletions = await _db.ChoreCompletions
             .Where(c => !c.IsSkip) // skips are not real completions — exclude from stats
-            .Select(c => new { c.CompletedByUserId, c.CompletedAt, c.OccurrenceDueAt })
+            .Select(c => new { c.CompletedByUserId, c.CompletedAt, c.OccurrenceDueAt, c.IsExpired, c.PreviousAssigneeId })
             .ToListAsync(ct);
 
         var weekStart = GetCurrentWeekStart();
         var now = DateTimeOffset.UtcNow;
         var monthStart = new DateTimeOffset(now.Year, now.Month, 1, 0, 0, 0, TimeSpan.Zero);
 
+        // Expired rows have null CompletedByUserId so they never match the per-user completion counts below.
         var userStats = users.Select(u => new UserStatsDto(
             u.Id, u.DisplayName, u.AvatarColor,
             allCompletions.Count(c => c.CompletedByUserId == u.Id && c.CompletedAt >= weekStart),
@@ -81,8 +82,11 @@ public class UserService
             allCompletions.Count(c => c.CompletedByUserId == u.Id
                 && c.OccurrenceDueAt.HasValue && c.CompletedAt <= c.OccurrenceDueAt.Value),
             allCompletions.Count(c => c.CompletedByUserId == u.Id
-                && c.OccurrenceDueAt.HasValue && c.CompletedAt > c.OccurrenceDueAt.Value)
+                && c.OccurrenceDueAt.HasValue && c.CompletedAt > c.OccurrenceDueAt.Value),
+            allCompletions.Count(c => c.IsExpired && c.PreviousAssigneeId == u.Id)
         )).ToList();
+
+        var totalMissedCount = allCompletions.Count(c => c.IsExpired);
 
         // Last 8 weeks oldest-first so the chart reads left-to-right chronologically.
         var chart = Enumerable.Range(0, 8).Reverse().Select(weeksAgo =>
@@ -100,7 +104,7 @@ public class UserService
             return new ChartWeekDto(label, ws, userCounts);
         }).ToList();
 
-        return new StatsDto(userStats, chart);
+        return new StatsDto(userStats, chart, totalMissedCount);
     }
 
     public async Task<Result<List<PointsLogEntryDto>>> GetPointsLogAsync(Guid userId, CancellationToken ct = default)

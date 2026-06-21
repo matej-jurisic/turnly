@@ -217,7 +217,7 @@ public class ChoreService
             // for good (DueAt null, e.g. a finished one-time chore), where a rotation would be pointless.
             var advancedToNewOccurrence = await AdvanceScheduleAsync(chore, completion, now, ct);
             if (advancedToNewOccurrence || (chore.RotateOnEachCompletion && chore.DueAt is not null))
-                await RotateAssigneeAsync(chore, completion, now, ct);
+                await RotateAssigneeAsync(chore, now, completion.CompletedByUserId!.Value, completion.Id, ct);
         }
 
         await _db.SaveChangesAsync(ct);
@@ -455,7 +455,10 @@ public class ChoreService
         if (choreId.HasValue)
             completionQuery = completionQuery.Where(c => c.ChoreId == choreId);
         if (userId.HasValue)
-            completionQuery = completionQuery.Where(c => c.CompletedByUserId == userId);
+            // Include expired rows where this user was the responsible assignee at expiry time.
+            completionQuery = completionQuery.Where(c =>
+                c.CompletedByUserId == userId ||
+                (c.IsExpired && c.PreviousAssigneeId == userId));
 
         List<Guid>? tagChoreIds = null;
         if (tag is not null)
@@ -467,8 +470,23 @@ public class ChoreService
             completionQuery = completionQuery.Where(c => tagChoreIds.Contains(c.ChoreId));
         }
 
-        var entries = (await completionQuery.ToListAsync(ct))
-            .Select(ChoreHistoryEntryDto.FromCompletion);
+        var completions = await completionQuery.ToListAsync(ct);
+
+        // PreviousAssigneeId on expired rows holds the assignee at expiry time — no nav property,
+        // so load them in one batch and map by id.
+        var expiredAssigneeIds = completions
+            .Where(c => c.IsExpired && c.PreviousAssigneeId.HasValue)
+            .Select(c => c.PreviousAssigneeId!.Value)
+            .Distinct()
+            .ToList();
+        var expiredAssignees = expiredAssigneeIds.Count > 0
+            ? (await _db.Users.Where(u => expiredAssigneeIds.Contains(u.Id)).ToListAsync(ct))
+                .ToDictionary(u => u.Id)
+            : new Dictionary<Guid, User>();
+
+        var entries = completions.Select(c =>
+            ChoreHistoryEntryDto.FromCompletion(c,
+                c.IsExpired && c.PreviousAssigneeId is { } pid && expiredAssignees.TryGetValue(pid, out var u) ? u : null));
 
         // Reassignments are opt-in (the History page); the per-chore/per-user views want completions
         // only. Manual reassignments only (AssignedByUserId is set) — rotations/initial assignments
@@ -550,9 +568,12 @@ public class ChoreService
         return chore.DueAt is not null;
     }
 
-    /// <summary>Picks the next current assignee per the chore's strategy and records the assignment
-    /// (linked to <paramref name="completion"/> so undo can reverse it).</summary>
-    private async Task RotateAssigneeAsync(Chore chore, ChoreCompletion completion, DateTimeOffset now, CancellationToken ct)
+    /// <summary>Picks the next current assignee per the chore's strategy and records the assignment.
+    /// <paramref name="completedBy"/> is folded in as a virtual completion so strategies that count
+    /// completions (LeastCompleted) treat the just-closed occurrence as that user's turn.
+    /// <paramref name="completionId"/> links the new <see cref="ChoreAssignment"/> to its trigger row
+    /// (so undo can reverse the rotation), or null for auto-advance expiry rows.</summary>
+    private async Task RotateAssigneeAsync(Chore chore, DateTimeOffset now, Guid completedBy, Guid? completionId, CancellationToken ct)
     {
         var ordered = chore.Assignees
             .OrderBy(u => u.CreatedAt).ThenBy(u => u.Id)
@@ -576,9 +597,7 @@ public class ChoreService
             .Select(x => (x.CompletedByUserId!.Value, x.CompletedAt))
             .ToList();
 
-        // Mirror what the preview computes (see PickNext): the just-added (unsaved) completion is
-        // folded in as one more completion by its completer.
-        var next = PickNext(chore, ordered, assignments, completions, completion.CompletedByUserId!.Value, completion.CompletedAt);
+        var next = PickNext(chore, ordered, assignments, completions, completedBy, now);
 
         chore.CurrentAssigneeId = next;
         _db.ChoreAssignments.Add(new ChoreAssignment
@@ -586,7 +605,7 @@ public class ChoreService
             ChoreId = chore.Id,
             UserId = next,
             AssignedAt = now,
-            ChoreCompletionId = completion.Id
+            ChoreCompletionId = completionId
         });
     }
 
@@ -971,11 +990,15 @@ public class ChoreService
     /// <summary>Called by the background service every minute. For every recurring chore with
     /// <see cref="Chore.AutoAdvanceIncomplete"/> set, checks whether the completion window has closed
     /// (now ≥ DueAt + <see cref="Chore.CompletionWindowMinutes"/>) and the occurrence is still short
-    /// of <see cref="Chore.CompletionsRequired"/> real completions. If so, writes
-    /// <see cref="ChoreCompletion.IsExpired"/> rows for the missing slots and advances the schedule
-    /// using <see cref="SchedulingPreference.FromScheduledDate"/> — no rotation, no points.</summary>
+    /// of its required completions. If so, writes <see cref="ChoreCompletion.IsExpired"/> rows for the
+    /// missing slots (snapshotting the responsible assignee in <see cref="ChoreCompletion.PreviousAssigneeId"/>),
+    /// advances the schedule using <see cref="SchedulingPreference.FromScheduledDate"/>, and rotates
+    /// the assignee so the person who missed the occurrence doesn't stay on duty.</summary>
     public async Task<int> AutoAdvanceAsync(DateTimeOffset now, CancellationToken ct = default)
     {
+        var advanced = 0;
+
+        // ── Rotating chores ──────────────────────────────────────────────────────────────────────
         var chores = await Query()
             .Where(c => c.AutoAdvanceIncomplete
                      && c.DueAt != null
@@ -983,7 +1006,6 @@ public class ChoreService
                      && c.AssignmentStrategy != AssignmentStrategy.Independent)
             .ToListAsync(ct);
 
-        var advanced = 0;
         foreach (var chore in chores)
         {
             if (chore.DueAt is not { } dueAt) continue;
@@ -999,23 +1021,80 @@ public class ChoreService
             var doneCount = allDues.Count(d => d == dueAt);
             if (doneCount >= chore.CompletionsRequired) continue;
 
-            // Write IsExpired rows for the missing slots.
+            // Write IsExpired rows for the missing slots, snapshotting who was responsible.
+            ChoreCompletion? firstExpired = null;
             for (var i = doneCount; i < chore.CompletionsRequired; i++)
             {
-                _db.ChoreCompletions.Add(new ChoreCompletion
+                var row = new ChoreCompletion
                 {
                     ChoreId = chore.Id,
                     IsExpired = true,
                     OccurrenceDueAt = dueAt,
                     PointsAwarded = 0,
                     CompletedAt = now,
-                });
+                    PreviousAssigneeId = chore.CurrentAssigneeId,
+                };
+                _db.ChoreCompletions.Add(row);
+                firstExpired ??= row;
             }
 
-            // Advance using FromScheduledDate — no rotation, no grace.
+            // Advance and rotate — treat the current assignee's missed occurrence as their "turn used"
+            // so the same person doesn't stay on duty after an expired occurrence.
             var rule = RecurrenceRule.FromChore(chore);
             chore.DueAt = RecurrenceCalculator.NextDue(rule, SchedulingPreference.FromScheduledDate, dueAt, now, now);
+            if (chore.CurrentAssigneeId.HasValue && chore.DueAt is not null)
+                await RotateAssigneeAsync(chore, now, chore.CurrentAssigneeId.Value, firstExpired?.Id, ct);
             advanced++;
+        }
+
+        // ── Independent (per-assignee track) chores ─────────────────────────────────────────────
+        var trackChores = await Query()
+            .Where(c => c.AutoAdvanceIncomplete
+                     && c.DueAt != null
+                     && c.RepeatType != RepeatType.OneTime
+                     && c.AssignmentStrategy == AssignmentStrategy.Independent)
+            .ToListAsync(ct);
+
+        foreach (var chore in trackChores)
+        {
+            var advancedAny = false;
+            var rule = RecurrenceRule.FromChore(chore);
+
+            foreach (var track in chore.AssigneeTracks)
+            {
+                if (track.DueAt is not { } trackDue) continue;
+                var windowEnd = trackDue.AddMinutes(chore.CompletionWindowMinutes ?? 0);
+                if (now < windowEnd) continue;
+
+                var allDues = await _db.ChoreCompletions
+                    .Where(x => x.ChoreId == chore.Id && x.CompletedByUserId == track.UserId && !x.IsExpired)
+                    .Select(x => x.OccurrenceDueAt)
+                    .ToListAsync(ct);
+                var doneCount = allDues.Count(d => d == trackDue);
+                if (doneCount >= track.CompletionsRequired) continue;
+
+                for (var i = doneCount; i < track.CompletionsRequired; i++)
+                {
+                    _db.ChoreCompletions.Add(new ChoreCompletion
+                    {
+                        ChoreId = chore.Id,
+                        IsExpired = true,
+                        OccurrenceDueAt = trackDue,
+                        PointsAwarded = 0,
+                        CompletedAt = now,
+                        PreviousAssigneeId = track.UserId,
+                    });
+                }
+
+                track.DueAt = RecurrenceCalculator.NextDue(rule, SchedulingPreference.FromScheduledDate, trackDue, now, now);
+                advancedAny = true;
+            }
+
+            if (advancedAny)
+            {
+                chore.DueAt = EarliestTrackDue(chore.AssigneeTracks);
+                advanced++;
+            }
         }
 
         if (advanced > 0)

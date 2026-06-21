@@ -292,10 +292,12 @@ public record ChoreHistoryEntryDto(
     UserDto? FromAssignee,
     UserDto? ToAssignee)
 {
-    public static ChoreHistoryEntryDto FromCompletion(ChoreCompletion c) =>
+    public static ChoreHistoryEntryDto FromCompletion(ChoreCompletion c, User? expiredAssignee = null) =>
         new(c.Id, c.IsExpired ? "expired" : c.IsSkip ? "skip" : "completion",
             c.ChoreId, c.Chore?.Name ?? string.Empty,
-            c.CompletedBy is null ? null : UserDto.FromEntity(c.CompletedBy),
+            c.IsExpired
+                ? expiredAssignee is null ? null : UserDto.FromEntity(expiredAssignee)
+                : c.CompletedBy is null ? null : UserDto.FromEntity(c.CompletedBy),
             c.CompletedAt, c.OccurrenceDueAt, c.Notes, c.PointsAwarded, null, null);
 
     public static ChoreHistoryEntryDto FromReassignment(ChoreAssignment a) =>
@@ -385,7 +387,8 @@ public record UserStatsDto(
     int MonthlyCount,
     int AllTimeCount,
     int OnTimeCount,
-    int OverdueCount);
+    int OverdueCount,
+    int MissedCount);
 
 public record UserWeeklyCountDto(
     Guid UserId,
@@ -400,4 +403,5 @@ public record ChartWeekDto(
 
 public record StatsDto(
     IEnumerable<UserStatsDto> UserStats,
-    IEnumerable<ChartWeekDto> Chart);
+    IEnumerable<ChartWeekDto> Chart,
+    int TotalMissedCount);

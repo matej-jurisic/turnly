@@ -40,6 +40,7 @@ export function HistoryPage() {
   // Donut chart 1: completion timing (all-time, from stats)
   const totalOnTime = stats?.userStats.reduce((s, u) => s + u.onTimeCount, 0) ?? 0
   const totalLate = stats?.userStats.reduce((s, u) => s + u.overdueCount, 0) ?? 0
+  const totalMissed = stats?.totalMissedCount ?? 0
 
   // Donut chart 2: currently assigned tasks per member
   const assigneeMap = new Map<string, Segment>()
@@ -74,6 +75,7 @@ export function HistoryPage() {
           segments={[
             { label: 'On time', count: totalOnTime, color: 'var(--success)' },
             { label: 'Late', count: totalLate, color: 'var(--destructive)' },
+            { label: 'Expired', count: totalMissed, color: 'var(--warning)' },
           ]}
         />
         <DonutChart
@@ -382,11 +384,13 @@ function UserStatsTable({ userStats }: { userStats: UserStats[] }) {
                   <Avatar color={u.avatarColor} name={u.displayName} size={28} />
                   <span className="flex-1 text-sm text-foreground">{u.displayName}</span>
                   <div className="flex items-center gap-3 text-xs text-muted-foreground">
-                    {u.onTimeCount + u.overdueCount > 0 && (
-                      <span title="On time / late (all time)">
-                        <span className="text-success">{u.onTimeCount} on time</span>
-                        <span className="mx-1">·</span>
-                        <span className="text-destructive">{u.overdueCount} late</span>
+                    {(u.onTimeCount + u.overdueCount + u.missedCount > 0) && (
+                      <span title="On time / late / expired (all time)" className="flex items-center gap-1">
+                        {u.onTimeCount > 0 && <span className="text-success">{u.onTimeCount} on time</span>}
+                        {u.onTimeCount > 0 && u.overdueCount > 0 && <span>·</span>}
+                        {u.overdueCount > 0 && <span className="text-destructive">{u.overdueCount} late</span>}
+                        {u.missedCount > 0 && (u.onTimeCount > 0 || u.overdueCount > 0) && <span>·</span>}
+                        {u.missedCount > 0 && <span className="text-warning">{u.missedCount} missed</span>}
                       </span>
                     )}
                   </div>
@@ -414,6 +418,7 @@ function activityDetail(entry: ChoreHistoryEntry): string {
     const detail = `${entry.fromAssignee?.displayName ?? 'nobody'} → ${entry.toAssignee?.displayName ?? 'nobody'}`
     return entry.actor ? `${detail} · by ${entry.actor.displayName}` : detail
   }
+  if (entry.kind === 'expired') return entry.actor ? `assigned to ${entry.actor.displayName}` : 'auto-advanced'
   return `by ${entry.actor?.displayName ?? 'someone'}`
 }
 
