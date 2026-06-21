@@ -837,4 +837,255 @@ public class ChoreServiceTests
         Assert.Equal(NotificationType.Due, saved.Type);
         Assert.Equal(1, await ctx.Db.ChoreNotifications.CountAsync(n => n.ChoreId == chore.Id));
     }
+
+    // ── Scheduling preferences end-to-end ────────────────────────────────────────────────────
+
+    [Fact]
+    public async Task CompleteAsync_smart_scheduling_late_completion_pushes_beyond_scheduled_grid()
+    {
+        using var ctx = new TestContext();
+        var (_, member) = await SeedUsersAsync(ctx);
+        // Weekly chore 5 days overdue: Smart should anchor off the completion date (~now + 7 days)
+        // rather than the scheduled date (5daysAgo + 7 = 2 days out).
+        var chore = (await ctx.Chores.CreateAsync(NewChore(member, [member], RepeatType.Weekly,
+            scheduling: SchedulingPreference.SmartScheduling,
+            start: DateTimeOffset.UtcNow.AddDays(-5)))).Value!;
+        var originalDue = chore.DueAt!.Value;
+
+        var result = await ctx.Chores.CompleteAsync(chore.Id, member, new CompleteChoreRequest(null));
+
+        Assert.True(result.Succeeded);
+        // FromScheduledDate gives originalDue + 7 (≈ 2 days out); Smart picks the later date.
+        Assert.True(result.Value!.DueAt > originalDue.AddDays(7));
+    }
+
+    [Fact]
+    public async Task CompleteAsync_smart_scheduling_early_completion_holds_scheduled_grid()
+    {
+        using var ctx = new TestContext();
+        var (_, member) = await SeedUsersAsync(ctx);
+        // Weekly chore due 5 days from now; completing early should hold the planned cadence,
+        // not drift to now + 7 days (which FromCompletionDate would do).
+        var chore = (await ctx.Chores.CreateAsync(NewChore(member, [member], RepeatType.Weekly,
+            scheduling: SchedulingPreference.SmartScheduling,
+            start: DateTimeOffset.UtcNow.AddDays(5)))).Value!;
+        var scheduledDue = chore.DueAt!.Value;
+
+        var result = await ctx.Chores.CompleteAsync(chore.Id, member, new CompleteChoreRequest(null));
+
+        Assert.True(result.Succeeded);
+        Assert.Equal(scheduledDue.AddDays(7), result.Value!.DueAt);
+    }
+
+    [Fact]
+    public async Task CompleteAsync_to_first_next_repeat_skips_missed_occurrences_to_the_future()
+    {
+        using var ctx = new TestContext();
+        var (_, member) = await SeedUsersAsync(ctx);
+        // Daily chore 3 days overdue: FromScheduledDate would land in the past; ToFirstNextRepeat
+        // must jump to the first daily slot strictly after now.
+        var chore = (await ctx.Chores.CreateAsync(NewChore(member, [member], RepeatType.Daily,
+            scheduling: SchedulingPreference.ToFirstNextRepeat,
+            start: DateTimeOffset.UtcNow.AddDays(-3)))).Value!;
+
+        var result = await ctx.Chores.CompleteAsync(chore.Id, member, new CompleteChoreRequest(null));
+
+        Assert.True(result.Succeeded);
+        Assert.True(result.Value!.DueAt > DateTimeOffset.UtcNow);
+    }
+
+    [Fact]
+    public async Task CompleteAsync_smart_scheduling_within_grace_holds_grid()
+    {
+        using var ctx = new TestContext();
+        var (_, member) = await SeedUsersAsync(ctx);
+        // Weekly chore due in 30 minutes with a 1-hour grace: completing 30 min early is inside
+        // the grace window, so Smart treats it as on-schedule and holds the cadence.
+        var chore = (await ctx.Chores.CreateAsync(NewChore(member, [member], RepeatType.Weekly,
+            scheduling: SchedulingPreference.SmartScheduling, graceMinutes: 60,
+            start: DateTimeOffset.UtcNow.AddMinutes(30)))).Value!;
+        var scheduledDue = chore.DueAt!.Value;
+
+        var result = await ctx.Chores.CompleteAsync(chore.Id, member, new CompleteChoreRequest(null));
+
+        Assert.True(result.Succeeded);
+        Assert.Equal(scheduledDue.AddDays(7), result.Value!.DueAt);
+    }
+
+    [Fact]
+    public async Task CompleteAsync_smart_scheduling_beyond_grace_resets_from_completion()
+    {
+        using var ctx = new TestContext();
+        var (_, member) = await SeedUsersAsync(ctx);
+        // Weekly chore due in 5 days with a 1-hour grace: completing 5 days early far exceeds the
+        // grace, so Smart resets from completion (~now + 7) instead of holding the grid (~now + 12).
+        var chore = (await ctx.Chores.CreateAsync(NewChore(member, [member], RepeatType.Weekly,
+            scheduling: SchedulingPreference.SmartScheduling, graceMinutes: 60,
+            start: DateTimeOffset.UtcNow.AddDays(5)))).Value!;
+        var scheduledDue = chore.DueAt!.Value;
+
+        var result = await ctx.Chores.CompleteAsync(chore.Id, member, new CompleteChoreRequest(null));
+
+        Assert.True(result.Succeeded);
+        // Grid would be scheduledDue + 7 ≈ now + 12 days; grace-exceeded resets to ≈ now + 7.
+        Assert.True(result.Value!.DueAt < scheduledDue.AddDays(7));
+        Assert.True(result.Value!.DueAt > DateTimeOffset.UtcNow);
+    }
+
+    // ── Assignment strategies end-to-end ─────────────────────────────────────────────────────
+
+    [Fact]
+    public async Task CompleteAsync_least_assigned_rotates_to_fewest_assignments()
+    {
+        using var ctx = new TestContext();
+        var (admin, member) = await SeedUsersAsync(ctx);
+        // Admin is the initial assignee (gets 1 assignment record on create). LeastAssigned
+        // picks member (0 assignments) as the next current assignee after the first completion.
+        var chore = (await ctx.Chores.CreateAsync(
+            NewChore(admin, [admin, member], strategy: AssignmentStrategy.LeastAssigned))).Value!;
+
+        var result = await ctx.Chores.CompleteAsync(chore.Id, admin, new CompleteChoreRequest(null));
+
+        Assert.True(result.Succeeded);
+        Assert.Equal(member, result.Value!.CurrentAssignee!.Id);
+    }
+
+    [Fact]
+    public async Task CompleteAsync_least_completed_rotates_to_fewest_completions()
+    {
+        using var ctx = new TestContext();
+        var (admin, member) = await SeedUsersAsync(ctx);
+        var chore = (await ctx.Chores.CreateAsync(
+            NewChore(admin, [admin, member], strategy: AssignmentStrategy.LeastCompleted))).Value!;
+
+        // Admin completes once; admin now leads the completion count, so LeastCompleted rotates to member.
+        var result = await ctx.Chores.CompleteAsync(chore.Id, admin, new CompleteChoreRequest(null));
+
+        Assert.True(result.Succeeded);
+        Assert.Equal(member, result.Value!.CurrentAssignee!.Id);
+    }
+
+    [Fact]
+    public async Task CompleteAsync_random_except_last_assigned_never_keeps_current_assignee()
+    {
+        using var ctx = new TestContext();
+        var (admin, member) = await SeedUsersAsync(ctx);
+        var chore = (await ctx.Chores.CreateAsync(
+            NewChore(admin, [admin, member], strategy: AssignmentStrategy.RandomExceptLastAssigned))).Value!;
+
+        // With two assignees, "not admin" can only be member.
+        var result = await ctx.Chores.CompleteAsync(chore.Id, admin, new CompleteChoreRequest(null));
+
+        Assert.True(result.Succeeded);
+        Assert.NotEqual(admin, result.Value!.CurrentAssignee!.Id);
+    }
+
+    [Fact]
+    public async Task CompleteAsync_random_picks_from_within_the_assignee_set()
+    {
+        using var ctx = new TestContext();
+        var (admin, member) = await SeedUsersAsync(ctx);
+        var chore = (await ctx.Chores.CreateAsync(
+            NewChore(admin, [admin, member], strategy: AssignmentStrategy.Random))).Value!;
+
+        var result = await ctx.Chores.CompleteAsync(chore.Id, admin, new CompleteChoreRequest(null));
+
+        Assert.True(result.Succeeded);
+        Assert.Contains(result.Value!.CurrentAssignee!.Id, new[] { admin, member });
+    }
+
+    // ── UpdateAsync: schedule change vs non-schedule edit ────────────────────────────────────
+
+    [Fact]
+    public async Task UpdateAsync_schedule_change_resets_due_to_first_occurrence()
+    {
+        using var ctx = new TestContext();
+        var (_, member) = await SeedUsersAsync(ctx);
+        var create = NewChore(member, [member], RepeatType.Daily);
+        var chore = (await ctx.Chores.CreateAsync(create)).Value!;
+        var afterComplete = (await ctx.Chores.CompleteAsync(chore.Id, member, new CompleteChoreRequest(null))).Value!;
+        Assert.Equal(Start.AddDays(1), afterComplete.DueAt); // confirmed it advanced
+
+        // Switching from Daily to Weekly changes the schedule, so DueAt must recompute from StartDate.
+        var result = await ctx.Chores.UpdateAsync(chore.Id, ToUpdate(create) with { RepeatType = RepeatType.Weekly });
+
+        Assert.True(result.Succeeded);
+        Assert.Equal(Start, result.Value!.DueAt); // first weekly occurrence is the StartDate itself
+    }
+
+    [Fact]
+    public async Task UpdateAsync_non_schedule_edit_preserves_advanced_due_date()
+    {
+        using var ctx = new TestContext();
+        var (_, member) = await SeedUsersAsync(ctx);
+        var create = NewChore(member, [member]);
+        var chore = (await ctx.Chores.CreateAsync(create)).Value!;
+        var afterComplete = (await ctx.Chores.CompleteAsync(chore.Id, member, new CompleteChoreRequest(null))).Value!;
+        var advancedDue = afterComplete.DueAt;
+
+        // Rename only — no schedule parameters change.
+        var result = await ctx.Chores.UpdateAsync(chore.Id, ToUpdate(create) with { Name = "Cleaned Dishes" });
+
+        Assert.True(result.Succeeded);
+        Assert.Equal(advancedDue, result.Value!.DueAt); // DueAt must not be silently reset
+    }
+
+    [Fact]
+    public async Task UpdateAsync_strategy_change_takes_effect_on_next_completion()
+    {
+        using var ctx = new TestContext();
+        var (admin, member) = await SeedUsersAsync(ctx);
+        var create = NewChore(admin, [admin, member], strategy: AssignmentStrategy.KeepLastAssigned);
+        var chore = (await ctx.Chores.CreateAsync(create)).Value!;
+
+        // Switch from KeepLastAssigned to RoundRobin while admin is current.
+        await ctx.Chores.UpdateAsync(chore.Id,
+            ToUpdate(create) with { AssignmentStrategy = AssignmentStrategy.RoundRobin });
+
+        // Next completion should rotate admin → member per RoundRobin order.
+        var result = await ctx.Chores.CompleteAsync(chore.Id, admin, new CompleteChoreRequest(null));
+
+        Assert.True(result.Succeeded);
+        Assert.Equal(member, result.Value!.CurrentAssignee!.Id);
+    }
+
+    // ── TimesOfDay + DaysOfWeek at service level ─────────────────────────────────────────────
+
+    [Fact]
+    public async Task CreateAsync_times_of_day_with_days_of_week_lands_on_the_first_slot()
+    {
+        using var ctx = new TestContext();
+        var (_, member) = await SeedUsersAsync(ctx);
+        // "Mondays at 08:00 and 20:00", starting early Mon Jun 22 (before the first slot).
+        var mondayStart = new DateTimeOffset(2026, 6, 22, 6, 0, 0, TimeSpan.Zero);
+        var chore = (await ctx.Chores.CreateAsync(
+            NewChore(member, [member], RepeatType.Custom,
+                customMode: CustomRecurrenceMode.DaysOfWeek,
+                weekdays: [DayOfWeek.Monday], start: mondayStart)
+            with { TimesOfDay = ["08:00", "20:00"] })).Value!;
+
+        Assert.Equal(new DateTimeOffset(2026, 6, 22, 8, 0, 0, TimeSpan.Zero), chore.DueAt);
+        Assert.Equal(new[] { "08:00", "20:00" }, chore.TimesOfDay);
+    }
+
+    [Fact]
+    public async Task CompleteAsync_times_of_day_with_days_of_week_advances_within_day_then_to_next_week()
+    {
+        using var ctx = new TestContext();
+        var (_, member) = await SeedUsersAsync(ctx);
+        var mondayStart = new DateTimeOffset(2026, 6, 22, 6, 0, 0, TimeSpan.Zero);
+        var chore = (await ctx.Chores.CreateAsync(
+            NewChore(member, [member], RepeatType.Custom,
+                customMode: CustomRecurrenceMode.DaysOfWeek,
+                weekdays: [DayOfWeek.Monday], start: mondayStart)
+            with { TimesOfDay = ["08:00", "20:00"] })).Value!;
+
+        // Complete Mon 08:00 → next same-day slot is 20:00.
+        var afterMorning = await ctx.Chores.CompleteAsync(chore.Id, member, new CompleteChoreRequest(null));
+        Assert.Equal(new DateTimeOffset(2026, 6, 22, 20, 0, 0, TimeSpan.Zero), afterMorning.Value!.DueAt);
+
+        // Complete Mon 20:00 → roll to next Monday 08:00.
+        var afterEvening = await ctx.Chores.CompleteAsync(chore.Id, member, new CompleteChoreRequest(null));
+        Assert.Equal(new DateTimeOffset(2026, 6, 29, 8, 0, 0, TimeSpan.Zero), afterEvening.Value!.DueAt);
+    }
 }

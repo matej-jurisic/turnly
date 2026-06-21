@@ -425,4 +425,60 @@ public class RecurrenceCalculatorTests
             Weekdays: new[] { DayOfWeek.Monday }, TimesOfDay: EightAndEight);
         Assert.Equal(At(2026, 6, 22, 20), Next(rule, At(2026, 6, 22, 8))); // same Monday, 08:00 → 20:00
     }
+
+    // ── Custom Interval — all four units ─────────────────────────────────────────────────────
+
+    [Fact]
+    public void Custom_interval_day_unit_advances_by_count()
+    {
+        var rule = new RecurrenceRule(RepeatType.Custom, CustomRecurrenceMode.Interval,
+            IntervalCount: 3, IntervalUnit: RecurrenceUnit.Day);
+        Assert.Equal(Wed.AddDays(3), Next(rule, Wed));
+    }
+
+    [Fact]
+    public void Custom_interval_month_unit_advances_by_count()
+    {
+        var rule = new RecurrenceRule(RepeatType.Custom, CustomRecurrenceMode.Interval,
+            IntervalCount: 2, IntervalUnit: RecurrenceUnit.Month);
+        Assert.Equal(Wed.AddMonths(2), Next(rule, Wed));
+    }
+
+    [Fact]
+    public void Custom_interval_month_unit_clamps_to_month_end()
+    {
+        // 1 month from Jan 31 can't be Feb 31; it clamps to Feb 28.
+        var rule = new RecurrenceRule(RepeatType.Custom, CustomRecurrenceMode.Interval,
+            IntervalCount: 1, IntervalUnit: RecurrenceUnit.Month);
+        var jan31 = new DateTimeOffset(2026, 1, 31, 8, 0, 0, TimeSpan.Zero);
+        Assert.Equal(new DateTimeOffset(2026, 2, 28, 8, 0, 0, TimeSpan.Zero), Next(rule, jan31));
+    }
+
+    [Fact]
+    public void Custom_interval_year_unit_advances_by_count()
+    {
+        var rule = new RecurrenceRule(RepeatType.Custom, CustomRecurrenceMode.Interval,
+            IntervalCount: 2, IntervalUnit: RecurrenceUnit.Year);
+        Assert.Equal(Wed.AddYears(2), Next(rule, Wed));
+    }
+
+    // ── DaysOfMonth — multiple day values in one rule ────────────────────────────────────────
+
+    [Fact]
+    public void DaysOfMonth_multiple_days_picks_the_nearest_upcoming_date()
+    {
+        // Days 10 and 20 in June/July; from Jun 17 (Wed) the nearest upcoming hit is Jun 20.
+        var rule = new RecurrenceRule(RepeatType.Custom, CustomRecurrenceMode.DaysOfMonth,
+            DaysOfMonth: new[] { 10, 20 }, Months: new[] { 6, 7 });
+        Assert.Equal(new DateTimeOffset(2026, 6, 20, 9, 0, 0, TimeSpan.Zero), Next(rule, Wed));
+    }
+
+    [Fact]
+    public void DaysOfMonth_multiple_days_rolls_to_next_month_when_all_current_month_days_passed()
+    {
+        // Days 5 and 10 in June/July; from Jun 17 both June slots are gone, next is Jul 5.
+        var rule = new RecurrenceRule(RepeatType.Custom, CustomRecurrenceMode.DaysOfMonth,
+            DaysOfMonth: new[] { 5, 10 }, Months: new[] { 6, 7 });
+        Assert.Equal(new DateTimeOffset(2026, 7, 5, 9, 0, 0, TimeSpan.Zero), Next(rule, Wed));
+    }
 }

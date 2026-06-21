@@ -239,4 +239,130 @@ public class IndependentChoreTests
         Assert.Single(ctx.Push.Sent);
         Assert.Equal("https://push/b", ctx.Push.Sent[0].Endpoint);
     }
+
+    // ── UpdateAsync: SyncTracks ───────────────────────────────────────────────────────────────
+
+    private static UpdateChoreRequest ToUpdate(CreateChoreRequest c, TrackInput[]? tracks = null,
+        Guid[]? assigneeIds = null, RepeatType? repeatType = null) =>
+        new(c.Name, c.Description, c.Emoji, c.Points, repeatType ?? c.RepeatType,
+            c.CustomMode, c.IntervalCount, c.IntervalUnit, c.Weekdays, c.WeeksOfMonth,
+            c.DaysOfMonth, c.Months, c.CompletionsRequired, c.RotateOnEachCompletion,
+            c.AssignmentStrategy, c.SchedulingPreference, c.GraceMinutes, c.StartDate,
+            assigneeIds ?? c.AssigneeIds, (assigneeIds ?? c.AssigneeIds)[0], c.TagNames,
+            null, null, tracks ?? c.Tracks);
+
+    [Fact]
+    public async Task UpdateAsync_adds_assignee_preserves_existing_advanced_track_due()
+    {
+        using var ctx = new TestContext();
+        var (_, a, b) = await SeedAsync(ctx);
+        var create = Independent([a, b], [(a, 1), (b, 1)]);
+        var id = (await ctx.Chores.CreateAsync(create)).Value!.Id;
+        await ctx.Chores.CompleteAsync(id, a, new CompleteChoreRequest(null)); // Alice → Week2
+
+        // Add Carol; Alice's advanced DueAt must not be reset.
+        var c = (await ctx.Users.CreateAsync(new CreateUserRequest("carol", "Carol", "carolpw1", UserRole.Member, null))).Value!.Id;
+        var allAssignees = new[] { a, b, c };
+        var result = await ctx.Chores.UpdateAsync(id, ToUpdate(create,
+            tracks: [new(a, 1), new(b, 1), new(c, 1)],
+            assigneeIds: allAssignees));
+
+        Assert.True(result.Succeeded);
+        var tracks = await TracksAsync(ctx, id);
+        Assert.Equal(3, tracks.Count);
+        Assert.Equal(Week2, tracks.Single(t => t.UserId == a).DueAt); // Alice's advance preserved
+        Assert.Equal(Start, tracks.Single(t => t.UserId == b).DueAt); // Bob unchanged
+        Assert.Equal(Start, tracks.Single(t => t.UserId == c).DueAt); // Carol joins at current cadence
+    }
+
+    [Fact]
+    public async Task UpdateAsync_removes_assignee_deletes_their_track()
+    {
+        using var ctx = new TestContext();
+        var (_, a, b) = await SeedAsync(ctx);
+        var create = Independent([a, b], [(a, 1), (b, 1)]);
+        var id = (await ctx.Chores.CreateAsync(create)).Value!.Id;
+
+        var result = await ctx.Chores.UpdateAsync(id, ToUpdate(create,
+            tracks: [new(a, 1)],
+            assigneeIds: [a]));
+
+        Assert.True(result.Succeeded);
+        var tracks = await TracksAsync(ctx, id);
+        Assert.Single(tracks);
+        Assert.Equal(a, tracks[0].UserId);
+    }
+
+    [Fact]
+    public async Task UpdateAsync_schedule_change_resets_all_track_due_dates()
+    {
+        using var ctx = new TestContext();
+        var (_, a, b) = await SeedAsync(ctx);
+        var create = Independent([a, b], [(a, 1), (b, 1)]);
+        var id = (await ctx.Chores.CreateAsync(create)).Value!.Id;
+        await ctx.Chores.CompleteAsync(id, a, new CompleteChoreRequest(null)); // Alice → Week2
+
+        // Switch from Weekly to Monthly — schedule changed, all tracks must realign to StartDate.
+        var result = await ctx.Chores.UpdateAsync(id, ToUpdate(create,
+            tracks: [new(a, 1), new(b, 1)],
+            repeatType: RepeatType.Monthly));
+
+        Assert.True(result.Succeeded);
+        var tracks = await TracksAsync(ctx, id);
+        Assert.All(tracks, t => Assert.Equal(Start, t.DueAt));
+    }
+
+    [Fact]
+    public async Task UpdateAsync_switching_to_rotating_strategy_drops_all_tracks()
+    {
+        using var ctx = new TestContext();
+        var (_, a, b) = await SeedAsync(ctx);
+        var create = Independent([a, b], [(a, 1), (b, 1)]);
+        var id = (await ctx.Chores.CreateAsync(create)).Value!.Id;
+
+        // Change to RoundRobin — no longer track-mode, all tracks must be removed.
+        var update = new UpdateChoreRequest(
+            create.Name, create.Description, create.Emoji, create.Points, create.RepeatType,
+            null, null, null, null, null, null, null, 1, false,
+            AssignmentStrategy.RoundRobin, SchedulingPreference.FromScheduledDate, null,
+            Start, create.AssigneeIds, a, null, null, null, null);
+        var result = await ctx.Chores.UpdateAsync(id, update);
+
+        Assert.True(result.Succeeded);
+        Assert.Empty(await TracksAsync(ctx, id));
+        Assert.Equal(a, result.Value!.CurrentAssignee!.Id);
+    }
+
+    // ── RescheduleAsync per track ─────────────────────────────────────────────────────────────
+
+    [Fact]
+    public async Task RescheduleAsync_moves_one_tracks_due_and_updates_mirror()
+    {
+        using var ctx = new TestContext();
+        var (_, a, b) = await SeedAsync(ctx);
+        var id = (await ctx.Chores.CreateAsync(Independent([a, b], [(a, 1), (b, 1)]))).Value!.Id;
+
+        var newDue = Start.AddDays(3);
+        var result = await ctx.Chores.RescheduleAsync(id, new RescheduleChoreRequest(newDue, null, a));
+
+        Assert.True(result.Succeeded);
+        var tracks = await TracksAsync(ctx, id);
+        Assert.Equal(newDue, tracks.Single(t => t.UserId == a).DueAt); // Alice rescheduled
+        Assert.Equal(Start, tracks.Single(t => t.UserId == b).DueAt);  // Bob unchanged
+        // Mirror = min(Start+3, Start) = Start.
+        Assert.Equal(Start, result.Value!.DueAt);
+    }
+
+    [Fact]
+    public async Task RescheduleAsync_on_track_mode_requires_a_target_user_id()
+    {
+        using var ctx = new TestContext();
+        var (_, a, b) = await SeedAsync(ctx);
+        var id = (await ctx.Chores.CreateAsync(Independent([a, b], [(a, 1), (b, 1)]))).Value!.Id;
+
+        var result = await ctx.Chores.RescheduleAsync(id, new RescheduleChoreRequest(Start.AddDays(3), null));
+
+        Assert.False(result.Succeeded);
+        Assert.Equal(ErrorType.Validation, result.Error!.Type);
+    }
 }
