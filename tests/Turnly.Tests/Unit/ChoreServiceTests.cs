@@ -38,7 +38,7 @@ public class ChoreServiceTests
         DateTimeOffset? start = null) =>
         new("Dishes", null, "🍽️", points, repeat, customMode, intervalCount, intervalUnit,
             weekdays, weeksOfMonth, daysOfMonth, months, completionsRequired, rotateOnEachCompletion,
-            strategy, scheduling, graceMinutes, start ?? Start, assignees, currentAssignee, tags);
+            strategy, scheduling, graceMinutes, false, null, start ?? Start, assignees, currentAssignee, tags);
 
     [Fact]
     public async Task CreateAsync_rejects_blank_name()
@@ -785,6 +785,7 @@ public class ChoreServiceTests
         new(c.Name, c.Description, c.Emoji, c.Points, c.RepeatType, c.CustomMode, c.IntervalCount,
             c.IntervalUnit, c.Weekdays, c.WeeksOfMonth, c.DaysOfMonth, c.Months, c.CompletionsRequired,
             c.RotateOnEachCompletion, c.AssignmentStrategy, c.SchedulingPreference, c.GraceMinutes,
+            c.AutoAdvanceIncomplete, c.CompletionWindowMinutes,
             c.StartDate, c.AssigneeIds, c.CurrentAssigneeId, c.TagNames, c.Notifications, c.DueTime);
 
     [Fact]
@@ -1087,5 +1088,286 @@ public class ChoreServiceTests
         // Complete Mon 20:00 → roll to next Monday 08:00.
         var afterEvening = await ctx.Chores.CompleteAsync(chore.Id, member, new CompleteChoreRequest(null));
         Assert.Equal(new DateTimeOffset(2026, 6, 29, 8, 0, 0, TimeSpan.Zero), afterEvening.Value!.DueAt);
+    }
+
+    // ── AutoAdvanceAsync ──────────────────────────────────────────────────────────────────────
+
+    [Fact]
+    public async Task AutoAdvanceAsync_advances_and_fills_expired_slots_when_window_closed()
+    {
+        using var ctx = new TestContext();
+        var (_, member) = await SeedUsersAsync(ctx);
+        var chore = (await ctx.Chores.CreateAsync(
+            NewChore(member, [member], RepeatType.Weekly, completionsRequired: 3, start: Start)
+            with { AutoAdvanceIncomplete = true })).Value!;
+        var originalDue = chore.DueAt!.Value; // Start
+
+        // 1 real completion — occurrence stays open (1/3 done).
+        await ctx.Chores.CompleteAsync(chore.Id, member, new CompleteChoreRequest(null));
+
+        // Window = null → expires immediately at DueAt; now > DueAt triggers auto-advance.
+        var advanced = await ctx.Chores.AutoAdvanceAsync(Start.AddHours(1));
+
+        Assert.Equal(1, advanced);
+        var completions = await ctx.Db.ChoreCompletions.ToListAsync();
+        Assert.Equal(3, completions.Count);
+        Assert.Equal(2, completions.Count(c => c.IsExpired));
+        // Expired rows: correct OccurrenceDueAt, 0 points, no actor.
+        Assert.All(completions.Where(c => c.IsExpired), c =>
+        {
+            Assert.Equal(originalDue, c.OccurrenceDueAt);
+            Assert.Equal(0, c.PointsAwarded);
+            Assert.Null(c.CompletedByUserId);
+        });
+        // DueAt advanced to next weekly occurrence.
+        var stored = await ctx.Db.Chores.FindAsync(chore.Id);
+        Assert.Equal(originalDue.AddDays(7), stored!.DueAt);
+    }
+
+    [Fact]
+    public async Task AutoAdvanceAsync_fills_all_slots_when_no_completions_exist()
+    {
+        using var ctx = new TestContext();
+        var (_, member) = await SeedUsersAsync(ctx);
+        var chore = (await ctx.Chores.CreateAsync(
+            NewChore(member, [member], RepeatType.Weekly, completionsRequired: 2, start: Start)
+            with { AutoAdvanceIncomplete = true })).Value!;
+        var originalDue = chore.DueAt!.Value;
+
+        var advanced = await ctx.Chores.AutoAdvanceAsync(Start.AddHours(1));
+
+        Assert.Equal(1, advanced);
+        var completions = await ctx.Db.ChoreCompletions.ToListAsync();
+        Assert.Equal(2, completions.Count);
+        Assert.All(completions, c => Assert.True(c.IsExpired));
+        var stored = await ctx.Db.Chores.FindAsync(chore.Id);
+        Assert.Equal(originalDue.AddDays(7), stored!.DueAt);
+    }
+
+    [Fact]
+    public async Task AutoAdvanceAsync_does_not_advance_before_window_closes()
+    {
+        using var ctx = new TestContext();
+        var (_, member) = await SeedUsersAsync(ctx);
+        var chore = (await ctx.Chores.CreateAsync(
+            NewChore(member, [member], RepeatType.Weekly, completionsRequired: 2, start: Start)
+            with { AutoAdvanceIncomplete = true, CompletionWindowMinutes = 120 })).Value!;
+
+        // now = Start + 60 min — inside the 120-minute window.
+        var advanced = await ctx.Chores.AutoAdvanceAsync(Start.AddMinutes(60));
+
+        Assert.Equal(0, advanced);
+        Assert.Empty(ctx.Db.ChoreCompletions);
+        Assert.Equal(Start, (await ctx.Db.Chores.FindAsync(chore.Id))!.DueAt);
+    }
+
+    [Fact]
+    public async Task AutoAdvanceAsync_does_not_advance_future_chores()
+    {
+        using var ctx = new TestContext();
+        var (_, member) = await SeedUsersAsync(ctx);
+        var futureStart = DateTimeOffset.UtcNow.AddDays(7);
+        var chore = (await ctx.Chores.CreateAsync(
+            NewChore(member, [member], RepeatType.Weekly, completionsRequired: 2, start: futureStart)
+            with { AutoAdvanceIncomplete = true })).Value!;
+
+        var advanced = await ctx.Chores.AutoAdvanceAsync(DateTimeOffset.UtcNow);
+
+        Assert.Equal(0, advanced);
+        Assert.Empty(ctx.Db.ChoreCompletions);
+    }
+
+    [Fact]
+    public async Task AutoAdvanceAsync_does_not_advance_when_occurrence_fully_completed()
+    {
+        using var ctx = new TestContext();
+        var (_, member) = await SeedUsersAsync(ctx);
+        var chore = (await ctx.Chores.CreateAsync(
+            NewChore(member, [member], RepeatType.Weekly, completionsRequired: 2, start: Start)
+            with { AutoAdvanceIncomplete = true })).Value!;
+
+        // Complete both slots — occurrence closes and DueAt advances to next week.
+        await ctx.Chores.CompleteAsync(chore.Id, member, new CompleteChoreRequest(null));
+        await ctx.Chores.CompleteAsync(chore.Id, member, new CompleteChoreRequest(null));
+        var advancedDue = (await ctx.Db.Chores.FindAsync(chore.Id))!.DueAt;
+
+        // now is before the new DueAt — nothing to expire yet.
+        var advanced = await ctx.Chores.AutoAdvanceAsync(Start.AddHours(1));
+
+        Assert.Equal(0, advanced);
+        Assert.Empty(await ctx.Db.ChoreCompletions.Where(c => c.IsExpired).ToListAsync());
+        Assert.Equal(advancedDue, (await ctx.Db.Chores.FindAsync(chore.Id))!.DueAt);
+    }
+
+    [Fact]
+    public async Task AutoAdvanceAsync_advances_using_from_scheduled_date_ignoring_chore_preference()
+    {
+        using var ctx = new TestContext();
+        var (_, member) = await SeedUsersAsync(ctx);
+        // Chore prefers FromCompletionDate — auto-advance must use FromScheduledDate instead.
+        var chore = (await ctx.Chores.CreateAsync(
+            NewChore(member, [member], RepeatType.Weekly, completionsRequired: 2,
+                scheduling: SchedulingPreference.FromCompletionDate, start: Start)
+            with { AutoAdvanceIncomplete = true })).Value!;
+        var originalDue = chore.DueAt!.Value; // Start
+
+        // Trigger auto-advance 10 days late; FromCompletionDate would give now + 7d,
+        // but FromScheduledDate should give originalDue + 7d.
+        await ctx.Chores.AutoAdvanceAsync(Start.AddDays(10));
+
+        var stored = await ctx.Db.Chores.FindAsync(chore.Id);
+        Assert.Equal(originalDue.AddDays(7), stored!.DueAt);
+    }
+
+    [Fact]
+    public async Task AutoAdvanceAsync_skips_chores_without_auto_advance_enabled()
+    {
+        using var ctx = new TestContext();
+        var (_, member) = await SeedUsersAsync(ctx);
+        var autoChore = (await ctx.Chores.CreateAsync(
+            NewChore(member, [member], RepeatType.Weekly, completionsRequired: 2, start: Start)
+            with { AutoAdvanceIncomplete = true })).Value!;
+        var normalChore = (await ctx.Chores.CreateAsync(
+            NewChore(member, [member], RepeatType.Weekly, completionsRequired: 2, start: Start))).Value!;
+
+        var advanced = await ctx.Chores.AutoAdvanceAsync(Start.AddHours(1));
+
+        Assert.Equal(1, advanced);
+        Assert.Equal(2, await ctx.Db.ChoreCompletions.CountAsync(c => c.IsExpired && c.ChoreId == autoChore.Id));
+        Assert.Equal(0, await ctx.Db.ChoreCompletions.CountAsync(c => c.IsExpired && c.ChoreId == normalChore.Id));
+        Assert.Equal(Start, (await ctx.Db.Chores.FindAsync(normalChore.Id))!.DueAt);
+    }
+
+    [Fact]
+    public async Task AutoAdvanceAsync_respects_completion_window_minutes()
+    {
+        using var ctx = new TestContext();
+        var (_, member) = await SeedUsersAsync(ctx);
+        var chore = (await ctx.Chores.CreateAsync(
+            NewChore(member, [member], RepeatType.Daily, completionsRequired: 2, start: Start)
+            with { AutoAdvanceIncomplete = true, CompletionWindowMinutes = 30 })).Value!;
+
+        // now = Start + 29 min — inside window.
+        Assert.Equal(0, await ctx.Chores.AutoAdvanceAsync(Start.AddMinutes(29)));
+        Assert.Empty(ctx.Db.ChoreCompletions);
+
+        // now = Start + 31 min — window closed.
+        Assert.Equal(1, await ctx.Chores.AutoAdvanceAsync(Start.AddMinutes(31)));
+        Assert.Equal(2, await ctx.Db.ChoreCompletions.CountAsync(c => c.IsExpired));
+    }
+
+    [Fact]
+    public async Task AutoAdvanceAsync_does_not_rotate_assignee()
+    {
+        using var ctx = new TestContext();
+        var (admin, member) = await SeedUsersAsync(ctx);
+        var chore = (await ctx.Chores.CreateAsync(
+            NewChore(admin, [admin, member], RepeatType.Weekly, completionsRequired: 2,
+                strategy: AssignmentStrategy.RoundRobin, start: Start)
+            with { AutoAdvanceIncomplete = true })).Value!;
+
+        await ctx.Chores.AutoAdvanceAsync(Start.AddHours(1));
+
+        // Auto-advance never rotates — admin should remain the current assignee.
+        var stored = await ctx.Db.Chores.FindAsync(chore.Id);
+        Assert.Equal(admin, stored!.CurrentAssigneeId);
+    }
+
+    [Fact]
+    public async Task CreateAsync_clears_auto_advance_for_single_completion_chore()
+    {
+        using var ctx = new TestContext();
+        var (_, member) = await SeedUsersAsync(ctx);
+        // CompletionsRequired = 1: auto-advance flag is silently cleared.
+        var chore = (await ctx.Chores.CreateAsync(
+            NewChore(member, [member], RepeatType.Weekly, completionsRequired: 1, start: Start)
+            with { AutoAdvanceIncomplete = true })).Value!;
+
+        Assert.False(chore.AutoAdvanceIncomplete);
+        Assert.False((await ctx.Db.Chores.FindAsync(chore.Id))!.AutoAdvanceIncomplete);
+    }
+
+    [Fact]
+    public async Task CreateAsync_clears_auto_advance_for_custom_recurrence()
+    {
+        using var ctx = new TestContext();
+        var (_, member) = await SeedUsersAsync(ctx);
+        var chore = (await ctx.Chores.CreateAsync(
+            NewChore(member, [member], RepeatType.Custom,
+                customMode: CustomRecurrenceMode.Interval, intervalCount: 2, intervalUnit: RecurrenceUnit.Week)
+            with { AutoAdvanceIncomplete = true })).Value!;
+
+        Assert.False(chore.AutoAdvanceIncomplete);
+    }
+
+    [Fact]
+    public async Task UndoCompletion_blocks_undo_of_expired_entries()
+    {
+        using var ctx = new TestContext();
+        var (_, member) = await SeedUsersAsync(ctx);
+        var chore = (await ctx.Chores.CreateAsync(
+            NewChore(member, [member], RepeatType.Weekly, completionsRequired: 2, start: Start)
+            with { AutoAdvanceIncomplete = true })).Value!;
+
+        await ctx.Chores.AutoAdvanceAsync(Start.AddHours(1));
+        var expiredId = await ctx.Db.ChoreCompletions.Where(c => c.IsExpired).Select(c => c.Id).FirstAsync();
+
+        var result = await ctx.Chores.UndoCompletionAsync(expiredId, member);
+
+        Assert.False(result.Succeeded);
+        Assert.Equal(ErrorType.Forbidden, result.Error!.Type);
+    }
+
+    [Fact]
+    public async Task DeleteActivity_blocks_deletion_of_expired_entries()
+    {
+        using var ctx = new TestContext();
+        var (admin, _) = await SeedUsersAsync(ctx);
+        var chore = (await ctx.Chores.CreateAsync(
+            NewChore(admin, [admin], RepeatType.Weekly, completionsRequired: 2, start: Start)
+            with { AutoAdvanceIncomplete = true })).Value!;
+
+        await ctx.Chores.AutoAdvanceAsync(Start.AddHours(1));
+        var expiredId = await ctx.Db.ChoreCompletions.Where(c => c.IsExpired).Select(c => c.Id).FirstAsync();
+
+        var result = await ctx.Chores.DeleteActivityAsync(expiredId, admin);
+
+        Assert.False(result.Succeeded);
+        Assert.Equal(ErrorType.Forbidden, result.Error!.Type);
+    }
+
+    [Fact]
+    public async Task AutoAdvanceAsync_expired_entries_excluded_from_last_completion_in_dto()
+    {
+        using var ctx = new TestContext();
+        var (_, member) = await SeedUsersAsync(ctx);
+        var chore = (await ctx.Chores.CreateAsync(
+            NewChore(member, [member], RepeatType.Weekly, completionsRequired: 2, start: Start)
+            with { AutoAdvanceIncomplete = true })).Value!;
+
+        // Auto-advance with no real completions → only expired rows exist.
+        await ctx.Chores.AutoAdvanceAsync(Start.AddHours(1));
+
+        // The DTO's LastCompletion (used for the undo affordance) must be null.
+        var dto = (await ctx.Chores.GetAsync(chore.Id)).Value!;
+        Assert.Null(dto.LastCompletion);
+    }
+
+    [Fact]
+    public async Task AutoAdvanceAsync_expired_entries_excluded_from_occurrence_progress_count()
+    {
+        using var ctx = new TestContext();
+        var (_, member) = await SeedUsersAsync(ctx);
+        var chore = (await ctx.Chores.CreateAsync(
+            NewChore(member, [member], RepeatType.Weekly, completionsRequired: 3, start: Start)
+            with { AutoAdvanceIncomplete = true })).Value!;
+
+        // Complete 1/3 then auto-advance; the new occurrence should start at 0, not count the
+        // 2 expired rows from the prior occurrence.
+        await ctx.Chores.CompleteAsync(chore.Id, member, new CompleteChoreRequest(null));
+        await ctx.Chores.AutoAdvanceAsync(Start.AddHours(1));
+
+        var dto = (await ctx.Chores.GetAsync(chore.Id)).Value!;
+        Assert.Equal(0, dto.OccurrenceProgress); // fresh occurrence
     }
 }

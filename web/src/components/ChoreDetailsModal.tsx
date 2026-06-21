@@ -244,6 +244,7 @@ function ChoreStats({ choreId }: { choreId: string }) {
 
   const completions = activity.filter((e) => e.kind === 'completion')
   const skips = activity.filter((e) => e.kind === 'skip')
+  const expired = activity.filter((e) => e.kind === 'expired')
   const totalPoints = completions.reduce((sum, e) => sum + e.pointsAwarded, 0)
   // Activity is newest-first, so the first completion is the most recent.
   const lastCompletedAt = completions[0]?.at
@@ -280,6 +281,12 @@ function ChoreStats({ choreId }: { choreId: string }) {
           <div>
             <dt className="text-xs text-muted-foreground">Skipped</dt>
             <dd className="text-foreground">{skips.length}{skips.length === 1 ? ' time' : ' times'}</dd>
+          </div>
+        )}
+        {expired.length > 0 && (
+          <div>
+            <dt className="text-xs text-muted-foreground">Expired</dt>
+            <dd className="text-foreground">{expired.length}{expired.length === 1 ? ' slot' : ' slots'}</dd>
           </div>
         )}
       </dl>
@@ -352,19 +359,23 @@ function ActivityList({ choreId }: { choreId: string }) {
               <div className="flex min-w-0 items-center gap-1.5">
                 <Avatar
                   color={entry.actor?.avatarColor ?? 'var(--muted)'}
-                  name={entry.actor?.displayName ?? '?'}
+                  name={entry.actor?.displayName ?? '—'}
                   size={20}
                 />
-                <span className="truncate text-foreground">{entry.actor?.displayName}</span>
+                <span className="truncate text-foreground">
+                  {entry.kind === 'expired' ? 'Auto-expired' : entry.actor?.displayName}
+                </span>
                 <span className="shrink-0 text-muted-foreground">· {formatDate(entry.at)}</span>
               </div>
               <div className="flex shrink-0 items-center gap-2">
-                {entry.kind === 'skip' ? (
+                {entry.kind === 'expired' ? (
+                  <Badge tone="amber">Expired</Badge>
+                ) : entry.kind === 'skip' ? (
                   <Badge tone="neutral">Skipped</Badge>
                 ) : (
                   <Badge tone="violet">+{entry.pointsAwarded} pts</Badge>
                 )}
-                {isAdmin && (
+                {isAdmin && entry.kind !== 'expired' && (
                   <button
                     type="button"
                     onClick={() => onDelete(entry)}

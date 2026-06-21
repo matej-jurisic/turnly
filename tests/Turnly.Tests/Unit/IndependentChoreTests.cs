@@ -25,7 +25,7 @@ public class IndependentChoreTests
         Guid[] assignees, (Guid UserId, int Quota)[] tracks, RepeatType repeat = RepeatType.Weekly) =>
         new("Dishes", null, "🍽️", 10, repeat, null, null, null,
             null, null, null, null, 1, false,
-            AssignmentStrategy.Independent, SchedulingPreference.FromScheduledDate, null,
+            AssignmentStrategy.Independent, SchedulingPreference.FromScheduledDate, null, false, null,
             Start, assignees, assignees[0], null, null, null,
             tracks.Select(t => new TrackInput(t.UserId, t.Quota)).ToArray());
 
@@ -247,7 +247,8 @@ public class IndependentChoreTests
         new(c.Name, c.Description, c.Emoji, c.Points, repeatType ?? c.RepeatType,
             c.CustomMode, c.IntervalCount, c.IntervalUnit, c.Weekdays, c.WeeksOfMonth,
             c.DaysOfMonth, c.Months, c.CompletionsRequired, c.RotateOnEachCompletion,
-            c.AssignmentStrategy, c.SchedulingPreference, c.GraceMinutes, c.StartDate,
+            c.AssignmentStrategy, c.SchedulingPreference, c.GraceMinutes,
+            c.AutoAdvanceIncomplete, c.CompletionWindowMinutes, c.StartDate,
             assigneeIds ?? c.AssigneeIds, (assigneeIds ?? c.AssigneeIds)[0], c.TagNames,
             null, null, tracks ?? c.Tracks);
 
@@ -324,7 +325,7 @@ public class IndependentChoreTests
         var update = new UpdateChoreRequest(
             create.Name, create.Description, create.Emoji, create.Points, create.RepeatType,
             null, null, null, null, null, null, null, 1, false,
-            AssignmentStrategy.RoundRobin, SchedulingPreference.FromScheduledDate, null,
+            AssignmentStrategy.RoundRobin, SchedulingPreference.FromScheduledDate, null, false, null,
             Start, create.AssigneeIds, a, null, null, null, null);
         var result = await ctx.Chores.UpdateAsync(id, update);
 

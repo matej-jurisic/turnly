@@ -15,7 +15,12 @@ public class ChoreCompletion
     /// no points are awarded and it's excluded from completion stats/counts.</summary>
     public bool IsSkip { get; set; }
 
-    public Guid CompletedByUserId { get; set; }
+    /// <summary>True when this row was written by the auto-advance background service because the
+    /// completion window expired with unfilled slots. No points, not undoable, no actor.</summary>
+    public bool IsExpired { get; set; }
+
+    /// <summary>Null only for auto-expired entries (<see cref="IsExpired"/> = true).</summary>
+    public Guid? CompletedByUserId { get; set; }
     public User? CompletedBy { get; set; }
 
     public DateTimeOffset CompletedAt { get; set; } = DateTimeOffset.UtcNow;

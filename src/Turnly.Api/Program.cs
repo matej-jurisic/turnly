@@ -25,6 +25,8 @@ builder.Services.AddSingleton<RefreshCookieManager>();
 
 // Background scheduler that fires due chore notifications (idle until VAPID keys are configured).
 builder.Services.AddHostedService<NotificationSchedulerService>();
+// Auto-advances multi-completion chores whose window has expired; always runs.
+builder.Services.AddHostedService<ChoreAutoAdvanceService>();
 
 // Keep JWT claim types verbatim ("sub", "role") instead of the legacy SOAP mappings.
 JwtSecurityTokenHandler.DefaultMapInboundClaims = false;

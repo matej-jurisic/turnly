@@ -360,6 +360,8 @@ public class ChoreService
             .FirstOrDefaultAsync(c => c.Id == completionId, ct);
         if (completion is null)
             return Result.Fail(Error.NotFound("Completion not found."));
+        if (completion.IsExpired)
+            return Result.Fail(Error.Forbidden("Auto-expired entries cannot be undone."));
 
         var actor = await _db.Users.FindAsync([actingUserId], ct);
         if (actor is null)
@@ -419,6 +421,8 @@ public class ChoreService
         var completion = await _db.ChoreCompletions.FirstOrDefaultAsync(c => c.Id == completionId, ct);
         if (completion is null)
             return Result.Fail(Error.NotFound("Activity entry not found."));
+        if (completion.IsExpired)
+            return Result.Fail(Error.Forbidden("Auto-expired entries cannot be deleted."));
 
         // Reverse points (a no-op for skips, which award none) and drop the rotation log, but leave
         // chore.DueAt / CurrentAssigneeId untouched.
@@ -565,15 +569,16 @@ public class ChoreService
             .Select(a => (a.UserId, a.AssignedAt))
             .ToList();
         var completions = (await _db.ChoreCompletions
-            .Where(x => x.ChoreId == chore.Id && !x.IsSkip)
+            .Where(x => x.ChoreId == chore.Id && !x.IsSkip && !x.IsExpired)
             .Select(x => new { x.CompletedByUserId, x.CompletedAt })
             .ToListAsync(ct))
-            .Select(x => (x.CompletedByUserId, x.CompletedAt))
+            .Where(x => x.CompletedByUserId.HasValue)
+            .Select(x => (x.CompletedByUserId!.Value, x.CompletedAt))
             .ToList();
 
         // Mirror what the preview computes (see PickNext): the just-added (unsaved) completion is
         // folded in as one more completion by its completer.
-        var next = PickNext(chore, ordered, assignments, completions, completion.CompletedByUserId, completion.CompletedAt);
+        var next = PickNext(chore, ordered, assignments, completions, completion.CompletedByUserId!.Value, completion.CompletedAt);
 
         chore.CurrentAssigneeId = next;
         _db.ChoreAssignments.Add(new ChoreAssignment
@@ -627,8 +632,8 @@ public class ChoreService
         if (orderedUsers.Count < 2) return null;
 
         var completionPairs = (completions ?? [])
-            .Where(x => !x.IsSkip)
-            .Select(x => (x.CompletedByUserId, x.CompletedAt))
+            .Where(x => !x.IsSkip && !x.IsExpired && x.CompletedByUserId.HasValue)
+            .Select(x => (x.CompletedByUserId!.Value, x.CompletedAt))
             .ToList();
 
         var nextId = PickNext(chore, orderedUsers.Select(u => u.Id).ToList(), assignments, completionPairs, current, now);
@@ -657,7 +662,7 @@ public class ChoreService
     private static ChoreDto ToDto(Chore chore, List<ChoreCompletion>? completions,
         IReadOnlyList<(Guid UserId, DateTimeOffset AssignedAt)> assignments, DateTimeOffset now, Guid? viewerId = null)
     {
-        var latest = completions?.FirstOrDefault();
+        var latest = completions?.FirstOrDefault(c => !c.IsExpired);
 
         if (IsIndependent(chore))
         {
@@ -794,6 +799,14 @@ public class ChoreService
         // Grace only rides on Smart scheduling, and only when positive (0/null = pure max).
         chore.GraceMinutes = req.SchedulingPreference == SchedulingPreference.SmartScheduling && req.GraceMinutes is > 0
             ? req.GraceMinutes
+            : null;
+        // Auto-advance only applies to multi-completion non-custom non-independent chores.
+        var multiCompletion = req.RepeatType != RepeatType.Custom
+            && req.AssignmentStrategy != AssignmentStrategy.Independent
+            && req.CompletionsRequired > 1;
+        chore.AutoAdvanceIncomplete = multiCompletion && req.AutoAdvanceIncomplete;
+        chore.CompletionWindowMinutes = multiCompletion && req.AutoAdvanceIncomplete && req.CompletionWindowMinutes is > 0
+            ? req.CompletionWindowMinutes
             : null;
         // Track mode has no single current assignee (per-assignee tracks instead); rotating chores
         // keep the chosen one.
@@ -953,5 +966,62 @@ public class ChoreService
         var scheduledDue = entry.OccurrenceDueAt ?? now;
         var grace = chore.GraceMinutes is { } m ? TimeSpan.FromMinutes(m) : (TimeSpan?)null;
         track.DueAt = RecurrenceCalculator.NextDue(rule, chore.SchedulingPreference, scheduledDue, now, now, grace);
+    }
+
+    /// <summary>Called by the background service every minute. For every recurring chore with
+    /// <see cref="Chore.AutoAdvanceIncomplete"/> set, checks whether the completion window has closed
+    /// (now ≥ DueAt + <see cref="Chore.CompletionWindowMinutes"/>) and the occurrence is still short
+    /// of <see cref="Chore.CompletionsRequired"/> real completions. If so, writes
+    /// <see cref="ChoreCompletion.IsExpired"/> rows for the missing slots and advances the schedule
+    /// using <see cref="SchedulingPreference.FromScheduledDate"/> — no rotation, no points.</summary>
+    public async Task<int> AutoAdvanceAsync(DateTimeOffset now, CancellationToken ct = default)
+    {
+        var chores = await Query()
+            .Where(c => c.AutoAdvanceIncomplete
+                     && c.CompletionsRequired > 1
+                     && c.DueAt != null
+                     && c.RepeatType != RepeatType.OneTime
+                     && c.AssignmentStrategy != AssignmentStrategy.Independent)
+            .ToListAsync(ct);
+
+        var advanced = 0;
+        foreach (var chore in chores)
+        {
+            if (chore.DueAt is not { } dueAt) continue;
+
+            var windowEnd = dueAt.AddMinutes(chore.CompletionWindowMinutes ?? 0);
+            if (now < windowEnd) continue;
+
+            // Count non-expired completions that close this occurrence (share its DueAt).
+            var allDues = await _db.ChoreCompletions
+                .Where(x => x.ChoreId == chore.Id && !x.IsExpired)
+                .Select(x => x.OccurrenceDueAt)
+                .ToListAsync(ct);
+            var doneCount = allDues.Count(d => d == dueAt);
+            if (doneCount >= chore.CompletionsRequired) continue;
+
+            // Write IsExpired rows for the missing slots.
+            for (var i = doneCount; i < chore.CompletionsRequired; i++)
+            {
+                _db.ChoreCompletions.Add(new ChoreCompletion
+                {
+                    ChoreId = chore.Id,
+                    IsExpired = true,
+                    OccurrenceDueAt = dueAt,
+                    PointsAwarded = 0,
+                    CompletedAt = now,
+                });
+            }
+
+            // Advance using FromScheduledDate — no rotation, no grace.
+            var rule = RecurrenceRule.FromChore(chore);
+            chore.DueAt = RecurrenceCalculator.NextDue(rule, SchedulingPreference.FromScheduledDate, dueAt, now, now);
+            advanced++;
+        }
+
+        if (advanced > 0)
+            await _db.SaveChangesAsync(ct);
+
+        return advanced;
     }
 }

@@ -63,6 +63,17 @@ public class Chore
     /// <see cref="SchedulingPreference"/> is <see cref="SchedulingPreference.SmartScheduling"/>.</summary>
     public int? GraceMinutes { get; set; }
 
+    /// <summary>When true and <see cref="CompletionsRequired"/> &gt; 1, the background service
+    /// automatically expires unfilled slots and advances to the next occurrence once the completion
+    /// window has closed (see <see cref="CompletionWindowMinutes"/>). Only meaningful for
+    /// non-custom, non-independent chores.</summary>
+    public bool AutoAdvanceIncomplete { get; set; }
+
+    /// <summary>How many minutes after <see cref="DueAt"/> the auto-advance window closes. Null means
+    /// the occurrence expires immediately when overdue. Only meaningful when
+    /// <see cref="AutoAdvanceIncomplete"/> is true.</summary>
+    public int? CompletionWindowMinutes { get; set; }
+
     /// <summary>When the first occurrence is due (the resolved local instant — date plus
     /// <see cref="DueTime"/>, or end-of-day when none — with the creating client's UTC offset baked
     /// in so the recurrence math keeps a consistent local time-of-day).</summary>

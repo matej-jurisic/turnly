@@ -23,7 +23,7 @@ public class ChoreManagementTests : IDisposable
 
     private static CreateChoreRequest NewChore(Guid assignee, string[]? tags = null) =>
         new("Dishes", "Wash up", "🍽️", 10, RepeatType.Daily, null, null, null, null, null, null, null, 1, false,
-            AssignmentStrategy.KeepLastAssigned, SchedulingPreference.FromScheduledDate, null,
+            AssignmentStrategy.KeepLastAssigned, SchedulingPreference.FromScheduledDate, null, false, null,
             Start, [assignee], assignee, tags);
 
     [Fact]
@@ -83,7 +83,7 @@ public class ChoreManagementTests : IDisposable
 
         var req = new CreateChoreRequest("Dishes", null, "🍽️", 10, RepeatType.Weekly, null, null, null,
             null, null, null, null, 1, false, AssignmentStrategy.Independent,
-            SchedulingPreference.FromScheduledDate, null, Start,
+            SchedulingPreference.FromScheduledDate, null, false, null, Start,
             [aAuth.User.Id, bAuth.User.Id], aAuth.User.Id, null, null, null,
             [new TrackInput(aAuth.User.Id, 1), new TrackInput(bAuth.User.Id, 1)]);
 
@@ -153,7 +153,7 @@ public class ChoreManagementTests : IDisposable
         var request = new CreateChoreRequest(
             "Trash", null, "🗑️", 5, RepeatType.Custom, CustomRecurrenceMode.DaysOfWeek,
             null, null, [DayOfWeek.Monday, DayOfWeek.Thursday], null, null, null, 1, false,
-            AssignmentStrategy.RoundRobin, SchedulingPreference.FromScheduledDate, null,
+            AssignmentStrategy.RoundRobin, SchedulingPreference.FromScheduledDate, null, false, null,
             Start, [adminAuth.User.Id, memberAuth.User.Id], adminAuth.User.Id, null);
 
         var created = await (await admin.PostJsonAsync("/api/chores", request)).ReadAsync<ChoreDto>();

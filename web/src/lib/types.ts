@@ -102,18 +102,19 @@ export interface ChoreCompletion {
   id: string
   choreId: string
   choreName: string
-  completedBy: User
+  completedBy?: User | null
   completedAt: string
   occurrenceDueAt?: string | null
   notes?: string | null
   pointsAwarded: number
   isSkip: boolean
+  isExpired: boolean
 }
 
-/** A row in the chore history feed: a completion, a skip, or a manual reassignment. */
+/** A row in the chore history feed: a completion, a skip, an auto-expiry, or a manual reassignment. */
 export interface ChoreHistoryEntry {
   id: string
-  kind: 'completion' | 'skip' | 'reassignment'
+  kind: 'completion' | 'skip' | 'expired' | 'reassignment'
   choreId: string
   choreName: string
   /** Completer, or the user who performed the reassignment (null if since deleted). */
@@ -170,6 +171,11 @@ export interface Chore extends RecurrenceFields {
   schedulingPreference: SchedulingPreference
   /** Grace window (minutes) for SmartScheduling; null = no grace. */
   graceMinutes?: number | null
+  /** When true, the background service auto-expires unfilled slots once the window closes. Only
+   * meaningful for multi-completion non-custom non-independent chores. */
+  autoAdvanceIncomplete: boolean
+  /** Minutes after dueAt before auto-advance fires; null = immediately when overdue. */
+  completionWindowMinutes?: number | null
   startDate: string
   /** Local due time "HH:mm", or null for "no specific time" (due end of day). */
   dueTime?: string | null
@@ -205,6 +211,8 @@ export interface ChoreRequest extends RecurrenceFields {
   assignmentStrategy: AssignmentStrategy
   schedulingPreference: SchedulingPreference
   graceMinutes?: number | null
+  autoAdvanceIncomplete: boolean
+  completionWindowMinutes?: number | null
   startDate: string
   dueTime?: string | null
   /** Fixed times-of-day ("HH:mm") for "N times a day"; omit/empty for a single daily slot. */

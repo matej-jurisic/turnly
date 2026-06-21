@@ -117,6 +117,7 @@ public class TurnlyDbContext : DbContext
             e.HasOne(x => x.CompletedBy)
                 .WithMany()
                 .HasForeignKey(x => x.CompletedByUserId)
+                .IsRequired(false)
                 .OnDelete(DeleteBehavior.Restrict);
         });
 

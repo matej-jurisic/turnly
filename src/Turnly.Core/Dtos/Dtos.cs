@@ -68,6 +68,8 @@ public record ChoreDto(
     AssignmentStrategy AssignmentStrategy,
     SchedulingPreference SchedulingPreference,
     int? GraceMinutes,
+    bool AutoAdvanceIncomplete,
+    int? CompletionWindowMinutes,
     DateTimeOffset StartDate,
     string? DueTime,
     string[] TimesOfDay,
@@ -88,7 +90,8 @@ public record ChoreDto(
             c.CustomMode, c.IntervalCount, c.IntervalUnit,
             c.Weekdays.ToArray(), c.WeeksOfMonth.ToArray(), c.DaysOfMonth.ToArray(), c.Months.ToArray(),
             c.CompletionsRequired, c.RotateOnEachCompletion, c.AssignmentStrategy, c.SchedulingPreference,
-            c.GraceMinutes, c.StartDate, c.DueTime?.ToString("HH\\:mm"),
+            c.GraceMinutes, c.AutoAdvanceIncomplete, c.CompletionWindowMinutes,
+            c.StartDate, c.DueTime?.ToString("HH\\:mm"),
             c.TimesOfDay.OrderBy(t => t).Select(t => t.ToString("HH\\:mm")).ToArray(), c.DueAt,
             c.CurrentAssignee is null ? null : UserDto.FromEntity(c.CurrentAssignee),
             nextAssignee is null ? null : UserDto.FromEntity(nextAssignee),
@@ -156,6 +159,13 @@ public interface IChoreInput
     /// <summary>Grace window in minutes for <see cref="SchedulingPreference.SmartScheduling"/>; null
     /// (or non-positive) means no grace. Ignored for other scheduling preferences.</summary>
     int? GraceMinutes { get; }
+    /// <summary>When true, the background service auto-expires unfilled slots and advances the
+    /// occurrence once the completion window closes. Only meaningful when
+    /// <see cref="CompletionsRequired"/> &gt; 1.</summary>
+    bool AutoAdvanceIncomplete { get; }
+    /// <summary>Minutes after <see cref="DueAt"/> before auto-advance fires; null = immediately
+    /// when overdue. Only meaningful when <see cref="AutoAdvanceIncomplete"/> is true.</summary>
+    int? CompletionWindowMinutes { get; }
     DateTimeOffset StartDate { get; }
     /// <summary>Optional local time-of-day ("HH:mm") the chore is due; null means end of day. The
     /// client bakes the resolved instant into <see cref="StartDate"/>; this is stored for round-trip.</summary>
@@ -196,6 +206,8 @@ public record CreateChoreRequest(
     AssignmentStrategy AssignmentStrategy,
     SchedulingPreference SchedulingPreference,
     int? GraceMinutes,
+    bool AutoAdvanceIncomplete,
+    int? CompletionWindowMinutes,
     DateTimeOffset StartDate,
     Guid[] AssigneeIds,
     Guid? CurrentAssigneeId,
@@ -223,6 +235,8 @@ public record UpdateChoreRequest(
     AssignmentStrategy AssignmentStrategy,
     SchedulingPreference SchedulingPreference,
     int? GraceMinutes,
+    bool AutoAdvanceIncomplete,
+    int? CompletionWindowMinutes,
     DateTimeOffset StartDate,
     Guid[] AssigneeIds,
     Guid? CurrentAssigneeId,
@@ -248,16 +262,18 @@ public record ChoreCompletionDto(
     Guid Id,
     Guid ChoreId,
     string ChoreName,
-    UserDto CompletedBy,
+    UserDto? CompletedBy,
     DateTimeOffset CompletedAt,
     DateTimeOffset? OccurrenceDueAt,
     string? Notes,
     int PointsAwarded,
-    bool IsSkip)
+    bool IsSkip,
+    bool IsExpired)
 {
     public static ChoreCompletionDto FromEntity(ChoreCompletion c) =>
         new(c.Id, c.ChoreId, c.Chore?.Name ?? string.Empty,
-            UserDto.FromEntity(c.CompletedBy!), c.CompletedAt, c.OccurrenceDueAt, c.Notes, c.PointsAwarded, c.IsSkip);
+            c.CompletedBy is null ? null : UserDto.FromEntity(c.CompletedBy),
+            c.CompletedAt, c.OccurrenceDueAt, c.Notes, c.PointsAwarded, c.IsSkip, c.IsExpired);
 }
 
 /// <summary>A single entry in the chore history feed — either a completion/skip (a
@@ -277,9 +293,10 @@ public record ChoreHistoryEntryDto(
     UserDto? ToAssignee)
 {
     public static ChoreHistoryEntryDto FromCompletion(ChoreCompletion c) =>
-        new(c.Id, c.IsSkip ? "skip" : "completion", c.ChoreId, c.Chore?.Name ?? string.Empty,
-            UserDto.FromEntity(c.CompletedBy!), c.CompletedAt, c.OccurrenceDueAt, c.Notes,
-            c.PointsAwarded, null, null);
+        new(c.Id, c.IsExpired ? "expired" : c.IsSkip ? "skip" : "completion",
+            c.ChoreId, c.Chore?.Name ?? string.Empty,
+            c.CompletedBy is null ? null : UserDto.FromEntity(c.CompletedBy),
+            c.CompletedAt, c.OccurrenceDueAt, c.Notes, c.PointsAwarded, null, null);
 
     public static ChoreHistoryEntryDto FromReassignment(ChoreAssignment a) =>
         new(a.Id, "reassignment", a.ChoreId, a.Chore?.Name ?? string.Empty,

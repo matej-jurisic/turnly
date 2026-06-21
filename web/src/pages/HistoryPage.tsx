@@ -404,6 +404,7 @@ function UserStatsTable({ userStats }: { userStats: UserStats[] }) {
 const ACTIVITY_BADGE: Record<ChoreHistoryEntry['kind'], { tone: BadgeTone; label: string }> = {
   completion: { tone: 'green', label: 'Completed' },
   skip: { tone: 'neutral', label: 'Skipped' },
+  expired: { tone: 'amber', label: 'Expired' },
   reassignment: { tone: 'blue', label: 'Reassigned' },
 }
 

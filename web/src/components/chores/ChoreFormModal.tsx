@@ -65,6 +65,11 @@ export function ChoreFormModal({ title, chore, onClose, onSaved }: ChoreFormModa
   const [graceEnabled, setGraceEnabled] = useState(!!chore?.graceMinutes)
   const [graceValue, setGraceValue] = useState(initialGrace.value)
   const [graceUnit, setGraceUnit] = useState(initialGrace.unit)
+  const initialWindow = splitGrace(chore?.completionWindowMinutes)
+  const [autoAdvanceEnabled, setAutoAdvanceEnabled] = useState(chore?.autoAdvanceIncomplete ?? false)
+  const [windowEnabled, setWindowEnabled] = useState(!!chore?.completionWindowMinutes)
+  const [windowValue, setWindowValue] = useState(initialWindow.value)
+  const [windowUnit, setWindowUnit] = useState(initialWindow.unit)
   const [startDate, setStartDate] = useState(
     (chore?.startDate ?? new Date().toISOString()).slice(0, 10),
   )
@@ -110,6 +115,10 @@ export function ChoreFormModal({ title, chore, onClose, onSaved }: ChoreFormModa
   const graceUnitMinutes = GRACE_UNITS.find((u) => u.value === graceUnit)?.minutes ?? 24 * 60
   const graceMinutes =
     effectiveScheduling === 'SmartScheduling' && graceEnabled ? Math.max(1, graceValue) * graceUnitMinutes : null
+  const windowUnitMinutes = GRACE_UNITS.find((u) => u.value === windowUnit)?.minutes ?? 24 * 60
+  const completionWindowMinutes =
+    autoAdvanceEnabled && windowEnabled ? Math.max(1, windowValue) * windowUnitMinutes : null
+  const showAutoAdvance = !isCustom && !isIndependent && completionsRequired > 1
 
   // "N times a day" fixed slots are only meaningful for day-resolution schedules.
   const supportsTimes =
@@ -137,6 +146,8 @@ export function ChoreFormModal({ title, chore, onClose, onSaved }: ChoreFormModa
         assignmentStrategy,
         schedulingPreference: effectiveScheduling,
         graceMinutes,
+        autoAdvanceIncomplete: showAutoAdvance && autoAdvanceEnabled,
+        completionWindowMinutes,
         startDate: toLocalDueInstant(startDate, primaryTime),
         dueTime: primaryTime || null,
         timesOfDay: isMultiTime ? uniqueSortedTimes : null,
@@ -228,6 +239,66 @@ export function ChoreFormModal({ title, chore, onClose, onSaved }: ChoreFormModa
                 </span>
               </span>
             </label>
+          </div>
+        )}
+        {showAutoAdvance && (
+          <div className="-mt-1 rounded-lg bg-accent/50 p-3">
+            <label className="flex items-start gap-2 text-sm text-foreground">
+              <input
+                type="checkbox"
+                checked={autoAdvanceEnabled}
+                onChange={(e) => setAutoAdvanceEnabled(e.target.checked)}
+                className="mt-0.5 h-4 w-4 rounded border-border text-primary focus:ring-ring"
+              />
+              <span>
+                Auto-advance incomplete occurrences
+                <span className="block text-xs text-muted-foreground">
+                  If not all {completionsRequired} completions are logged, the occurrence expires
+                  and automatically moves to the next one.
+                </span>
+              </span>
+            </label>
+            {autoAdvanceEnabled && (
+              <div className="mt-2 space-y-2 pl-6">
+                <label className="flex items-start gap-2 text-sm text-foreground">
+                  <input
+                    type="checkbox"
+                    checked={windowEnabled}
+                    onChange={(e) => setWindowEnabled(e.target.checked)}
+                    className="mt-0.5 h-4 w-4 rounded border-border text-primary focus:ring-ring"
+                  />
+                  <span>
+                    Delay auto-advance after due date
+                    <span className="block text-xs text-muted-foreground">
+                      Without this, the occurrence expires as soon as it becomes overdue.
+                    </span>
+                  </span>
+                </label>
+                {windowEnabled && (
+                  <div className="flex items-center gap-2">
+                    <div className="w-16">
+                      <IntegerInput
+                        value={windowValue}
+                        onCommit={(n) => setWindowValue(Math.max(1, n))}
+                        aria-label="Completion window amount"
+                      />
+                    </div>
+                    <div className="w-28">
+                      <Select
+                        value={windowUnit}
+                        onChange={(e) => setWindowUnit(e.target.value)}
+                        aria-label="Completion window unit"
+                      >
+                        {GRACE_UNITS.map((u) => (
+                          <option key={u.value} value={u.value}>{u.label}</option>
+                        ))}
+                      </Select>
+                    </div>
+                    <span className="text-sm text-muted-foreground">after due date</span>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         )}
         <div className="flex gap-3">
