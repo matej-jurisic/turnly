@@ -118,7 +118,7 @@ export function ChoreFormModal({ title, chore, onClose, onSaved }: ChoreFormModa
   const windowUnitMinutes = GRACE_UNITS.find((u) => u.value === windowUnit)?.minutes ?? 24 * 60
   const completionWindowMinutes =
     autoAdvanceEnabled && windowEnabled ? Math.max(1, windowValue) * windowUnitMinutes : null
-  const showAutoAdvance = !isCustom && !isIndependent && completionsRequired > 1
+  const showAutoAdvance = !isCustom && !isIndependent && repeatType !== 'OneTime'
 
   // "N times a day" fixed slots are only meaningful for day-resolution schedules.
   const supportsTimes =
@@ -242,7 +242,7 @@ export function ChoreFormModal({ title, chore, onClose, onSaved }: ChoreFormModa
           </div>
         )}
         {showAutoAdvance && (
-          <div className="-mt-1 rounded-lg bg-accent/50 p-3">
+          <div className="-mt-1 space-y-2">
             <label className="flex items-start gap-2 text-sm text-foreground">
               <input
                 type="checkbox"
@@ -253,13 +253,14 @@ export function ChoreFormModal({ title, chore, onClose, onSaved }: ChoreFormModa
               <span>
                 Auto-advance incomplete occurrences
                 <span className="block text-xs text-muted-foreground">
-                  If not all {completionsRequired} completions are logged, the occurrence expires
-                  and automatically moves to the next one.
+                  {completionsRequired > 1
+                    ? `If not all ${completionsRequired} completions are logged, the occurrence expires and automatically moves to the next one.`
+                    : 'If not completed, the occurrence expires and automatically moves to the next one.'}
                 </span>
               </span>
             </label>
             {autoAdvanceEnabled && (
-              <div className="mt-2 space-y-2 pl-6">
+              <div className="space-y-2 pl-6">
                 <label className="flex items-start gap-2 text-sm text-foreground">
                   <input
                     type="checkbox"

@@ -1274,20 +1274,6 @@ public class ChoreServiceTests
     }
 
     [Fact]
-    public async Task CreateAsync_clears_auto_advance_for_single_completion_chore()
-    {
-        using var ctx = new TestContext();
-        var (_, member) = await SeedUsersAsync(ctx);
-        // CompletionsRequired = 1: auto-advance flag is silently cleared.
-        var chore = (await ctx.Chores.CreateAsync(
-            NewChore(member, [member], RepeatType.Weekly, completionsRequired: 1, start: Start)
-            with { AutoAdvanceIncomplete = true })).Value!;
-
-        Assert.False(chore.AutoAdvanceIncomplete);
-        Assert.False((await ctx.Db.Chores.FindAsync(chore.Id))!.AutoAdvanceIncomplete);
-    }
-
-    [Fact]
     public async Task CreateAsync_clears_auto_advance_for_custom_recurrence()
     {
         using var ctx = new TestContext();

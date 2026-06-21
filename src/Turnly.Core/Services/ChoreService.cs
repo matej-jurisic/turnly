@@ -800,12 +800,12 @@ public class ChoreService
         chore.GraceMinutes = req.SchedulingPreference == SchedulingPreference.SmartScheduling && req.GraceMinutes is > 0
             ? req.GraceMinutes
             : null;
-        // Auto-advance only applies to multi-completion non-custom non-independent chores.
-        var multiCompletion = req.RepeatType != RepeatType.Custom
-            && req.AssignmentStrategy != AssignmentStrategy.Independent
-            && req.CompletionsRequired > 1;
-        chore.AutoAdvanceIncomplete = multiCompletion && req.AutoAdvanceIncomplete;
-        chore.CompletionWindowMinutes = multiCompletion && req.AutoAdvanceIncomplete && req.CompletionWindowMinutes is > 0
+        // Auto-advance applies to all recurring non-custom non-independent chores.
+        var supportsAutoAdvance = req.RepeatType != RepeatType.Custom
+            && req.RepeatType != RepeatType.OneTime
+            && req.AssignmentStrategy != AssignmentStrategy.Independent;
+        chore.AutoAdvanceIncomplete = supportsAutoAdvance && req.AutoAdvanceIncomplete;
+        chore.CompletionWindowMinutes = supportsAutoAdvance && req.AutoAdvanceIncomplete && req.CompletionWindowMinutes is > 0
             ? req.CompletionWindowMinutes
             : null;
         // Track mode has no single current assignee (per-assignee tracks instead); rotating chores
@@ -978,7 +978,6 @@ public class ChoreService
     {
         var chores = await Query()
             .Where(c => c.AutoAdvanceIncomplete
-                     && c.CompletionsRequired > 1
                      && c.DueAt != null
                      && c.RepeatType != RepeatType.OneTime
                      && c.AssignmentStrategy != AssignmentStrategy.Independent)
