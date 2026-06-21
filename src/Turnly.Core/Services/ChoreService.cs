@@ -729,6 +729,8 @@ public class ChoreService
             return Result.Fail<List<User>>(recurrenceError);
         if (Validators.DueTime(req.DueTime, out _) is { } dueTimeError)
             return Result.Fail<List<User>>(dueTimeError);
+        if (Validators.TimesOfDay(req.TimesOfDay, req.RepeatType, req.CustomMode, out _) is { } timesError)
+            return Result.Fail<List<User>>(timesError);
 
         if (req.Notifications is { } notifications)
         {
@@ -776,7 +778,8 @@ public class ChoreService
         !a.Weekdays.SequenceEqual(b.Weekdays) ||
         !a.WeeksOfMonth.SequenceEqual(b.WeeksOfMonth) ||
         !a.DaysOfMonth.SequenceEqual(b.DaysOfMonth) ||
-        !a.Months.SequenceEqual(b.Months);
+        !a.Months.SequenceEqual(b.Months) ||
+        !a.TimesOfDay.SequenceEqual(b.TimesOfDay);
 
     private void Apply(Chore chore, IChoreInput req, List<User> assignees)
     {
@@ -828,7 +831,14 @@ public class ChoreService
         chore.RotateOnEachCompletion = !isIndependent && chore.CompletionsRequired > 1 && req.RotateOnEachCompletion;
 
         Validators.DueTime(req.DueTime, out var dueTime); // format already checked in ValidateAsync
-        chore.DueTime = dueTime;
+        // Fixed times only ride on day-resolution schedules (Daily / DaysOfWeek / DaysOfMonth); clear
+        // them otherwise so a stale list can't leak into the recurrence math. When set, DueTime mirrors
+        // the earliest slot so single-time display/round-trip stays coherent.
+        var supportsTimes = req.RepeatType == RepeatType.Daily ||
+            (isCustom && mode is CustomRecurrenceMode.DaysOfWeek or CustomRecurrenceMode.DaysOfMonth);
+        Validators.TimesOfDay(req.TimesOfDay, req.RepeatType, req.CustomMode, out var times); // already checked in ValidateAsync
+        chore.TimesOfDay = supportsTimes ? times : new List<TimeOnly>();
+        chore.DueTime = chore.TimesOfDay.Count > 0 ? chore.TimesOfDay[0] : dueTime;
 
         chore.Assignees.Clear();
         foreach (var a in assignees) chore.Assignees.Add(a);

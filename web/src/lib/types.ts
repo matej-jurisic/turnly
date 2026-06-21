@@ -173,6 +173,9 @@ export interface Chore extends RecurrenceFields {
   startDate: string
   /** Local due time "HH:mm", or null for "no specific time" (due end of day). */
   dueTime?: string | null
+  /** Fixed times-of-day ("HH:mm") for "N times a day"; empty for a single daily slot. Only set for
+   * Daily / DaysOfWeek / DaysOfMonth schedules. */
+  timesOfDay: string[]
   dueAt?: string | null
   currentAssignee?: User | null
   /** Who the chore will rotate to next, for strategies whose outcome is fixed by current state
@@ -204,6 +207,8 @@ export interface ChoreRequest extends RecurrenceFields {
   graceMinutes?: number | null
   startDate: string
   dueTime?: string | null
+  /** Fixed times-of-day ("HH:mm") for "N times a day"; omit/empty for a single daily slot. */
+  timesOfDay?: string[] | null
   assigneeIds: string[]
   currentAssigneeId: string | null
   tagNames: string[]

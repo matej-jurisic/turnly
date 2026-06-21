@@ -71,6 +71,7 @@ public class TurnlyDbContext : DbContext
             e.Property(x => x.WeeksOfMonth).HasConversion(IntListConverter, IntListComparer);
             e.Property(x => x.DaysOfMonth).HasConversion(IntListConverter, IntListComparer);
             e.Property(x => x.Months).HasConversion(IntListConverter, IntListComparer);
+            e.Property(x => x.TimesOfDay).HasConversion(TimesOfDayConverter, TimesOfDayComparer);
 
             e.HasOne(x => x.CurrentAssignee)
                 .WithMany()
@@ -263,5 +264,17 @@ public class TurnlyDbContext : DbContext
     private static readonly ValueComparer<List<int>> IntListComparer = new(
         (a, b) => (a ?? new List<int>()).SequenceEqual(b ?? new List<int>()),
         v => v.Aggregate(0, HashCode.Combine),
+        v => v.ToList());
+
+    /// <summary>Stores the fixed times-of-day as a comma-separated list of "HH:mm" values.</summary>
+    private static readonly ValueConverter<List<TimeOnly>, string> TimesOfDayConverter = new(
+        v => string.Join(',', v.Select(t => t.ToString("HH\\:mm"))),
+        v => string.IsNullOrEmpty(v)
+            ? new List<TimeOnly>()
+            : v.Split(',', StringSplitOptions.RemoveEmptyEntries).Select(s => TimeOnly.ParseExact(s, "HH\\:mm")).ToList());
+
+    private static readonly ValueComparer<List<TimeOnly>> TimesOfDayComparer = new(
+        (a, b) => (a ?? new List<TimeOnly>()).SequenceEqual(b ?? new List<TimeOnly>()),
+        v => v.Aggregate(0, (hash, t) => HashCode.Combine(hash, t)),
         v => v.ToList());
 }

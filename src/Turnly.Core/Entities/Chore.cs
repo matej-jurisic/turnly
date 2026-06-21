@@ -33,6 +33,13 @@ public class Chore
     public List<int> DaysOfMonth { get; set; } = new();
     public List<int> Months { get; set; } = new();
 
+    /// <summary>Fixed times-of-day the chore is due on each qualifying day — e.g. 08:00 and 20:00 for
+    /// "twice a day". Each time is a distinct occurrence. Empty = a single daily slot at
+    /// <see cref="DueTime"/>. Only used for day-resolution schedules (Daily and the custom DaysOfWeek /
+    /// DaysOfMonth modes); the validator restricts it to those, and <see cref="DueTime"/> mirrors the
+    /// earliest of these when set.</summary>
+    public List<TimeOnly> TimesOfDay { get; set; } = new();
+
     /// <summary>How many completions (skips count too) are needed to close the current occurrence
     /// before it advances to the next due date — e.g. 3 = "three times per occurrence". 1 for the
     /// usual one-completion-per-occurrence chore. Only meaningful for the non-custom repeat types

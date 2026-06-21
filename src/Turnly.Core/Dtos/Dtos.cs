@@ -70,6 +70,7 @@ public record ChoreDto(
     int? GraceMinutes,
     DateTimeOffset StartDate,
     string? DueTime,
+    string[] TimesOfDay,
     DateTimeOffset? DueAt,
     UserDto? CurrentAssignee,
     UserDto? NextAssignee,
@@ -87,7 +88,8 @@ public record ChoreDto(
             c.CustomMode, c.IntervalCount, c.IntervalUnit,
             c.Weekdays.ToArray(), c.WeeksOfMonth.ToArray(), c.DaysOfMonth.ToArray(), c.Months.ToArray(),
             c.CompletionsRequired, c.RotateOnEachCompletion, c.AssignmentStrategy, c.SchedulingPreference,
-            c.GraceMinutes, c.StartDate, c.DueTime?.ToString("HH\\:mm"), c.DueAt,
+            c.GraceMinutes, c.StartDate, c.DueTime?.ToString("HH\\:mm"),
+            c.TimesOfDay.OrderBy(t => t).Select(t => t.ToString("HH\\:mm")).ToArray(), c.DueAt,
             c.CurrentAssignee is null ? null : UserDto.FromEntity(c.CurrentAssignee),
             nextAssignee is null ? null : UserDto.FromEntity(nextAssignee),
             c.Assignees.Select(UserDto.FromEntity).OrderBy(u => u.DisplayName).ToArray(),
@@ -158,6 +160,10 @@ public interface IChoreInput
     /// <summary>Optional local time-of-day ("HH:mm") the chore is due; null means end of day. The
     /// client bakes the resolved instant into <see cref="StartDate"/>; this is stored for round-trip.</summary>
     string? DueTime { get; }
+    /// <summary>Optional fixed times-of-day ("HH:mm") for "N times a day" — each is its own
+    /// occurrence. Only valid for Daily and the custom DaysOfWeek / DaysOfMonth modes; null/empty
+    /// means a single daily slot at <see cref="DueTime"/>.</summary>
+    string[]? TimesOfDay { get; }
     Guid[] AssigneeIds { get; }
     /// <summary>The current assignee for rotating chores; null for
     /// <see cref="Enums.AssignmentStrategy.Independent"/> (per-assignee tracks instead).</summary>
@@ -196,7 +202,8 @@ public record CreateChoreRequest(
     string[]? TagNames,
     ChoreNotificationInput[]? Notifications = null,
     string? DueTime = null,
-    TrackInput[]? Tracks = null) : IChoreInput;
+    TrackInput[]? Tracks = null,
+    string[]? TimesOfDay = null) : IChoreInput;
 
 public record UpdateChoreRequest(
     string Name,
@@ -222,7 +229,8 @@ public record UpdateChoreRequest(
     string[]? TagNames,
     ChoreNotificationInput[]? Notifications = null,
     string? DueTime = null,
-    TrackInput[]? Tracks = null) : IChoreInput;
+    TrackInput[]? Tracks = null,
+    string[]? TimesOfDay = null) : IChoreInput;
 
 public record CompleteChoreRequest(string? Notes, Guid? CompletedByUserId = null);
 

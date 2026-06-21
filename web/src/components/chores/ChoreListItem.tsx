@@ -3,8 +3,8 @@ import { Badge } from '@/components/ui/Badge'
 import { Card } from '@/components/ui/Card'
 import { Avatar } from '@/components/ui/Modal'
 import {
-  completionProgressLabel, dueStatus, formatDate, formatDueTime, isIndependent,
-  repeatLabel, trackIsDone, trackStatusText,
+  completionProgressLabel, dueStatus, formatDate, isIndependent,
+  nextDueTimeLabel, repeatLabel, trackIsDone, trackStatusText,
 } from '@/lib/chore-format'
 import { CheckIcon } from '@/components/chores/icons'
 import { ChoreMenu } from '@/components/chores/ChoreMenu'
@@ -45,7 +45,7 @@ export function ChoreListItem({
       <div className="absolute left-4 top-0 z-10 flex -translate-y-1/2 items-center gap-2">
         {chore.dueAt && (
           <Badge tone="amber" className="border border-warning bg-card">
-            Due {formatDate(chore.dueAt)}{chore.dueTime && ` · ${formatDueTime(chore.dueTime)}`}
+            Due {formatDate(chore.dueAt)}{nextDueTimeLabel(chore) && ` · ${nextDueTimeLabel(chore)}`}
           </Badge>
         )}
         {chore.completionsRequired > 1 ? (
@@ -116,7 +116,7 @@ export function ChoreListItem({
                           (overdue ? 'ring-warning' : '')
                         }
                       >
-                        <span className={done ? 'grayscale' : ''}>
+                        <span className={'flex ' + (done ? 'grayscale' : '')}>
                           <Avatar color={t.user.avatarColor} name={t.user.displayName} size={24} />
                         </span>
                         {done && (

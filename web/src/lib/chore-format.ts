@@ -93,6 +93,16 @@ export const MONTH_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Au
 // ── display helpers ──────────────────────────────────────────────────────────
 
 export function repeatLabel(chore: Chore): string {
+  return baseRepeatLabel(chore) + timesOfDaySuffix(chore)
+}
+
+/** " · 08:00, 20:00" for a multi-time-a-day chore; empty otherwise. */
+function timesOfDaySuffix(chore: Chore): string {
+  if (!chore.timesOfDay || chore.timesOfDay.length < 2) return ''
+  return ` · ${chore.timesOfDay.map(formatDueTime).join(', ')}`
+}
+
+function baseRepeatLabel(chore: Chore): string {
   if (chore.repeatType !== 'Custom') {
     return REPEAT_OPTIONS.find((o) => o.value === chore.repeatType)?.label ?? chore.repeatType
   }
@@ -191,6 +201,18 @@ export function formatDueTime(time?: string | null): string {
   if (!time) return ''
   const [hh, mm] = time.split(':').map(Number)
   return new Date(2000, 0, 1, hh, mm).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
+}
+
+/**
+ * The time-of-day to show next to a chore's due date. For "N times a day" chores the stored
+ * `dueTime` is only the earliest slot, so the actual next slot is read off the `dueAt` instant;
+ * single-slot chores keep using the stored local time (avoids any timezone drift on the instant).
+ */
+export function nextDueTimeLabel(chore: Pick<Chore, 'timesOfDay' | 'dueTime' | 'dueAt'>): string {
+  if ((chore.timesOfDay?.length ?? 0) > 1 && chore.dueAt) {
+    return new Date(chore.dueAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
+  }
+  return formatDueTime(chore.dueTime)
 }
 
 /**

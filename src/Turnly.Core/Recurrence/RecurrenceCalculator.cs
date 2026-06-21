@@ -23,7 +23,7 @@ public static class RecurrenceCalculator
     /// <summary>The first due date on or after <paramref name="start"/> for the given rule.</summary>
     public static DateTimeOffset FirstOccurrence(RecurrenceRule rule, DateTimeOffset start)
     {
-        if (IsFixedSlot(rule))
+        if (IsSlotScanned(rule))
             return FixedSlotOnOrAfter(rule, start);
         // One-time and all interval-style schedules start exactly at the start date.
         return start;
@@ -72,7 +72,7 @@ public static class RecurrenceCalculator
         DateTimeOffset now)
     {
         DateTimeOffset result;
-        if (IsFixedSlot(rule))
+        if (IsSlotScanned(rule))
         {
             // All base preferences reduce to "the next slot strictly after a base instant".
             var baseInstant = pref switch
@@ -84,26 +84,27 @@ public static class RecurrenceCalculator
                 SchedulingPreference.ToFirstNextRepeat => scheduledDue > now ? scheduledDue : now,
                 _ => scheduledDue,
             };
-            result = FixedSlotAfter(rule, scheduledDue, baseInstant);
+            // The scanner already stamps each result with its own slot time-of-day (which, with
+            // multiple TimesOfDay, is deliberately *not* the scheduled occurrence's time), so the
+            // interval path's re-anchoring below must not run here.
+            return FixedSlotAfter(rule, scheduledDue, baseInstant);
         }
-        else
+
+        // Interval-style (Daily / Weekly / Monthly / Yearly / Custom-Interval).
+        switch (pref)
         {
-            // Interval-style (Daily / Weekly / Monthly / Yearly / Custom-Interval).
-            switch (pref)
-            {
-                case SchedulingPreference.FromCompletionDate:
-                    result = AddInterval(rule, completedAt);
-                    break;
-                case SchedulingPreference.ToFirstNextRepeat:
-                    var next = AddInterval(rule, scheduledDue);
-                    for (var i = 0; next <= now && i < MaxIntervalSteps; i++)
-                        next = AddInterval(rule, next);
-                    result = next;
-                    break;
-                default: // FromScheduledDate
-                    result = AddInterval(rule, scheduledDue);
-                    break;
-            }
+            case SchedulingPreference.FromCompletionDate:
+                result = AddInterval(rule, completedAt);
+                break;
+            case SchedulingPreference.ToFirstNextRepeat:
+                var next = AddInterval(rule, scheduledDue);
+                for (var i = 0; next <= now && i < MaxIntervalSteps; i++)
+                    next = AddInterval(rule, next);
+                result = next;
+                break;
+            default: // FromScheduledDate
+                result = AddInterval(rule, scheduledDue);
+                break;
         }
 
         // The time-of-day is part of the schedule (a chore due at 18:00 stays due at 18:00) and must
@@ -128,6 +129,12 @@ public static class RecurrenceCalculator
     private static bool IsFixedSlot(RecurrenceRule rule) =>
         rule.Type == RepeatType.Custom &&
         rule.CustomMode is CustomRecurrenceMode.DaysOfWeek or CustomRecurrenceMode.DaysOfMonth;
+
+    /// <summary>Whether the schedule resolves by scanning forward day-by-day for matching slots rather
+    /// than by interval stepping. True for the calendar custom modes, and for any schedule carrying
+    /// explicit <see cref="RecurrenceRule.TimesOfDay"/> — multiple fixed times turn even a plain Daily
+    /// chore into a slot scan (each day × each time is a distinct occurrence).</summary>
+    private static bool IsSlotScanned(RecurrenceRule rule) => IsFixedSlot(rule) || rule.TimesOfDay.Count > 0;
 
     // ── Interval stepping ─────────────────────────────────────────────────────────────────
 
@@ -157,31 +164,47 @@ public static class RecurrenceCalculator
     private static DateTimeOffset FixedSlotAfter(RecurrenceRule rule, DateTimeOffset anchor, DateTimeOffset baseInstant) =>
         ScanSlot(rule, anchor, baseInstant, inclusive: false);
 
-    /// <summary>Scans forward day by day from <paramref name="baseInstant"/> for the next date that
-    /// matches the rule's slot predicate. The result keeps <paramref name="anchor"/>'s time-of-day
-    /// and offset so the chore stays due at a consistent time.</summary>
+    /// <summary>Scans forward day by day from <paramref name="baseInstant"/> for the next slot that
+    /// matches the rule's day predicate, trying each of the day's times-of-day in order. The result
+    /// keeps <paramref name="anchor"/>'s offset; the time-of-day comes from the matched slot (the
+    /// rule's <see cref="RecurrenceRule.TimesOfDay"/>, or the anchor's own time when none are set).</summary>
     private static DateTimeOffset ScanSlot(RecurrenceRule rule, DateTimeOffset anchor, DateTimeOffset baseInstant, bool inclusive)
     {
-        var time = anchor.TimeOfDay;
         var offset = anchor.Offset;
-        var date = baseInstant.Date;
+        var times = SlotTimes(rule, anchor);
+        var date = baseInstant.ToOffset(offset).Date;
         for (var i = 0; i < MaxDaySteps; i++, date = date.AddDays(1))
         {
-            if (!MatchesSlot(rule, date)) continue;
-            var candidate = new DateTimeOffset(date.Add(time), offset);
-            if (candidate > baseInstant || (inclusive && candidate == baseInstant))
-                return candidate;
+            if (!MatchesDay(rule, date)) continue;
+            foreach (var time in times)
+            {
+                var candidate = new DateTimeOffset(date.Add(time), offset);
+                if (candidate > baseInstant || (inclusive && candidate == baseInstant))
+                    return candidate;
+            }
         }
         // Unreachable for validated rules; fall back to the anchor so callers always get a value.
         return anchor;
     }
 
-    private static bool MatchesSlot(RecurrenceRule rule, DateTime date) => rule.CustomMode switch
+    /// <summary>The sorted times-of-day a slot can fall on: the rule's explicit
+    /// <see cref="RecurrenceRule.TimesOfDay"/>, or a single slot at the anchor's own time when none
+    /// are configured (the plain calendar-mode case).</summary>
+    private static IReadOnlyList<TimeSpan> SlotTimes(RecurrenceRule rule, DateTimeOffset anchor) =>
+        rule.TimesOfDay.Count == 0
+            ? new[] { anchor.TimeOfDay }
+            : rule.TimesOfDay.Select(t => t.ToTimeSpan()).OrderBy(t => t).ToArray();
+
+    /// <summary>Whether <paramref name="date"/> is an eligible day for the rule (ignoring time-of-day).
+    /// Daily matches every day; the custom calendar modes apply their weekday/day-of-month predicate.</summary>
+    private static bool MatchesDay(RecurrenceRule rule, DateTime date) => rule.CustomMode switch
     {
         CustomRecurrenceMode.DaysOfWeek =>
             rule.Weekdays.Contains(date.DayOfWeek) && MatchesWeekOfMonth(rule.WeeksOfMonth, date),
         CustomRecurrenceMode.DaysOfMonth => rule.DaysOfMonth.Contains(date.Day) && rule.Months.Contains(date.Month),
-        _ => false,
+        // Non-calendar schedules only reach the scanner when they carry explicit TimesOfDay, which the
+        // validator restricts to Daily — so every day is an eligible slot day.
+        _ => true,
     };
 
     /// <summary>Whether <paramref name="date"/> falls on one of the selected occurrences of its weekday

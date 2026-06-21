@@ -15,6 +15,7 @@ public static class Validators
     public const int MaxCompletionsRequired = 100;
     public const int MaxNotificationsPerChore = 20;
     public const int MaxNotificationOffset = 365;
+    public const int MaxTimesOfDay = 24;
 
     public static Error? Username(string? username)
     {
@@ -162,6 +163,37 @@ public static class Validators
         if (!TimeOnly.TryParseExact(value, "HH:mm", out var time))
             return Error.Validation("A due time must be in HH:mm format.");
         parsed = time;
+        return null;
+    }
+
+    /// <summary>Validates the optional "N times a day" fixed time-of-day list and returns the parsed,
+    /// de-duplicated, sorted set via <paramref name="parsed"/>. Empty/null is valid (single daily
+    /// slot). Times are only allowed on day-resolution schedules: Daily and the custom DaysOfWeek /
+    /// DaysOfMonth calendar modes — never on interval/weekly/monthly/yearly/one-time schedules, whose
+    /// recurrence math can't host multiple within-day slots coherently.</summary>
+    public static Error? TimesOfDay(string[]? values, RepeatType type, CustomRecurrenceMode? mode, out List<TimeOnly> parsed)
+    {
+        parsed = new List<TimeOnly>();
+        var raw = values?.Where(v => !string.IsNullOrWhiteSpace(v)).ToList() ?? new List<string>();
+        if (raw.Count == 0)
+            return null;
+
+        var supportsTimes = type == RepeatType.Daily ||
+            (type == RepeatType.Custom && mode is CustomRecurrenceMode.DaysOfWeek or CustomRecurrenceMode.DaysOfMonth);
+        if (!supportsTimes)
+            return Error.Validation("Multiple times a day are only available for daily, days-of-week, or days-of-month schedules.");
+        if (raw.Count > MaxTimesOfDay)
+            return Error.Validation($"A chore can have at most {MaxTimesOfDay} times a day.");
+
+        var set = new HashSet<TimeOnly>();
+        foreach (var value in raw)
+        {
+            if (!TimeOnly.TryParseExact(value.Trim(), "HH:mm", out var time))
+                return Error.Validation("Each time must be in HH:mm format.");
+            if (!set.Add(time))
+                return Error.Validation("Times of day must be distinct.");
+        }
+        parsed = set.OrderBy(t => t).ToList();
         return null;
     }
 

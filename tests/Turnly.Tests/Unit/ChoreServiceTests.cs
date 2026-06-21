@@ -430,6 +430,49 @@ public class ChoreServiceTests
     }
 
     [Fact]
+    public async Task CreateAsync_with_times_of_day_starts_on_the_first_slot_and_round_trips()
+    {
+        using var ctx = new TestContext();
+        var (_, member) = await SeedUsersAsync(ctx);
+        // "Twice a day" at 08:00 and 20:00; Start is 2026-06-17 09:00, so the first slot on/after is 20:00.
+        var chore = (await ctx.Chores.CreateAsync(NewChore(member, [member], RepeatType.Daily)
+            with { TimesOfDay = ["20:00", "08:00"] })).Value!;
+
+        Assert.Equal(new[] { "08:00", "20:00" }, chore.TimesOfDay); // de-duped + sorted
+        Assert.Equal(new DateTimeOffset(2026, 6, 17, 20, 0, 0, TimeSpan.Zero), chore.DueAt);
+    }
+
+    [Fact]
+    public async Task CompleteAsync_with_times_of_day_advances_to_the_next_slot_then_next_day()
+    {
+        using var ctx = new TestContext();
+        var (_, member) = await SeedUsersAsync(ctx);
+        var chore = (await ctx.Chores.CreateAsync(NewChore(member, [member], RepeatType.Daily)
+            with { TimesOfDay = ["08:00", "20:00"] })).Value!; // first due 2026-06-17 20:00
+
+        var afterEvening = await ctx.Chores.CompleteAsync(chore.Id, member, new CompleteChoreRequest(null));
+        // After the day's last slot, the next occurrence is the first slot the following morning.
+        Assert.Equal(new DateTimeOffset(2026, 6, 18, 8, 0, 0, TimeSpan.Zero), afterEvening.Value!.DueAt);
+
+        var afterMorning = await ctx.Chores.CompleteAsync(chore.Id, member, new CompleteChoreRequest(null));
+        // From the morning slot, the next is the same day's evening slot.
+        Assert.Equal(new DateTimeOffset(2026, 6, 18, 20, 0, 0, TimeSpan.Zero), afterMorning.Value!.DueAt);
+    }
+
+    [Fact]
+    public async Task CreateAsync_rejects_times_of_day_on_unsupported_repeat_type()
+    {
+        using var ctx = new TestContext();
+        var (_, member) = await SeedUsersAsync(ctx);
+
+        var result = await ctx.Chores.CreateAsync(NewChore(member, [member], RepeatType.Weekly)
+            with { TimesOfDay = ["08:00", "20:00"] });
+
+        Assert.False(result.Succeeded);
+        Assert.Equal(ErrorType.Validation, result.Error!.Type);
+    }
+
+    [Fact]
     public async Task CompleteAsync_rotates_on_each_completion_when_enabled()
     {
         using var ctx = new TestContext();

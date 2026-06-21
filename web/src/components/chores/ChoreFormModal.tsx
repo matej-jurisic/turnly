@@ -61,12 +61,18 @@ export function ChoreFormModal({ title, chore, onClose, onSaved }: ChoreFormModa
     chore?.schedulingPreference ?? 'ToFirstNextRepeat',
   )
   const initialGrace = splitGrace(chore?.graceMinutes)
+  // Grace window is opt-in (off by default); only pre-enabled when editing a chore that has one.
+  const [graceEnabled, setGraceEnabled] = useState(!!chore?.graceMinutes)
   const [graceValue, setGraceValue] = useState(initialGrace.value)
   const [graceUnit, setGraceUnit] = useState(initialGrace.unit)
   const [startDate, setStartDate] = useState(
     (chore?.startDate ?? new Date().toISOString()).slice(0, 10),
   )
-  const [dueTime, setDueTime] = useState(chore?.dueTime ?? '')
+  // Times-of-day list; index 0 doubles as the single "due time" when only one slot is set. Always at
+  // least one row (an empty row = "no specific time" / end of day, matching the old single field).
+  const [timesOfDay, setTimesOfDay] = useState<string[]>(
+    chore?.timesOfDay?.length ? chore.timesOfDay : chore?.dueTime ? [chore.dueTime] : [''],
+  )
   const [assigneeIds, setAssigneeIds] = useState<string[]>(
     chore?.assignees.map((a) => a.id) ?? [],
   )
@@ -103,7 +109,19 @@ export function ChoreFormModal({ title, chore, onClose, onSaved }: ChoreFormModa
     !intervalStyle && schedulingPreference === 'SmartScheduling' ? 'FromScheduledDate' : schedulingPreference
   const graceUnitMinutes = GRACE_UNITS.find((u) => u.value === graceUnit)?.minutes ?? 24 * 60
   const graceMinutes =
-    effectiveScheduling === 'SmartScheduling' ? Math.max(1, graceValue) * graceUnitMinutes : null
+    effectiveScheduling === 'SmartScheduling' && graceEnabled ? Math.max(1, graceValue) * graceUnitMinutes : null
+
+  // "N times a day" fixed slots are only meaningful for day-resolution schedules.
+  const supportsTimes =
+    repeatType === 'Daily' ||
+    (isCustom && (recurrence.customMode === 'DaysOfWeek' || recurrence.customMode === 'DaysOfMonth'))
+  // Resolve the time list into a single due time (when one slot) vs. a multi-slot set (when several).
+  const trimmedTimes = (supportsTimes ? timesOfDay : timesOfDay.slice(0, 1)).map((t) => t.trim())
+  const uniqueSortedTimes = [...new Set(trimmedTimes.filter(Boolean))].sort()
+  const isMultiTime = supportsTimes && uniqueSortedTimes.length > 1
+  // Single slot keeps row 0's value verbatim (may be '' = end of day); multi uses the earliest slot
+  // as the anchor for the start instant and the stored mirror.
+  const primaryTime = isMultiTime ? uniqueSortedTimes[0] : trimmedTimes[0] || ''
 
   const mutation = useMutation({
     mutationFn: () => {
@@ -119,8 +137,9 @@ export function ChoreFormModal({ title, chore, onClose, onSaved }: ChoreFormModa
         assignmentStrategy,
         schedulingPreference: effectiveScheduling,
         graceMinutes,
-        startDate: toLocalDueInstant(startDate, dueTime),
-        dueTime: dueTime || null,
+        startDate: toLocalDueInstant(startDate, primaryTime),
+        dueTime: primaryTime || null,
+        timesOfDay: isMultiTime ? uniqueSortedTimes : null,
         assigneeIds,
         currentAssigneeId: isIndependent ? null : currentAssigneeId,
         tagNames: selectedTags,
@@ -216,13 +235,57 @@ export function ChoreFormModal({ title, chore, onClose, onSaved }: ChoreFormModa
             <Label htmlFor="start">Start date</Label>
             <Input id="start" type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} required />
           </div>
-          <div className="flex-1">
-            <Label htmlFor="dueTime">Due time</Label>
-            <TimeField id="dueTime" value={dueTime} onChange={setDueTime} />
-          </div>
+          {!supportsTimes && (
+            <div className="flex-1">
+              <Label htmlFor="dueTime">Due time</Label>
+              <TimeField
+                id="dueTime"
+                value={timesOfDay[0] ?? ''}
+                onChange={(v) => setTimesOfDay((prev) => [v, ...prev.slice(1)])}
+              />
+            </div>
+          )}
         </div>
         {repeatType === 'Custom' && (
           <RecurrenceEditor value={recurrence} onChange={setRecurrence} />
+        )}
+        {supportsTimes && (
+          <div className="space-y-2 rounded-lg border border-border bg-accent/40 p-3">
+            <Label className="mb-0">Times of day</Label>
+            <p className="-mt-0.5 text-xs text-muted-foreground">
+              Due at each of these times — every slot is its own to-do (e.g. 08:00 and 20:00 for twice
+              a day). Leave a single time for a once-a-day chore.
+            </p>
+            <div className="space-y-1.5">
+              {timesOfDay.map((t, i) => (
+                <div key={i} className="flex items-center gap-2">
+                  <div className="w-32">
+                    <TimeField
+                      value={t}
+                      onChange={(v) => setTimesOfDay((prev) => prev.map((x, j) => (j === i ? v : x)))}
+                      aria-label={`Time ${i + 1}`}
+                    />
+                  </div>
+                  {timesOfDay.length > 1 && (
+                    <button
+                      type="button"
+                      onClick={() => setTimesOfDay((prev) => prev.filter((_, j) => j !== i))}
+                      className="text-xs text-muted-foreground underline-offset-2 hover:text-destructive hover:underline"
+                    >
+                      Remove
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+            <button
+              type="button"
+              onClick={() => setTimesOfDay((prev) => [...prev, ''])}
+              className="text-xs text-primary underline-offset-2 hover:underline"
+            >
+              + Add another time
+            </button>
+          </div>
         )}
         {repeatType !== 'OneTime' && (
           <div className="flex gap-3">
@@ -254,31 +317,43 @@ export function ChoreFormModal({ title, chore, onClose, onSaved }: ChoreFormModa
         )}
         {repeatType !== 'OneTime' && effectiveScheduling === 'SmartScheduling' && (
           <div className="-mt-1 rounded-lg bg-accent/50 p-3">
-            <Label className="mb-1">Grace window</Label>
-            <div className="flex items-center gap-2">
-              <div className="w-16">
-                <IntegerInput
-                  value={graceValue}
-                  onCommit={(n) => setGraceValue(Math.max(1, n))}
-                  aria-label="Grace window amount"
-                />
+            <label className="flex items-start gap-2 text-sm text-foreground">
+              <input
+                type="checkbox"
+                checked={graceEnabled}
+                onChange={(e) => setGraceEnabled(e.target.checked)}
+                className="mt-0.5 h-4 w-4 rounded border-border text-primary focus:ring-ring"
+              />
+              <span>
+                Reset schedule when completed early (grace window)
+                <span className="block text-xs text-muted-foreground">
+                  If completed more than this early, reset the next due date to the completion date
+                  instead of holding the schedule.
+                </span>
+              </span>
+            </label>
+            {graceEnabled && (
+              <div className="mt-3 flex items-center gap-2">
+                <div className="w-16">
+                  <IntegerInput
+                    value={graceValue}
+                    onCommit={(n) => setGraceValue(Math.max(1, n))}
+                    aria-label="Grace window amount"
+                  />
+                </div>
+                <div className="w-28">
+                  <Select
+                    value={graceUnit}
+                    onChange={(e) => setGraceUnit(e.target.value)}
+                    aria-label="Grace window unit"
+                  >
+                    {GRACE_UNITS.map((u) => (
+                      <option key={u.value} value={u.value}>{u.label}</option>
+                    ))}
+                  </Select>
+                </div>
               </div>
-              <div className="w-28">
-                <Select
-                  value={graceUnit}
-                  onChange={(e) => setGraceUnit(e.target.value)}
-                  aria-label="Grace window unit"
-                >
-                  {GRACE_UNITS.map((u) => (
-                    <option key={u.value} value={u.value}>{u.label}</option>
-                  ))}
-                </Select>
-              </div>
-            </div>
-            <p className="mt-2 text-xs text-muted-foreground">
-              If completed more than this early, reset the next due date to the completion date instead
-              of holding the schedule.
-            </p>
+            )}
           </div>
         )}
         <div>

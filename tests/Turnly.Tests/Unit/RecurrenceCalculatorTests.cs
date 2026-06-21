@@ -264,4 +264,165 @@ public class RecurrenceCalculatorTests
             SchedulingPreference.FromCompletionDate, completedAt: completed, now: completed);
         Assert.Equal(new DateTimeOffset(2026, 6, 19, 18, 0, 0, TimeSpan.FromHours(2)), next);
     }
+
+    // ── The 5-timing comparison matrix ────────────────────────────────────────────────────────
+    // Daily chore, the scheduled occurrence (D0) due at end-of-day (23:00); completions land at
+    // mid-day (12:00) so each completion is always before that day's slot. Each InlineData asserts
+    // one cell of the comparison table: (completionDayOffset → expected next-due day offset from D0).
+
+    private static readonly DateTimeOffset DueEod = new(2026, 6, 17, 23, 0, 0, TimeSpan.Zero); // D0 @ end of day
+
+    private static DateTimeOffset MidDay(int dayOffset) => new(2026, 6, 17 + dayOffset, 12, 0, 0, TimeSpan.Zero);
+
+    private static DateTimeOffset NextForTiming(SchedulingPreference pref, int completionDayOffset, TimeSpan? grace = null)
+    {
+        var completed = MidDay(completionDayOffset); // now == completedAt (completion is the current moment)
+        return Next(new RecurrenceRule(RepeatType.Daily), DueEod, pref,
+            completedAt: completed, now: completed, grace: grace)!.Value;
+    }
+
+    [Theory]
+    [InlineData(-3, 1)] // early 3d
+    [InlineData(-1, 1)] // early 1d
+    [InlineData(0, 1)]  // on time
+    [InlineData(1, 1)]  // late 1d
+    [InlineData(3, 1)]  // late 3d
+    public void Matrix_FromScheduledDate_always_advances_one_day_off_the_grid(int completed, int expected)
+    {
+        // Rigid grid: completion timing is ignored, next due is always D+1.
+        Assert.Equal(DueEod.AddDays(expected), NextForTiming(SchedulingPreference.FromScheduledDate, completed));
+    }
+
+    [Theory]
+    [InlineData(-3, -2)] // early 3d → completion+1
+    [InlineData(-1, 0)]  // early 1d → next due is the original D0 slot tonight
+    [InlineData(0, 1)]   // on time
+    [InlineData(1, 2)]   // late 1d
+    [InlineData(3, 4)]   // late 3d
+    public void Matrix_FromCompletionDate_is_always_one_day_after_completion(int completed, int expected)
+    {
+        // Pure drift: next due tracks the actual completion, one interval out.
+        Assert.Equal(DueEod.AddDays(expected), NextForTiming(SchedulingPreference.FromCompletionDate, completed));
+    }
+
+    [Theory]
+    [InlineData(-3, 1)] // early 3d → next grid slot, never earlier than D+1
+    [InlineData(-1, 1)] // early 1d
+    [InlineData(0, 1)]  // on time
+    [InlineData(1, 1)]  // late 1d → the very next upcoming slot (still ahead today)
+    [InlineData(3, 3)]  // late 3d → catches up to today's slot, skipping the missed ones
+    public void Matrix_ToFirstNextRepeat_is_the_next_slot_strictly_after_completion(int completed, int expected)
+    {
+        // First scheduled slot strictly after `now`; mid-day completion is before that day's
+        // end-of-day slot, so a late finish lands on the same day's upcoming occurrence.
+        Assert.Equal(DueEod.AddDays(expected), NextForTiming(SchedulingPreference.ToFirstNextRepeat, completed));
+    }
+
+    [Theory]
+    [InlineData(-3, 1)] // early 3d → holds the grid
+    [InlineData(-1, 1)] // early 1d → holds the grid
+    [InlineData(0, 1)]  // on time
+    [InlineData(1, 2)]  // late 1d → a full interval past completion
+    [InlineData(3, 4)]  // late 3d → a full interval past completion
+    public void Matrix_SmartScheduling_holds_grid_when_early_and_pushes_out_when_late(int completed, int expected)
+    {
+        // max(FromScheduledDate, FromCompletionDate): grid for on-time-or-early, completion+interval
+        // when late. This is where it diverges from ToFirstNextRepeat (D+2/D+4 vs D+1/D+3).
+        Assert.Equal(DueEod.AddDays(expected), NextForTiming(SchedulingPreference.SmartScheduling, completed));
+    }
+
+    [Theory]
+    [InlineData(-3, -2)] // early 3d: gap ~3.5d > 2d grace → reset from completion
+    [InlineData(-1, 1)]  // early 1d: gap ~1.5d < 2d grace → still holds the grid
+    [InlineData(1, 2)]   // late 1d: grace never applies to late completions → normal Smart
+    public void Matrix_SmartScheduling_with_two_day_grace_only_resets_when_genuinely_early(int completed, int expected)
+    {
+        Assert.Equal(DueEod.AddDays(expected),
+            NextForTiming(SchedulingPreference.SmartScheduling, completed, grace: TimeSpan.FromDays(2)));
+    }
+
+    [Fact]
+    public void Matrix_SmartScheduling_one_day_grace_trips_on_the_one_day_early_completion()
+    {
+        // Sharp edge: end-of-day schedule vs mid-day completion makes the "1 day early" gap ~1.5d,
+        // so a whole-day (1d) grace trips it → resets to completion+1 (D0) instead of the grid (D+1).
+        Assert.Equal(DueEod.AddDays(0),
+            NextForTiming(SchedulingPreference.SmartScheduling, -1, grace: TimeSpan.FromDays(1)));
+    }
+
+    // ── Fixed times-of-day: multiple slots per day (e.g. "feed the dog at 08:00 and 20:00") ──────
+
+    private static readonly TimeOnly[] EightAndEight = { new(8, 0), new(20, 0) };
+    private static DateTimeOffset At(int year, int month, int day, int hour) => new(year, month, day, hour, 0, 0, TimeSpan.Zero);
+
+    [Fact]
+    public void TimesOfDay_daily_advances_to_the_next_time_slot_the_same_day()
+    {
+        // Due at 08:00; completed on time → the next occurrence is 20:00 that same day, not tomorrow.
+        var rule = new RecurrenceRule(RepeatType.Daily, TimesOfDay: EightAndEight);
+        Assert.Equal(At(2026, 6, 17, 20), Next(rule, At(2026, 6, 17, 8)));
+    }
+
+    [Fact]
+    public void TimesOfDay_daily_rolls_to_the_first_slot_next_day_after_the_last_slot()
+    {
+        // After the day's final slot (20:00) the next is the first slot (08:00) tomorrow.
+        var rule = new RecurrenceRule(RepeatType.Daily, TimesOfDay: EightAndEight);
+        Assert.Equal(At(2026, 6, 18, 8), Next(rule, At(2026, 6, 17, 20)));
+    }
+
+    [Fact]
+    public void TimesOfDay_are_sorted_so_input_order_does_not_matter()
+    {
+        var rule = new RecurrenceRule(RepeatType.Daily, TimesOfDay: new TimeOnly[] { new(20, 0), new(8, 0) });
+        Assert.Equal(At(2026, 6, 17, 20), Next(rule, At(2026, 6, 17, 8)));
+    }
+
+    [Fact]
+    public void TimesOfDay_first_occurrence_lands_on_the_first_slot_on_or_after_start()
+    {
+        var rule = new RecurrenceRule(RepeatType.Daily, TimesOfDay: EightAndEight);
+        Assert.Equal(At(2026, 6, 17, 8), RecurrenceCalculator.FirstOccurrence(rule, At(2026, 6, 17, 6)));
+        Assert.Equal(At(2026, 6, 17, 20), RecurrenceCalculator.FirstOccurrence(rule, At(2026, 6, 17, 12)));
+        Assert.Equal(At(2026, 6, 18, 8), RecurrenceCalculator.FirstOccurrence(rule, At(2026, 6, 17, 21)));
+    }
+
+    [Fact]
+    public void TimesOfDay_from_completion_date_picks_the_next_slot_after_completion()
+    {
+        // Fed the 08:00 slot late at 09:30 → next is the same day's 20:00 slot.
+        var rule = new RecurrenceRule(RepeatType.Daily, TimesOfDay: EightAndEight);
+        var completed = new DateTimeOffset(2026, 6, 17, 9, 30, 0, TimeSpan.Zero);
+        Assert.Equal(At(2026, 6, 17, 20),
+            Next(rule, At(2026, 6, 17, 8), SchedulingPreference.FromCompletionDate, completedAt: completed, now: completed));
+    }
+
+    [Fact]
+    public void TimesOfDay_to_first_next_repeat_skips_missed_slots_to_the_next_future_one()
+    {
+        // Due 08:00 yesterday, only dealt with now (next day 12:00): skip the missed slots to the
+        // next future slot, today's 20:00.
+        var rule = new RecurrenceRule(RepeatType.Daily, TimesOfDay: EightAndEight);
+        var now = At(2026, 6, 18, 12);
+        Assert.Equal(At(2026, 6, 18, 20),
+            Next(rule, At(2026, 6, 17, 8), SchedulingPreference.ToFirstNextRepeat, completedAt: now, now: now));
+    }
+
+    [Fact]
+    public void TimesOfDay_combine_with_days_of_week()
+    {
+        // "Mondays at 08:00 and 20:00": from Monday 20:00 the next slot is the following Monday 08:00.
+        var rule = new RecurrenceRule(RepeatType.Custom, CustomRecurrenceMode.DaysOfWeek,
+            Weekdays: new[] { DayOfWeek.Monday }, TimesOfDay: EightAndEight);
+        var mondayEvening = At(2026, 6, 22, 20); // Mon Jun 22
+        Assert.Equal(At(2026, 6, 29, 8), Next(rule, mondayEvening)); // Mon Jun 29
+    }
+
+    [Fact]
+    public void TimesOfDay_days_of_week_advances_within_the_same_day_before_rolling_to_next_match()
+    {
+        var rule = new RecurrenceRule(RepeatType.Custom, CustomRecurrenceMode.DaysOfWeek,
+            Weekdays: new[] { DayOfWeek.Monday }, TimesOfDay: EightAndEight);
+        Assert.Equal(At(2026, 6, 22, 20), Next(rule, At(2026, 6, 22, 8))); // same Monday, 08:00 → 20:00
+    }
 }
