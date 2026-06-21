@@ -215,6 +215,28 @@ public class UserService
         return Result.Success();
     }
 
+    public async Task<Result<UserDto>> AdjustPointsAsync(Guid id, AdjustPointsRequest req, CancellationToken ct = default)
+    {
+        if (req.Delta == 0)
+            return Result.Fail<UserDto>(Error.Validation("Delta must be non-zero."));
+
+        var user = await _db.Users.FindAsync([id], ct);
+        if (user is null)
+            return Result.Fail<UserDto>(Error.NotFound("User not found."));
+
+        _db.PointsLog.Add(new PointsLogEntry
+        {
+            UserId = id,
+            Delta = req.Delta,
+            Type = PointsLogType.Adjustment,
+            Description = string.IsNullOrWhiteSpace(req.Description) ? null : req.Description.Trim(),
+        });
+        user.Points += req.Delta;
+
+        await _db.SaveChangesAsync(ct);
+        return Result.Success(UserDto.FromEntity(user));
+    }
+
     public async Task<Result> SetPasswordAsync(Guid id, string newPassword, CancellationToken ct = default)
     {
         if (Validators.Password(newPassword) is { } passwordError)

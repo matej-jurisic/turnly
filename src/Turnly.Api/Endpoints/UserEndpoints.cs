@@ -47,6 +47,12 @@ public static class UserEndpoints
             return result.Succeeded ? Results.NoContent() : result.Error!.ToProblem();
         });
 
+        group.MapPost("/{id:guid}/points", async (Guid id, AdjustPointsRequest req, UserService users, CancellationToken ct) =>
+        {
+            var result = await users.AdjustPointsAsync(id, req, ct);
+            return result.Succeeded ? Results.Ok(result.Value) : result.Error!.ToProblem();
+        });
+
         // Endpoints accessible to any authenticated member.
         var self = app.MapGroup("/api/users").RequireAuthorization();
 

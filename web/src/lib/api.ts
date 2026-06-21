@@ -128,6 +128,8 @@ export const usersApi = {
   setPassword: (id: string, newPassword: string) =>
     request<void>(`/users/${id}/password`, { method: 'POST', body: json({ newPassword }) }),
   pointsLog: (id: string) => request<PointsLogEntry[]>(`/users/${id}/points-log`),
+  adjustPoints: (id: string, body: { delta: number; description?: string }) =>
+    request<User>(`/users/${id}/points`, { method: 'POST', body: json(body) }),
 }
 
 export const choresApi = {

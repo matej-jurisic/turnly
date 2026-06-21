@@ -49,6 +49,8 @@ public record ChangePasswordRequest(string CurrentPassword, string NewPassword);
 
 public record SetPasswordRequest(string NewPassword);
 
+public record AdjustPointsRequest(int Delta, string? Description);
+
 public record ChoreDto(
     Guid Id,
     string Name,

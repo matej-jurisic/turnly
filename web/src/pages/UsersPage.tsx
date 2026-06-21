@@ -21,6 +21,7 @@ export function UsersPage() {
   const [editing, setEditing] = useState<User | null>(null)
   const [creating, setCreating] = useState(false)
   const [passwordFor, setPasswordFor] = useState<User | null>(null)
+  const [adjustPointsFor, setAdjustPointsFor] = useState<User | null>(null)
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ['users'] })
 
@@ -59,6 +60,7 @@ export function UsersPage() {
             <div className="flex gap-1 sm:shrink-0">
               <Button size="sm" variant="ghost" onClick={() => setEditing(user)}>Edit</Button>
               <Button size="sm" variant="ghost" onClick={() => setPasswordFor(user)}>Password</Button>
+              <Button size="sm" variant="ghost" onClick={() => setAdjustPointsFor(user)}>Points</Button>
               <Button
                 size="sm"
                 variant="ghost"
@@ -108,6 +110,19 @@ export function UsersPage() {
 
       {passwordFor && (
         <PasswordModal user={passwordFor} onClose={() => setPasswordFor(null)} />
+      )}
+
+      {adjustPointsFor && (
+        <AdjustPointsModal
+          user={adjustPointsFor}
+          onClose={() => setAdjustPointsFor(null)}
+          onSaved={() => {
+            setAdjustPointsFor(null)
+            queryClient.invalidateQueries({ queryKey: ['users'] })
+            queryClient.invalidateQueries({ queryKey: ['leaderboard'] })
+            queryClient.invalidateQueries({ queryKey: ['points-log', adjustPointsFor.id] })
+          }}
+        />
       )}
     </div>
   )
@@ -184,6 +199,62 @@ function UserFormModal({ title, user, onClose, onSaved }: UserFormModalProps) {
           <Button type="button" variant="secondary" onClick={onClose}>Cancel</Button>
           <Button type="submit" disabled={mutation.isPending}>
             {mutation.isPending ? 'Saving…' : 'Save'}
+          </Button>
+        </div>
+      </form>
+    </Modal>
+  )
+}
+
+function AdjustPointsModal({ user, onClose, onSaved }: { user: User; onClose: () => void; onSaved: () => void }) {
+  const [delta, setDelta] = useState('')
+  const [description, setDescription] = useState('')
+  const [error, setError] = useState<string | null>(null)
+
+  const mutation = useMutation({
+    mutationFn: () => usersApi.adjustPoints(user.id, { delta: Number(delta), description: description || undefined }),
+    onSuccess: onSaved,
+    onError: (err) => setError(err instanceof ApiError ? err.message : 'Failed'),
+  })
+
+  return (
+    <Modal title={`Adjust points for ${user.displayName}`} onClose={onClose}>
+      <form
+        onSubmit={(e) => {
+          e.preventDefault()
+          setError(null)
+          mutation.mutate()
+        }}
+        className="space-y-4"
+      >
+        <div>
+          <Label htmlFor="delta">Points adjustment</Label>
+          <Input
+            id="delta"
+            type="number"
+            placeholder="e.g. 10 or -5"
+            value={delta}
+            onChange={(e) => setDelta(e.target.value)}
+            required
+          />
+          <p className="mt-1 text-xs text-muted-foreground">
+            Current balance: {user.points} pts. Use a negative number to deduct.
+          </p>
+        </div>
+        <div>
+          <Label htmlFor="reason">Reason (optional)</Label>
+          <Input
+            id="reason"
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            placeholder="e.g. Bonus for helping out"
+          />
+        </div>
+        {error && <p className="text-sm text-destructive">{error}</p>}
+        <div className="flex justify-end gap-2">
+          <Button type="button" variant="secondary" onClick={onClose}>Cancel</Button>
+          <Button type="submit" disabled={mutation.isPending || !delta || Number(delta) === 0}>
+            {mutation.isPending ? 'Saving…' : 'Apply'}
           </Button>
         </div>
       </form>
