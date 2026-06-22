@@ -26,10 +26,16 @@ export interface ChoreItemProps {
 
 const DUE_TONE = { overdue: 'red', today: 'amber', upcoming: 'blue', later: 'neutral' } as const
 
-/** Plain-text assignee label (no avatar) for the compact row's second line. Independent chores list
- * every track owner; rotating chores show the current assignee. */
+/** Plain-text assignee label (no avatar) for the compact row's second line. Rotating chores show the
+ * current assignee; independent chores would overflow if every track owner were listed, so they
+ * collapse to "First +N" (or just the name when there's a single assignee). */
 function assigneeLabel(chore: Chore): string {
-  if (isIndependent(chore)) return chore.tracks.map((t) => t.user.displayName).join(', ')
+  if (isIndependent(chore)) {
+    const names = chore.tracks.map((t) => t.user.displayName)
+    if (names.length === 0) return ''
+    if (names.length === 1) return names[0]
+    return `${names[0]} +${names.length - 1}`
+  }
   return chore.currentAssignee?.displayName ?? ''
 }
 
@@ -58,22 +64,22 @@ export function ChoreCompactItem(props: ChoreItemProps) {
         onClick={onDetails}
         className="flex min-w-0 flex-1 flex-col gap-1 text-left"
       >
-        {/* Row 1: name + due date */}
+        {/* Row 1: name */}
         <div className="flex min-w-0 items-center gap-2">
           {chore.emoji && <span className="shrink-0 text-base leading-none">{chore.emoji}</span>}
           <span className="truncate text-sm font-medium text-foreground">{chore.name}</span>
           {showStreak(chore) && <span className="shrink-0 text-xs text-success">🔥 {chore.currentStreak}</span>}
+        </div>
+
+        {/* Row 2: points + assignee name + due date (far right) */}
+        <div className="flex min-w-0 items-center gap-2">
+          <Badge tone="violet" className="shrink-0">{chore.points} pts</Badge>
+          {assignee && <span className="min-w-0 truncate text-xs text-muted-foreground">{assignee}</span>}
           {chore.dueAt && (
             <Badge tone={DUE_TONE[status]} className="ml-auto shrink-0">
               {formatDate(chore.dueAt)}{nextDueTimeLabel(chore) && ` · ${nextDueTimeLabel(chore)}`}
             </Badge>
           )}
-        </div>
-
-        {/* Row 2: points + assignee name */}
-        <div className="flex min-w-0 items-center gap-2">
-          <Badge tone="violet" className="shrink-0">{chore.points} pts</Badge>
-          {assignee && <span className="truncate text-xs text-muted-foreground">{assignee}</span>}
         </div>
       </button>
     </div>
