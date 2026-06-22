@@ -315,8 +315,8 @@ function ChoreStats({ choreId }: { choreId: string }) {
   )
 }
 
-/** Per-chore activity log (completions + skips). Admins can delete entries to fix up history;
- * deletion reverses the entry's points but doesn't reschedule the chore. */
+/** Per-chore activity log (completions, skips, and auto-expired slots). Admins can delete entries to
+ * fix up history; deletion reverses the entry's points but doesn't reschedule the chore. */
 function ActivityList({ choreId }: { choreId: string }) {
   const isAdmin = useAuthStore((s) => s.user?.role === 'Admin')
   const queryClient = useQueryClient()
@@ -338,15 +338,13 @@ function ActivityList({ choreId }: { choreId: string }) {
   })
 
   const onDelete = async (entry: ChoreHistoryEntry) => {
-    if (
-      await confirm({
-        title: entry.kind === 'skip' ? 'Delete skip' : 'Delete completion',
-        message: entry.kind === 'skip'
-          ? 'Delete this skip from the log? The chore schedule is not changed.'
-          : `Delete this completion? ${entry.pointsAwarded} points will be reversed and the chore schedule is not changed.`,
-        confirmLabel: 'Delete',
-      })
-    ) {
+    const { title, message } =
+      entry.kind === 'skip'
+        ? { title: 'Delete skip', message: 'Delete this skip from the log? The chore schedule is not changed.' }
+        : entry.kind === 'expired'
+          ? { title: 'Delete expired entry', message: 'Delete this auto-expired entry from the log? The chore schedule is not changed.' }
+          : { title: 'Delete completion', message: `Delete this completion? ${entry.pointsAwarded} points will be reversed and the chore schedule is not changed.` }
+    if (await confirm({ title, message, confirmLabel: 'Delete' })) {
       deleteMutation.mutate(entry.id)
     }
   }
@@ -381,7 +379,7 @@ function ActivityList({ choreId }: { choreId: string }) {
                 ) : (
                   <Badge tone="violet">+{entry.pointsAwarded} pts</Badge>
                 )}
-                {isAdmin && entry.kind !== 'expired' && (
+                {isAdmin && (
                   <button
                     type="button"
                     onClick={() => onDelete(entry)}

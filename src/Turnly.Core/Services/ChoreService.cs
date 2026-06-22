@@ -431,8 +431,9 @@ public class ChoreService
         return Result.Success();
     }
 
-    /// <summary>Admin-only deletion of a historical activity entry (completion or skip) — e.g. to
-    /// fix up the log. Unlike <see cref="UndoCompletionAsync"/>, this is pure history cleanup: it
+    /// <summary>Admin-only deletion of a historical activity entry (completion, skip, or auto-expired
+    /// slot) — e.g. to fix up the log. Unlike <see cref="UndoCompletionAsync"/>, this is pure history
+    /// cleanup: it
     /// reverses the entry's points but does <b>not</b> rewind the chore's current schedule or
     /// assignee, since the entry being removed is generally not the current occurrence.</summary>
     public async Task<Result> DeleteActivityAsync(Guid completionId, Guid actingUserId, CancellationToken ct = default)
@@ -446,10 +447,9 @@ public class ChoreService
         var completion = await _db.ChoreCompletions.FirstOrDefaultAsync(c => c.Id == completionId, ct);
         if (completion is null)
             return Result.Fail(Error.NotFound("Activity entry not found."));
-        if (completion.IsExpired)
-            return Result.Fail(Error.Forbidden("Auto-expired entries cannot be deleted."));
 
-        // Reverse points (a no-op for skips, which award none) and drop the rotation log, but leave
+        // Reverse points (a no-op for skips and expired rows, which award none) and drop the rotation
+        // log, but leave
         // chore.DueAt / CurrentAssigneeId untouched.
         var logEntry = await _db.PointsLog.FirstOrDefaultAsync(e => e.ChoreCompletionId == completionId, ct);
         if (logEntry is not null)

@@ -1306,7 +1306,7 @@ public class ChoreServiceTests
     }
 
     [Fact]
-    public async Task DeleteActivity_blocks_deletion_of_expired_entries()
+    public async Task DeleteActivity_removes_an_expired_entry()
     {
         using var ctx = new TestContext();
         var (admin, _) = await SeedUsersAsync(ctx);
@@ -1319,8 +1319,8 @@ public class ChoreServiceTests
 
         var result = await ctx.Chores.DeleteActivityAsync(expiredId, admin);
 
-        Assert.False(result.Succeeded);
-        Assert.Equal(ErrorType.Forbidden, result.Error!.Type);
+        Assert.True(result.Succeeded);
+        Assert.Null(await ctx.Db.ChoreCompletions.FindAsync(expiredId));
     }
 
     [Fact]
