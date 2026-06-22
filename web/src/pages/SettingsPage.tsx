@@ -1,14 +1,32 @@
 import { useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { authApi, notificationsApi, tagsApi, ApiError } from '@/lib/api'
+import { authApi, notificationsApi, settingsApi, tagsApi, ApiError } from '@/lib/api'
 import { toast } from '@/lib/toast'
 import { disablePush, enablePush, getCurrentEndpoint, isPushEnabled, pushPermission } from '@/lib/push'
 import { useAuthStore } from '@/store/auth'
 import { Button } from '@/components/ui/Button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
-import { Input, Label } from '@/components/ui/Field'
+import { Input, Label, Select } from '@/components/ui/Field'
 import { ColorPicker } from '@/components/ui/ColorPicker'
+
+// The browser's full IANA zone list (and the device's own zone), resolved once. Empty when the
+// browser is too old to support `Intl.supportedValuesOf`, in which case we fall back to a text input.
+const TIME_ZONES: string[] = (() => {
+  try {
+    const supported = (Intl as unknown as { supportedValuesOf?: (key: string) => string[] }).supportedValuesOf
+    return supported ? supported('timeZone') : []
+  } catch {
+    return []
+  }
+})()
+const DEVICE_TIME_ZONE: string = (() => {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone
+  } catch {
+    return ''
+  }
+})()
 
 export function SettingsPage() {
   const user = useAuthStore((s) => s.user)
@@ -43,6 +61,8 @@ export function SettingsPage() {
       <NotificationsCard />
 
       <QuietHoursCard />
+
+      {isAdmin && <TimezoneCard />}
 
       {isAdmin && <TagsCard />}
 
@@ -311,7 +331,7 @@ function QuietHoursCard() {
       <CardContent className="space-y-4">
         <p className="text-sm text-muted-foreground">
           Mute push notifications during these hours. They still arrive in your in-app inbox, so nothing
-          is missed — you just won’t get buzzed. A window like 22:00–07:00 spans midnight.
+          is missed. You just won’t get buzzed. A window like 22:00 to 07:00 spans midnight.
         </p>
         <label className="flex items-center gap-2 text-sm text-foreground">
           <input
@@ -337,6 +357,73 @@ function QuietHoursCard() {
         {invalid && <p className="text-sm text-destructive">Start and end can’t be the same time.</p>}
         <Button onClick={() => mutation.mutate()} disabled={!dirty || invalid || mutation.isPending}>
           {mutation.isPending ? 'Saving…' : 'Save quiet hours'}
+        </Button>
+      </CardContent>
+    </Card>
+  )
+}
+
+function TimezoneCard() {
+  const queryClient = useQueryClient()
+  const { data } = useQuery({ queryKey: ['app-settings'], queryFn: settingsApi.get })
+  const [selected, setSelected] = useState('')
+  const [touched, setTouched] = useState(false)
+
+  // Mirror the server value once loaded, unless the admin has started editing.
+  useEffect(() => {
+    if (data && !touched) setSelected(data.timeZone ?? '')
+  }, [data, touched])
+
+  const mutation = useMutation({
+    mutationFn: () => settingsApi.update(selected || null),
+    onSuccess: (updated) => {
+      queryClient.setQueryData(['app-settings'], updated)
+      setTouched(false)
+      toast.success('Timezone updated.')
+    },
+    onError: (err) => toast.error(err instanceof ApiError ? err.message : 'Something went wrong'),
+  })
+
+  const change = (value: string) => {
+    setSelected(value)
+    setTouched(true)
+  }
+  const serverTz = data?.serverTimeZone ?? ''
+  const dirty = data ? selected !== (data.timeZone ?? '') : false
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Timezone</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <p className="text-sm text-muted-foreground">
+          The timezone quiet hours are evaluated against. Set it to your family’s timezone so reminders
+          respect quiet hours correctly, no matter where the server runs.
+        </p>
+        <div className="space-y-2">
+          <Label htmlFor="tz">Family timezone</Label>
+          {TIME_ZONES.length > 0 ? (
+            <Select id="tz" value={selected} onChange={(e) => change(e.target.value)}>
+              <option value="">Server default{serverTz ? ` (${serverTz})` : ''}</option>
+              {TIME_ZONES.map((z) => (
+                <option key={z} value={z}>{z}</option>
+              ))}
+            </Select>
+          ) : (
+            <Input id="tz" value={selected} onChange={(e) => change(e.target.value)} placeholder="e.g. Europe/Zagreb" />
+          )}
+          {DEVICE_TIME_ZONE && DEVICE_TIME_ZONE !== selected && (
+            <button type="button" onClick={() => change(DEVICE_TIME_ZONE)} className="text-sm text-primary hover:underline">
+              Use this device’s timezone ({DEVICE_TIME_ZONE})
+            </button>
+          )}
+        </div>
+        {!selected && serverTz && (
+          <p className="text-xs text-muted-foreground">Currently using the server timezone: {serverTz}.</p>
+        )}
+        <Button onClick={() => mutation.mutate()} disabled={!dirty || mutation.isPending}>
+          {mutation.isPending ? 'Saving…' : 'Save timezone'}
         </Button>
       </CardContent>
     </Card>

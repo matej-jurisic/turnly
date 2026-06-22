@@ -365,7 +365,7 @@ function ActivityList({ choreId }: { choreId: string }) {
               <div className="flex min-w-0 items-center gap-1.5">
                 <Avatar
                   color={entry.actor?.avatarColor ?? 'var(--muted)'}
-                  name={entry.actor?.displayName ?? '—'}
+                  name={entry.actor?.displayName ?? '-'}
                   size={20}
                 />
                 <span className="truncate text-foreground">

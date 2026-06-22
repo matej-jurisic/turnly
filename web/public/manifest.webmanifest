@@ -1,7 +1,7 @@
 {
   "name": "Turnly",
   "short_name": "Turnly",
-  "description": "Family chore management — simple, self-hosted.",
+  "description": "Family chore management. Simple, self-hosted.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",

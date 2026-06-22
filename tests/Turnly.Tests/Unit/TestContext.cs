@@ -29,6 +29,7 @@ public sealed class TestContext : IDisposable
     public RedemptionService Redemptions { get; }
     public FakePushSender Push { get; }
     public NotificationService Notifications { get; }
+    public AppSettingsService Settings { get; }
 
     public TestContext()
     {
@@ -59,6 +60,7 @@ public sealed class TestContext : IDisposable
         Redemptions = new RedemptionService(Db);
         Push = new FakePushSender();
         Notifications = new NotificationService(Db, Push, NullLogger<NotificationService>.Instance);
+        Settings = new AppSettingsService(Db);
     }
 
     public void Dispose()

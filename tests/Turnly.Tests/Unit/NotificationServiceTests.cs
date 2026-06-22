@@ -200,6 +200,49 @@ public class NotificationServiceTests
     }
 
     [Fact]
+    public async Task ProcessDueAsync_evaluates_quiet_hours_in_the_configured_timezone()
+    {
+        using var ctx = new TestContext();
+        var (_, member) = await SeedUsersAsync(ctx);
+        await SeedChoreAsync(ctx, member, [member], AtDue(), Due);
+        await SubscribeAsync(ctx, member);
+
+        // UTC+5 family zone: the 12:00 UTC scan is 17:00 locally, inside the 16:00–18:00 window.
+        await ctx.Settings.SetTimeZoneAsync("Etc/GMT-5");
+        var user = await ctx.Db.Users.FirstAsync(u => u.Id == member);
+        user.QuietHoursStart = new TimeOnly(16, 0);
+        user.QuietHoursEnd = new TimeOnly(18, 0);
+        await ctx.Db.SaveChangesAsync();
+
+        var fired = await ctx.Notifications.ProcessDueAsync(Due);
+
+        Assert.Equal(1, fired);
+        Assert.Empty(ctx.Push.Sent);   // muted in the configured zone
+        Assert.Single(await ctx.Notifications.ListInboxAsync(member));
+    }
+
+    [Fact]
+    public async Task ProcessDueAsync_sends_when_the_configured_timezone_is_outside_quiet_hours()
+    {
+        using var ctx = new TestContext();
+        var (_, member) = await SeedUsersAsync(ctx);
+        await SeedChoreAsync(ctx, member, [member], AtDue(), Due);
+        await SubscribeAsync(ctx, member);
+
+        // Same 16:00–18:00 window, but in UTC the 12:00 scan is outside it, so the push goes through.
+        await ctx.Settings.SetTimeZoneAsync("UTC");
+        var user = await ctx.Db.Users.FirstAsync(u => u.Id == member);
+        user.QuietHoursStart = new TimeOnly(16, 0);
+        user.QuietHoursEnd = new TimeOnly(18, 0);
+        await ctx.Db.SaveChangesAsync();
+
+        var fired = await ctx.Notifications.ProcessDueAsync(Due);
+
+        Assert.Equal(1, fired);
+        Assert.Single(ctx.Push.Sent);
+    }
+
+    [Fact]
     public async Task ProcessDueAsync_prunes_dead_subscriptions()
     {
         using var ctx = new TestContext();

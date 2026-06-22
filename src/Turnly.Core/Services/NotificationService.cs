@@ -230,6 +230,14 @@ public class NotificationService
         if (chores.Count == 0)
             return 0;
 
+        // Quiet hours are a local wall-clock window, so evaluate "now" in the configured family
+        // timezone (falling back to the server's local zone when unset) rather than UTC.
+        var tzId = await _db.AppSettings
+            .Where(s => s.Key == AppSettingsService.TimeZoneKey)
+            .Select(s => s.Value)
+            .FirstOrDefaultAsync(ct);
+        var localNow = TimeOnly.FromTimeSpan(TimeZoneInfo.ConvertTime(now, TimeZoneResolver.Resolve(tzId)).TimeOfDay);
+
         var choreIds = chores.Select(c => c.Id).ToList();
 
         // Dedup set keyed by (entry, occurrence, track owner). UtcTicks avoids any DateTimeOffset
@@ -272,7 +280,7 @@ public class NotificationService
                     {
                         if (track.DueAt is not { } trackDue) continue;
                         if (await TryFireAsync(chore, entry, trackDue, track.UserId, [track.UserId],
-                                delivered, subsByUser, quietByUser, now, ct))
+                                delivered, subsByUser, quietByUser, localNow, now, ct))
                             fired++;
                     }
                 }
@@ -285,7 +293,7 @@ public class NotificationService
                         .Distinct()
                         .ToList();
                     if (await TryFireAsync(chore, entry, dueAt, dedupUserId: null, recipients,
-                            delivered, subsByUser, quietByUser, now, ct))
+                            delivered, subsByUser, quietByUser, localNow, now, ct))
                         fired++;
                 }
             }
@@ -303,7 +311,7 @@ public class NotificationService
         Chore chore, ChoreNotification entry, DateTimeOffset occurrenceDueAt, Guid? dedupUserId,
         IReadOnlyList<Guid> recipientIds, HashSet<(Guid, long, Guid?)> delivered,
         Dictionary<Guid, List<PushSubscription>> subsByUser,
-        Dictionary<Guid, (TimeOnly? Start, TimeOnly? End)> quietByUser, DateTimeOffset now, CancellationToken ct)
+        Dictionary<Guid, (TimeOnly? Start, TimeOnly? End)> quietByUser, TimeOnly localNow, DateTimeOffset now, CancellationToken ct)
     {
         var fireAt = NotificationPlanner.FireTime(entry, occurrenceDueAt);
         if (fireAt > now || fireAt < now - StaleWindow)
@@ -315,7 +323,7 @@ public class NotificationService
 
         // In track mode the message names the track owner; otherwise the chore's current assignee.
         await SendEntryAsync(chore, entry, occurrenceDueAt, recipientIds,
-            dedupUserId ?? chore.CurrentAssigneeId, subsByUser, quietByUser, now, ct);
+            dedupUserId ?? chore.CurrentAssigneeId, subsByUser, quietByUser, localNow, now, ct);
 
         _db.NotificationDeliveries.Add(new NotificationDelivery
         {
@@ -331,7 +339,7 @@ public class NotificationService
     private async Task SendEntryAsync(
         Chore chore, ChoreNotification entry, DateTimeOffset occurrenceDueAt, IReadOnlyList<Guid> recipientIds,
         Guid? messageAssigneeId, Dictionary<Guid, List<PushSubscription>> subsByUser,
-        Dictionary<Guid, (TimeOnly? Start, TimeOnly? End)> quietByUser, DateTimeOffset now, CancellationToken ct)
+        Dictionary<Guid, (TimeOnly? Start, TimeOnly? End)> quietByUser, TimeOnly localNow, DateTimeOffset now, CancellationToken ct)
     {
         var (title, body) = BuildMessage(chore, entry, occurrenceDueAt, messageAssigneeId, now);
         var payload = JsonSerializer.Serialize(new
@@ -341,10 +349,6 @@ public class NotificationService
             url = $"/chores?chore={chore.Id}",
             choreId = chore.Id
         });
-
-        // Quiet hours are a local-time-of-day window; the scheduler runs in UTC, so compare against
-        // the server's local clock (a self-hosted family server's configured timezone).
-        var localNow = TimeOnly.FromTimeSpan(now.ToLocalTime().TimeOfDay);
 
         var attempted = 0;
         foreach (var userId in recipientIds)

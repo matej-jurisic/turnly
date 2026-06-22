@@ -67,7 +67,7 @@ export function NotificationsEditor({ value, onChange, independent = false }: Pr
       </div>
 
       {value.length === 0 ? (
-        <p className="text-sm text-muted-foreground">No notifications — add one to send push reminders.</p>
+        <p className="text-sm text-muted-foreground">No notifications yet. Add one to send push reminders.</p>
       ) : (
         <div className="space-y-2">
           {value.map((entry, i) => (

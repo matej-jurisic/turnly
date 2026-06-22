@@ -54,6 +54,12 @@ public record SetPasswordRequest(string NewPassword);
 
 public record AdjustPointsRequest(int Delta, string? Description);
 
+/// <summary>App-wide settings. <see cref="TimeZone"/> is the configured family zone (null = unset);
+/// <see cref="ServerTimeZone"/> is the host's local zone, used as the fallback and shown in the UI.</summary>
+public record AppSettingsDto(string? TimeZone, string ServerTimeZone);
+
+public record UpdateAppSettingsRequest(string? TimeZone);
+
 public record ChoreDto(
     Guid Id,
     string Name,

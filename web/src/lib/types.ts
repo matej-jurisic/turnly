@@ -22,6 +22,13 @@ export interface ProfileUpdate {
   quietHoursEnd?: string | null
 }
 
+/** App-wide settings (admin). `timeZone` is the configured family zone (null = unset, falls back to
+ * `serverTimeZone`); it's the zone quiet hours are evaluated against server-side. */
+export interface AppSettings {
+  timeZone: string | null
+  serverTimeZone: string
+}
+
 export interface LeaderboardEntry {
   id: string
   displayName: string

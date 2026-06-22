@@ -27,7 +27,7 @@ export function CopyChoreModal({ chore, onClose, onDone }: { chore: Chore; onClo
       >
         <p className="text-sm text-muted-foreground">
           Create a copy of <span className="font-semibold text-foreground">{chore.name}</span> with all the
-          same settings. The copy starts fresh — no completion history is carried over.
+          same settings. The copy starts fresh, with no completion history carried over.
         </p>
         <div className="space-y-1.5">
           <Label htmlFor="copy-name">Name</Label>

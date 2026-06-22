@@ -89,6 +89,7 @@ app.MapTagEndpoints();
 app.MapHistoryEndpoints();
 app.MapAwardEndpoints();
 app.MapNotificationEndpoints();
+app.MapSettingsEndpoints();
 
 // SPA fallback: any non-API route serves the built frontend.
 app.MapFallbackToFile("index.html");

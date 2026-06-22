@@ -1,5 +1,6 @@
 import { useAuthStore } from '@/store/auth'
 import type {
+  AppSettings,
   AuthResponse,
   Award,
   Chore,
@@ -160,6 +161,12 @@ export const tagsApi = {
   list: () => request<Tag[]>('/tags'),
   create: (name: string) => request<Tag>('/tags', { method: 'POST', body: json({ name }) }),
   remove: (id: string) => request<void>(`/tags/${id}`, { method: 'DELETE' }),
+}
+
+export const settingsApi = {
+  get: () => request<AppSettings>('/settings'),
+  update: (timeZone: string | null) =>
+    request<AppSettings>('/settings', { method: 'PUT', body: json({ timeZone }) }),
 }
 
 export const awardsApi = {

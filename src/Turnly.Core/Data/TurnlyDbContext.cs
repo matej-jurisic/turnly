@@ -25,6 +25,7 @@ public class TurnlyDbContext : DbContext
     public DbSet<PushSubscription> PushSubscriptions => Set<PushSubscription>();
     public DbSet<NotificationDelivery> NotificationDeliveries => Set<NotificationDelivery>();
     public DbSet<UserNotification> UserNotifications => Set<UserNotification>();
+    public DbSet<AppSetting> AppSettings => Set<AppSetting>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
@@ -107,6 +108,13 @@ public class TurnlyDbContext : DbContext
             e.HasKey(x => x.Id);
             e.HasIndex(x => x.Name).IsUnique();
             e.Property(x => x.Name).IsRequired().HasMaxLength(64);
+        });
+
+        b.Entity<AppSetting>(e =>
+        {
+            e.HasKey(x => x.Key);
+            e.Property(x => x.Key).HasMaxLength(64);
+            e.Property(x => x.Value).IsRequired().HasMaxLength(256);
         });
 
         b.Entity<ChoreCompletion>(e =>
