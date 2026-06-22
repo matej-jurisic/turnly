@@ -106,6 +106,12 @@ body,
   height: 100%;
 }
 
+/* Reserve the scrollbar's space at all times so the layout doesn't shift when content
+ * grows past one viewport (or a modal toggles page scroll). */
+html {
+  scrollbar-gutter: stable;
+}
+
 body {
   margin: 0;
   background-color: var(--background);

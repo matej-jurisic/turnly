@@ -18,17 +18,12 @@ import { ChoreFormModal } from '@/components/chores/ChoreFormModal'
 import { ReassignModal } from '@/components/chores/ReassignModal'
 import { CopyChoreModal } from '@/components/chores/CopyChoreModal'
 import { RescheduleModal } from '@/components/chores/RescheduleModal'
-import { ChoreFilters, emptyFilters, type ChoreFilterState } from '@/components/chores/ChoreFilters'
+import {
+  ChoreFilters, emptyFilters, type ChoreFilterState, type ChoreView,
+} from '@/components/chores/ChoreFilters'
 import { choreDueStatus } from '@/lib/chore-format'
-import { cn } from '@/lib/utils'
 
-type ChoreView = 'list' | 'compact' | 'calendar'
 const VIEW_KEY = 'turnly:chore-view'
-const VIEW_OPTIONS: { value: ChoreView; label: string }[] = [
-  { value: 'list', label: 'List' },
-  { value: 'compact', label: 'Compact' },
-  { value: 'calendar', label: 'Calendar' },
-]
 
 export function ChoresPage() {
   const currentUser = useAuthStore((s) => s.user)
@@ -179,28 +174,17 @@ export function ChoresPage() {
 
   return (
     <div className="space-y-4 pb-24 md:space-y-6">
-      {/* View switcher + filters */}
+      {/* Quick views + view switcher + filters (round icon toolbar) */}
       {(chores ?? []).length > 0 && (
-        <div className="space-y-4">
-          <div className="flex justify-end">
-            <div className="inline-flex rounded-lg border border-border p-0.5 text-sm">
-              {VIEW_OPTIONS.map((o) => (
-                <button
-                  key={o.value}
-                  type="button"
-                  onClick={() => changeView(o.value)}
-                  className={cn(
-                    'rounded-md px-3 py-1 transition-colors',
-                    view === o.value ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-accent',
-                  )}
-                >
-                  {o.label}
-                </button>
-              ))}
-            </div>
-          </div>
-          <ChoreFilters value={filters} onChange={setFilters} tags={allTags} assignees={allAssignees} currentUserId={currentUser?.id} />
-        </div>
+        <ChoreFilters
+          value={filters}
+          onChange={setFilters}
+          tags={allTags}
+          assignees={allAssignees}
+          currentUserId={currentUser?.id}
+          view={view}
+          onViewChange={changeView}
+        />
       )}
 
       {isLoading && <p className="text-muted-foreground">Loading…</p>}
@@ -214,7 +198,7 @@ export function ChoresPage() {
       )}
 
       {view === 'calendar' && (chores ?? []).length > 0 && (
-        <ChoreCalendar chores={filtered} onSelect={setDetails} />
+        <ChoreCalendar chores={filtered} itemProps={itemProps} />
       )}
 
       {view !== 'calendar' &&

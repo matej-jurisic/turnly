@@ -47,7 +47,7 @@ export function ChoreListItem({
       <div className="absolute left-4 top-0 z-10 flex -translate-y-1/2 items-center gap-2">
         {chore.dueAt && (
           <Badge tone="amber" className="border border-warning bg-card">
-            Due {formatDate(chore.dueAt)}{nextDueTimeLabel(chore) && ` · ${nextDueTimeLabel(chore)}`}
+            {formatDate(chore.dueAt)}{nextDueTimeLabel(chore) && ` · ${nextDueTimeLabel(chore)}`}
           </Badge>
         )}
         {chore.completionsRequired > 1 ? (

@@ -1,8 +1,7 @@
 import type { Chore } from '@/lib/types'
 import { Badge } from '@/components/ui/Badge'
-import { Avatar } from '@/components/ui/Modal'
 import {
-  choreHasDueTime, dueStatus, formatDate, isIndependent, nextDueTimeLabel, showStreak, trackIsDone,
+  choreHasDueTime, dueStatus, formatDate, isIndependent, nextDueTimeLabel, showStreak,
 } from '@/lib/chore-format'
 import { CheckIcon } from '@/components/chores/icons'
 import { ChoreMenu } from '@/components/chores/ChoreMenu'
@@ -28,11 +27,20 @@ export interface ChoreItemProps {
 
 const DUE_TONE = { overdue: 'red', today: 'amber', upcoming: 'blue', later: 'neutral' } as const
 
-/** A dense single-row chore layout for the compact view. Same actions as `ChoreListItem`, less chrome. */
+/** Plain-text assignee label (no avatar) for the compact row's second line. Independent chores list
+ * every track owner; rotating chores show the current assignee. */
+function assigneeLabel(chore: Chore): string {
+  if (isIndependent(chore)) return chore.tracks.map((t) => t.user.displayName).join(', ')
+  return chore.currentAssignee?.displayName ?? ''
+}
+
+/** A dense two-row chore layout for the compact view: name + due date on top, points + assignee
+ * below. Same actions as `ChoreListItem`, less chrome. */
 export function ChoreCompactItem(props: ChoreItemProps) {
   const { chore, onComplete, onDetails } = props
   const canComplete = Boolean(chore.dueAt)
   const status = dueStatus(chore.dueAt, choreHasDueTime(chore))
+  const assignee = assigneeLabel(chore)
 
   return (
     <div className="flex items-center gap-3 px-4 py-2.5">
@@ -49,38 +57,26 @@ export function ChoreCompactItem(props: ChoreItemProps) {
       <button
         type="button"
         onClick={onDetails}
-        className="flex min-w-0 flex-1 items-center gap-2 text-left"
+        className="flex min-w-0 flex-1 flex-col gap-1 text-left"
       >
-        {chore.emoji && <span className="shrink-0 text-base leading-none">{chore.emoji}</span>}
-        <span className="truncate text-sm font-medium text-foreground">{chore.name}</span>
-        {showStreak(chore) && <span className="shrink-0 text-xs text-success">🔥 {chore.currentStreak}</span>}
-      </button>
-
-      {chore.dueAt && (
-        <Badge tone={DUE_TONE[status]} className="hidden shrink-0 sm:inline-flex">
-          {formatDate(chore.dueAt)}{nextDueTimeLabel(chore) && ` · ${nextDueTimeLabel(chore)}`}
-        </Badge>
-      )}
-
-      <Badge tone="violet" className="hidden shrink-0 sm:inline-flex">{chore.points} pts</Badge>
-
-      {isIndependent(chore) ? (
-        <div className="flex shrink-0 items-center -space-x-1.5">
-          {chore.tracks.map((t) => (
-            <span
-              key={t.user.id}
-              title={t.user.displayName}
-              className={'flex rounded-full ring-2 ring-card ' + (trackIsDone(chore, t) ? 'grayscale' : '')}
-            >
-              <Avatar color={t.user.avatarColor} name={t.user.displayName} size={22} />
-            </span>
-          ))}
+        {/* Row 1: name + due date */}
+        <div className="flex min-w-0 items-center gap-2">
+          {chore.emoji && <span className="shrink-0 text-base leading-none">{chore.emoji}</span>}
+          <span className="truncate text-sm font-medium text-foreground">{chore.name}</span>
+          {showStreak(chore) && <span className="shrink-0 text-xs text-success">🔥 {chore.currentStreak}</span>}
+          {chore.dueAt && (
+            <Badge tone={DUE_TONE[status]} className="ml-auto shrink-0">
+              {formatDate(chore.dueAt)}{nextDueTimeLabel(chore) && ` · ${nextDueTimeLabel(chore)}`}
+            </Badge>
+          )}
         </div>
-      ) : (
-        chore.currentAssignee && (
-          <Avatar color={chore.currentAssignee.avatarColor} name={chore.currentAssignee.displayName} size={22} />
-        )
-      )}
+
+        {/* Row 2: points + assignee name */}
+        <div className="flex min-w-0 items-center gap-2">
+          <Badge tone="violet" className="shrink-0">{chore.points} pts</Badge>
+          {assignee && <span className="truncate text-xs text-muted-foreground">{assignee}</span>}
+        </div>
+      </button>
 
       <ChoreMenu {...props} />
     </div>
