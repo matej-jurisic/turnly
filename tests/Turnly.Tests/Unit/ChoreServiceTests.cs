@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Turnly.Core.Common;
 using Turnly.Core.Dtos;
+using Turnly.Core.Entities;
 using Turnly.Core.Enums;
 
 namespace Turnly.Tests.Unit;
@@ -1355,5 +1356,89 @@ public class ChoreServiceTests
 
         var dto = (await ctx.Chores.GetAsync(chore.Id)).Value!;
         Assert.Equal(0, dto.OccurrenceProgress); // fresh occurrence
+    }
+
+    // ── Streaks ──────────────────────────────────────────────────────────────
+
+    /// <summary>Logs a completed occurrence directly so the on-time/late relationship is
+    /// deterministic regardless of wall-clock time.</summary>
+    private static async Task LogCompletionAsync(TestContext ctx, Guid choreId, Guid userId,
+        DateTimeOffset due, double lateHours = 0, bool isSkip = false)
+    {
+        ctx.Db.ChoreCompletions.Add(new ChoreCompletion
+        {
+            ChoreId = choreId,
+            CompletedByUserId = userId,
+            OccurrenceDueAt = due,
+            CompletedAt = due.AddHours(lateHours),
+            IsSkip = isSkip,
+        });
+        await ctx.Db.SaveChangesAsync();
+    }
+
+    [Fact]
+    public async Task GetAsync_surfaces_on_time_streak()
+    {
+        using var ctx = new TestContext();
+        var (_, member) = await SeedUsersAsync(ctx);
+        var chore = (await ctx.Chores.CreateAsync(NewChore(member, [member], RepeatType.Weekly))).Value!;
+
+        await LogCompletionAsync(ctx, chore.Id, member, Start, lateHours: -1);
+        await LogCompletionAsync(ctx, chore.Id, member, Start.AddDays(7), lateHours: -2);
+
+        var dto = (await ctx.Chores.GetAsync(chore.Id)).Value!;
+        Assert.Equal(2, dto.CurrentStreak);
+    }
+
+    [Fact]
+    public async Task GetAsync_late_completion_breaks_streak()
+    {
+        using var ctx = new TestContext();
+        var (_, member) = await SeedUsersAsync(ctx);
+        var chore = (await ctx.Chores.CreateAsync(NewChore(member, [member], RepeatType.Weekly))).Value!;
+
+        await LogCompletionAsync(ctx, chore.Id, member, Start, lateHours: -1);
+        await LogCompletionAsync(ctx, chore.Id, member, Start.AddDays(7), lateHours: 3); // newest is late
+
+        var dto = (await ctx.Chores.GetAsync(chore.Id)).Value!;
+        Assert.Equal(0, dto.CurrentStreak);
+    }
+
+    // ── Copy ─────────────────────────────────────────────────────────────────
+
+    [Fact]
+    public async Task CopyAsync_duplicates_settings_under_new_name_with_no_history()
+    {
+        using var ctx = new TestContext();
+        var (admin, member) = await SeedUsersAsync(ctx);
+        var source = (await ctx.Chores.CreateAsync(NewChore(member, [admin, member], RepeatType.Weekly,
+            points: 25, strategy: AssignmentStrategy.RoundRobin, tags: ["kitchen"]))).Value!;
+        await ctx.Chores.CompleteAsync(source.Id, member, new CompleteChoreRequest("done"));
+
+        var copy = await ctx.Chores.CopyAsync(source.Id, "Dishes (copy)");
+
+        Assert.True(copy.Succeeded);
+        Assert.NotEqual(source.Id, copy.Value!.Id);
+        Assert.Equal("Dishes (copy)", copy.Value.Name);
+        Assert.Equal(25, copy.Value.Points);
+        Assert.Equal(RepeatType.Weekly, copy.Value.RepeatType);
+        Assert.Equal(AssignmentStrategy.RoundRobin, copy.Value.AssignmentStrategy);
+        Assert.Equal(2, copy.Value.Assignees.Length);
+        Assert.Equal(["kitchen"], copy.Value.Tags);
+        // The copy starts fresh — no completion history carried over.
+        Assert.Equal(0, await ctx.Db.ChoreCompletions.CountAsync(c => c.ChoreId == copy.Value.Id));
+        Assert.Null(copy.Value.LastCompletion);
+    }
+
+    [Fact]
+    public async Task CopyAsync_returns_not_found_for_unknown_chore()
+    {
+        using var ctx = new TestContext();
+        await SeedUsersAsync(ctx);
+
+        var result = await ctx.Chores.CopyAsync(Guid.NewGuid(), "Whatever");
+
+        Assert.False(result.Succeeded);
+        Assert.Equal(ErrorType.NotFound, result.Error!.Type);
     }
 }

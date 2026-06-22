@@ -10,7 +10,7 @@ import { SkipIcon, TrashIcon } from '@/components/chores/icons'
 import {
   calendarDaysAgo, choreDueStatus, choreHasDueTime, completionProgressLabel, dueStatus, formatDate, formatGrace,
   isIndependent, notificationRecipientsLabel, notificationTimingLabel, notificationTypeLabel,
-  relativeDayLabel, repeatLabel, trackIsDone, trackStatusText, STRATEGY_LABELS, SCHEDULING_LABELS,
+  relativeDayLabel, repeatLabel, showStreak, trackIsDone, trackStatusText, STRATEGY_LABELS, SCHEDULING_LABELS,
 } from '@/lib/chore-format'
 
 interface ChoreDetailsModalProps {
@@ -74,6 +74,9 @@ export function ChoreDetailsModal({ chore, onClose, onComplete }: ChoreDetailsMo
           {chore.completionsRequired > 1 && (
             <Badge tone="neutral">{completionProgressLabel(chore)}</Badge>
           )}
+          {!isIndependent(chore) && showStreak(chore) && (
+            <Badge tone="green">🔥 {chore.currentStreak} streak</Badge>
+          )}
         </div>
 
         {/* Per-person schedules (track mode) */}
@@ -93,7 +96,10 @@ export function ChoreDetailsModal({ chore, onClose, onComplete }: ChoreDetailsMo
                     <div className="flex min-w-0 items-center gap-2">
                       <Avatar color={t.user.avatarColor} name={t.user.displayName} size={20} />
                       <div className="min-w-0">
-                        <span className="block truncate text-sm text-foreground">{t.user.displayName}</span>
+                        <span className="flex items-center gap-1.5 truncate text-sm text-foreground">
+                          {t.user.displayName}
+                          {t.streak >= 2 && <span className="text-xs text-success">🔥 {t.streak}</span>}
+                        </span>
                         <span
                           className={
                             'block text-xs ' +

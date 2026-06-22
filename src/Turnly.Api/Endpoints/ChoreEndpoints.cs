@@ -31,6 +31,15 @@ public static class ChoreEndpoints
                 : result.Error!.ToProblem();
         }).RequireAuthorization("Admin");
 
+        // Duplicate an existing chore under a new name (admin only, like create).
+        group.MapPost("/{id:guid}/copy", async (Guid id, CopyChoreRequest req, ChoreService chores, CancellationToken ct) =>
+        {
+            var result = await chores.CopyAsync(id, req.NewName, ct);
+            return result.Succeeded
+                ? Results.Created($"/api/chores/{result.Value!.Id}", result.Value)
+                : result.Error!.ToProblem();
+        }).RequireAuthorization("Admin");
+
         group.MapPut("/{id:guid}", async (Guid id, UpdateChoreRequest req, ChoreService chores, CancellationToken ct) =>
         {
             var result = await chores.UpdateAsync(id, req, ct);

@@ -138,6 +138,8 @@ export const choresApi = {
   create: (body: CreateChoreRequest) => request<Chore>('/chores', { method: 'POST', body: json(body) }),
   update: (id: string, body: UpdateChoreRequest) =>
     request<Chore>(`/chores/${id}`, { method: 'PUT', body: json(body) }),
+  copy: (id: string, body: { newName: string }) =>
+    request<Chore>(`/chores/${id}/copy`, { method: 'POST', body: json(body) }),
   remove: (id: string) => request<void>(`/chores/${id}`, { method: 'DELETE' }),
   complete: (id: string, body: CompleteChoreRequest) =>
     request<Chore>(`/chores/${id}/complete`, { method: 'POST', body: json(body) }),

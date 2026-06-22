@@ -4,7 +4,7 @@ import { Card } from '@/components/ui/Card'
 import { Avatar } from '@/components/ui/Modal'
 import {
   choreHasDueTime, completionProgressLabel, dueStatus, formatDate, isIndependent,
-  nextDueTimeLabel, repeatLabel, trackIsDone, trackStatusText,
+  nextDueTimeLabel, repeatLabel, showStreak, trackIsDone, trackStatusText,
 } from '@/lib/chore-format'
 import { CheckIcon } from '@/components/chores/icons'
 import { ChoreMenu } from '@/components/chores/ChoreMenu'
@@ -22,6 +22,7 @@ export function ChoreListItem({
   onReassign,
   onReschedule,
   onEdit,
+  onCopy,
   onDelete,
   onDetails,
 }: {
@@ -36,6 +37,7 @@ export function ChoreListItem({
   onReassign: () => void
   onReschedule: () => void
   onEdit: () => void
+  onCopy: () => void
   onDelete: () => void
   onDetails: () => void
 }) {
@@ -54,6 +56,9 @@ export function ChoreListItem({
           </Badge>
         ) : (
           <Badge tone="blue" className="border border-info bg-card">{repeatLabel(chore)}</Badge>
+        )}
+        {showStreak(chore) && (
+          <Badge tone="green" className="border border-success bg-card">🔥 {chore.currentStreak}</Badge>
         )}
       </div>
       <SwipeRow onSwipeRight={canComplete ? onComplete : undefined} onSwipeLeft={onDetails}>
@@ -87,6 +92,7 @@ export function ChoreListItem({
                   onReassign={onReassign}
                   onReschedule={onReschedule}
                   onEdit={onEdit}
+                  onCopy={onCopy}
                   onDelete={onDelete}
                 />
               </div>

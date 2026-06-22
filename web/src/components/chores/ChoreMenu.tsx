@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { Chore } from '@/lib/types'
 import { isIndependent } from '@/lib/chore-format'
 import {
-  DotsIcon, InfoIcon, SkipIcon, ReassignIcon, UndoIcon, CalendarIcon, EditIcon, TrashIcon,
+  DotsIcon, InfoIcon, SkipIcon, ReassignIcon, UndoIcon, CalendarIcon, EditIcon, CopyIcon, TrashIcon,
 } from '@/components/chores/icons'
 
 export interface ChoreMenuProps {
@@ -17,10 +17,11 @@ export interface ChoreMenuProps {
   onReassign: () => void
   onReschedule: () => void
   onEdit: () => void
+  onCopy: () => void
   onDelete: () => void
 }
 
-export function ChoreMenu({ chore, isAdmin, undoPending, skipPending, deletePending, onDetails, onUndo, onSkip, onReassign, onReschedule, onEdit, onDelete }: ChoreMenuProps) {
+export function ChoreMenu({ chore, isAdmin, undoPending, skipPending, deletePending, onDetails, onUndo, onSkip, onReassign, onReschedule, onEdit, onCopy, onDelete }: ChoreMenuProps) {
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
 
@@ -114,6 +115,14 @@ export function ChoreMenu({ chore, isAdmin, undoPending, skipPending, deletePend
               >
                 <EditIcon />
                 Edit
+              </button>
+              <button
+                type="button"
+                onClick={() => { setOpen(false); onCopy() }}
+                className="flex w-full items-center gap-2 px-3 py-2 text-sm text-foreground transition-colors hover:bg-accent"
+              >
+                <CopyIcon />
+                Copy
               </button>
               <button
                 type="button"

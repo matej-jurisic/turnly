@@ -83,11 +83,12 @@ public record ChoreDto(
     ChoreNotificationDto[] Notifications,
     ChoreCompletionDto? LastCompletion,
     int? OccurrenceProgress,
+    int CurrentStreak,
     ChoreAssigneeTrackDto[] Tracks,
     DateTimeOffset CreatedAt)
 {
     public static ChoreDto FromEntity(Chore c, ChoreCompletion? lastCompletion = null, int? occurrenceProgress = null,
-        User? nextAssignee = null, ChoreAssigneeTrackDto[]? tracks = null) =>
+        User? nextAssignee = null, ChoreAssigneeTrackDto[]? tracks = null, int currentStreak = 0) =>
         new(c.Id, c.Name, c.Description, c.Emoji, c.Points, c.RepeatType,
             c.CustomMode, c.IntervalCount, c.IntervalUnit,
             c.Weekdays.ToArray(), c.WeeksOfMonth.ToArray(), c.DaysOfMonth.ToArray(), c.Months.ToArray(),
@@ -102,6 +103,7 @@ public record ChoreDto(
             c.Notifications.OrderBy(n => n.CreatedAt).Select(ChoreNotificationDto.FromEntity).ToArray(),
             lastCompletion is null ? null : ChoreCompletionDto.FromEntity(lastCompletion),
             occurrenceProgress,
+            currentStreak,
             tracks ?? [],
             c.CreatedAt);
 }
@@ -116,7 +118,8 @@ public record ChoreAssigneeTrackDto(
     DateTimeOffset? DueAt,
     int CompletionsRequired,
     int Progress,
-    bool Started);
+    bool Started,
+    int Streak);
 
 public record ChoreNotificationDto(
     Guid Id,
@@ -247,6 +250,8 @@ public record UpdateChoreRequest(
     string? DueTime = null,
     TrackInput[]? Tracks = null,
     string[]? TimesOfDay = null) : IChoreInput;
+
+public record CopyChoreRequest(string NewName);
 
 public record CompleteChoreRequest(string? Notes, Guid? CompletedByUserId = null);
 

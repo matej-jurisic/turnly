@@ -140,6 +140,8 @@ export interface ChoreTrack {
    * is just the not-yet-reached first occurrence (start date in the future) from one reached by
    * completing the prior occurrence. */
   started: boolean
+  /** This assignee's current on-time streak (consecutive occurrences completed on/before due). */
+  streak: number
 }
 
 /** Custom-recurrence parameters; which fields apply depends on `customMode`. */
@@ -194,6 +196,9 @@ export interface Chore extends RecurrenceFields {
   /** Completions logged against the current occurrence (only for multi-completion chores). For
    * track-mode chores this is the *viewing user's* track progress. */
   occurrenceProgress?: number | null
+  /** Consecutive occurrences completed on/before their due date. For track-mode chores this is the
+   * *viewing user's* own streak (per-assignee streaks live on `tracks`). */
+  currentStreak: number
   /** Per-assignee schedules, present only for `Independent` chores. `dueAt`/`occurrenceProgress`
    * above are personalised to the viewing user's own track. */
   tracks: ChoreTrack[]

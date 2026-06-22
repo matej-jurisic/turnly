@@ -50,6 +50,29 @@ public class ChoreManagementTests : IDisposable
     }
 
     [Fact]
+    public async Task Admin_can_copy_a_chore_but_member_cannot()
+    {
+        var (admin, adminAuth) = await AdminClientAsync();
+        await admin.PostJsonAsync("/api/users",
+            new CreateUserRequest("kid", "Kid", "kidpass1", UserRole.Member, null));
+        var member = _factory.CreateClient();
+        await member.LoginAsync("kid", "kidpass1");
+
+        var source = await (await admin.PostJsonAsync("/api/chores", NewChore(adminAuth.User.Id, ["kitchen"])))
+            .ReadAsync<ChoreDto>();
+
+        var copyResp = await admin.PostJsonAsync($"/api/chores/{source.Id}/copy", new CopyChoreRequest("Dishes (copy)"));
+        Assert.Equal(HttpStatusCode.Created, copyResp.StatusCode);
+        var copy = await copyResp.ReadAsync<ChoreDto>();
+        Assert.NotEqual(source.Id, copy.Id);
+        Assert.Equal("Dishes (copy)", copy.Name);
+        Assert.Contains("kitchen", copy.Tags);
+
+        var forbidden = await member.PostJsonAsync($"/api/chores/{source.Id}/copy", new CopyChoreRequest("Nope"));
+        Assert.Equal(HttpStatusCode.Forbidden, forbidden.StatusCode);
+    }
+
+    [Fact]
     public async Task Member_cannot_create_but_can_complete_a_chore()
     {
         var (admin, _) = await AdminClientAsync();

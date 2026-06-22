@@ -83,6 +83,31 @@ public class ChoreService
         return await GetAsync(chore.Id, ct: ct);
     }
 
+    /// <summary>Duplicates an existing chore under a new name, carrying over all settings
+    /// (recurrence, assignees, tags, notifications, per-assignee tracks) but no completion history —
+    /// the copy is created through the normal create path, so its schedule starts fresh.</summary>
+    public async Task<Result<ChoreDto>> CopyAsync(Guid id, string newName, CancellationToken ct = default)
+    {
+        var src = await Query().AsNoTracking().FirstOrDefaultAsync(c => c.Id == id, ct);
+        if (src is null)
+            return Result.Fail<ChoreDto>(Error.NotFound("Chore not found."));
+
+        var req = new CreateChoreRequest(
+            newName, src.Description, src.Emoji, src.Points, src.RepeatType, src.CustomMode,
+            src.IntervalCount, src.IntervalUnit, src.Weekdays.ToArray(), src.WeeksOfMonth.ToArray(),
+            src.DaysOfMonth.ToArray(), src.Months.ToArray(), src.CompletionsRequired,
+            src.RotateOnEachCompletion, src.AssignmentStrategy, src.SchedulingPreference,
+            src.GraceMinutes, src.AutoAdvanceIncomplete, src.CompletionWindowMinutes, src.StartDate,
+            src.Assignees.Select(a => a.Id).ToArray(), src.CurrentAssigneeId,
+            src.Tags.Select(t => t.Name).ToArray(),
+            src.Notifications.Select(n => new ChoreNotificationInput(n.Type, n.Timing, n.OffsetValue, n.OffsetUnit, n.Recipients)).ToArray(),
+            src.DueTime?.ToString("HH\\:mm"),
+            src.AssigneeTracks.Select(t => new TrackInput(t.UserId, t.CompletionsRequired)).ToArray(),
+            src.TimesOfDay.Select(t => t.ToString("HH\\:mm")).ToArray());
+
+        return await CreateAsync(req, ct);
+    }
+
     public async Task<Result<ChoreDto>> UpdateAsync(Guid id, UpdateChoreRequest req, CancellationToken ct = default)
     {
         var validation = await ValidateAsync(req, ct);
@@ -697,7 +722,9 @@ public class ChoreService
                     completions?.Count(x => x.CompletedByUserId == t.UserId && x.OccurrenceDueAt == t.DueAt) ?? 0,
                     // A future DueAt means "done" only once they've actually logged activity; otherwise
                     // it's just a not-yet-reached first occurrence (start date in the future).
-                    completions?.Any(x => x.CompletedByUserId == t.UserId) ?? false))
+                    completions?.Any(x => x.CompletedByUserId == t.UserId) ?? false,
+                    // Each assignee's own on-time streak, off their own completion history.
+                    StreakCalculator.CurrentStreak(completions?.Where(x => x.CompletedByUserId == t.UserId) ?? [])))
                 .OrderBy(d => d.User.DisplayName)
                 .ToArray();
 
@@ -706,8 +733,10 @@ public class ChoreService
             int? personalProgress = viewerTrack is { CompletionsRequired: > 1 }
                 ? completions?.Count(x => x.CompletedByUserId == viewerTrack.UserId && x.OccurrenceDueAt == viewerTrack.DueAt) ?? 0
                 : null;
+            // Personalise the top-level streak to the viewer's own track (0 if they aren't an assignee).
+            var personalStreak = trackDtos.FirstOrDefault(d => d.User.Id == viewerId)?.Streak ?? 0;
 
-            return ChoreDto.FromEntity(chore, latest, tracks: trackDtos) with
+            return ChoreDto.FromEntity(chore, latest, tracks: trackDtos, currentStreak: personalStreak) with
             {
                 DueAt = personalDue,
                 OccurrenceProgress = personalProgress
@@ -719,7 +748,8 @@ public class ChoreService
             // Completions + skips logged against the current occurrence (they share its due date).
             progress = completions?.Count(x => x.OccurrenceDueAt == chore.DueAt) ?? 0;
         var next = PredictNextAssignee(chore, completions, assignments, now);
-        return ChoreDto.FromEntity(chore, latest, progress, next);
+        var streak = StreakCalculator.CurrentStreak(completions ?? []);
+        return ChoreDto.FromEntity(chore, latest, progress, next, currentStreak: streak);
     }
 
     /// <summary>Assignment history per chore id, as lightweight (user, when) pairs — for the

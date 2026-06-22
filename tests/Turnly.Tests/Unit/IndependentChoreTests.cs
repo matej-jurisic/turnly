@@ -366,4 +366,32 @@ public class IndependentChoreTests
         Assert.False(result.Succeeded);
         Assert.Equal(ErrorType.Validation, result.Error!.Type);
     }
+
+    [Fact]
+    public async Task GetAsync_streak_is_per_track_and_personalised_to_viewer()
+    {
+        using var ctx = new TestContext();
+        var (_, a, b) = await SeedAsync(ctx);
+        var id = (await ctx.Chores.CreateAsync(Independent([a, b], [(a, 1), (b, 1)]))).Value!.Id;
+
+        // Alice completes two occurrences on time; Bob has none.
+        foreach (var due in new[] { Start, Week2 })
+            ctx.Db.ChoreCompletions.Add(new ChoreCompletion
+            {
+                ChoreId = id,
+                CompletedByUserId = a,
+                OccurrenceDueAt = due,
+                CompletedAt = due.AddHours(-1),
+            });
+        await ctx.Db.SaveChangesAsync();
+
+        var dto = (await ctx.Chores.GetAsync(id, viewerId: a)).Value!;
+        Assert.Equal(2, dto.CurrentStreak); // personalised to Alice (the viewer)
+        Assert.Equal(2, dto.Tracks.Single(t => t.User.Id == a).Streak);
+        Assert.Equal(0, dto.Tracks.Single(t => t.User.Id == b).Streak);
+
+        // Viewed as Bob, the top-level streak reflects his own (empty) track.
+        var asBob = (await ctx.Chores.GetAsync(id, viewerId: b)).Value!;
+        Assert.Equal(0, asBob.CurrentStreak);
+    }
 }

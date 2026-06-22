@@ -159,6 +159,12 @@ export function isIndependent(chore: Pick<Chore, 'assignmentStrategy'>): boolean
   return chore.assignmentStrategy === 'Independent'
 }
 
+/** Whether to surface a chore's on-time streak: only for recurring chores with a streak worth
+ * showing (a streak of 1 isn't). For track-mode chores this reflects the viewer's own streak. */
+export function showStreak(chore: Pick<Chore, 'repeatType' | 'currentStreak'>): boolean {
+  return chore.repeatType !== 'OneTime' && chore.currentStreak >= 2
+}
+
 /** A track's own progress pill, e.g. "1/2 this week" (or "Done" once the quota is met). */
 export function trackProgressLabel(chore: Chore, track: ChoreTrack): string {
   const period = PERIOD_LABELS[chore.repeatType] ?? 'done'

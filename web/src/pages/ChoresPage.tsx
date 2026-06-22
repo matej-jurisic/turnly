@@ -13,6 +13,7 @@ import { ChoreSection } from '@/components/chores/ChoreSection'
 import { ChoreListItem } from '@/components/chores/ChoreListItem'
 import { ChoreFormModal } from '@/components/chores/ChoreFormModal'
 import { ReassignModal } from '@/components/chores/ReassignModal'
+import { CopyChoreModal } from '@/components/chores/CopyChoreModal'
 import { RescheduleModal } from '@/components/chores/RescheduleModal'
 import { ChoreFilters, emptyFilters, type ChoreFilterState } from '@/components/chores/ChoreFilters'
 import { choreDueStatus } from '@/lib/chore-format'
@@ -32,6 +33,7 @@ export function ChoresPage() {
   const [completing, setCompleting] = useState<Chore | null>(null)
   const [reassigning, setReassigning] = useState<Chore | null>(null)
   const [rescheduling, setRescheduling] = useState<Chore | null>(null)
+  const [copying, setCopying] = useState<Chore | null>(null)
   const [details, setDetails] = useState<Chore | null>(null)
   const [filters, setFilters] = useState<ChoreFilterState>(emptyFilters)
 
@@ -141,6 +143,7 @@ export function ChoresPage() {
     onReassign: () => setReassigning(chore),
     onReschedule: () => setRescheduling(chore),
     onEdit: () => setEditing(chore),
+    onCopy: () => setCopying(chore),
     onDelete: async () => {
       if (
         await confirm({
@@ -255,6 +258,17 @@ export function ChoresPage() {
           onClose={() => setRescheduling(null)}
           onDone={() => {
             setRescheduling(null)
+            invalidate()
+          }}
+        />
+      )}
+
+      {copying && (
+        <CopyChoreModal
+          chore={copying}
+          onClose={() => setCopying(null)}
+          onDone={() => {
+            setCopying(null)
             invalidate()
           }}
         />
