@@ -8,7 +8,7 @@ import { Modal, Avatar } from '@/components/ui/Modal'
 import { Badge } from '@/components/ui/Badge'
 import { SkipIcon, TrashIcon } from '@/components/chores/icons'
 import {
-  calendarDaysAgo, choreDueStatus, completionProgressLabel, dueStatus, formatDate, formatGrace,
+  calendarDaysAgo, choreDueStatus, choreHasDueTime, completionProgressLabel, dueStatus, formatDate, formatGrace,
   isIndependent, notificationRecipientsLabel, notificationTimingLabel, notificationTypeLabel,
   relativeDayLabel, repeatLabel, trackIsDone, trackStatusText, STRATEGY_LABELS, SCHEDULING_LABELS,
 } from '@/lib/chore-format'
@@ -84,7 +84,7 @@ export function ChoreDetailsModal({ chore, onClose, onComplete }: ChoreDetailsMo
             </p>
             <div className="space-y-1.5">
               {chore.tracks.map((t) => {
-                const overdue = dueStatus(t.dueAt) === 'overdue'
+                const overdue = dueStatus(t.dueAt, choreHasDueTime(chore)) === 'overdue'
                 return (
                   <div
                     key={t.user.id}
@@ -97,7 +97,7 @@ export function ChoreDetailsModal({ chore, onClose, onComplete }: ChoreDetailsMo
                         <span
                           className={
                             'block text-xs ' +
-                            (overdue ? 'text-warning' : trackIsDone(t) ? 'text-success' : 'text-muted-foreground')
+                            (overdue ? 'text-warning' : trackIsDone(chore, t) ? 'text-success' : 'text-muted-foreground')
                           }
                         >
                           {trackStatusText(chore, t)}

@@ -253,27 +253,41 @@ export function relativeDayLabel(iso: string): string {
   return d > 0 ? `${d} days ago` : `in ${-d} days`
 }
 
-export function dueStatus(dueAt?: string | null): 'overdue' | 'today' | 'upcoming' | 'later' {
+/** Whether a chore's due instant carries a concrete time-of-day (vs an all-day end-of-day due). */
+export function choreHasDueTime(chore: Pick<Chore, 'dueTime' | 'timesOfDay'>): boolean {
+  return !!chore.dueTime || (chore.timesOfDay?.length ?? 0) > 0
+}
+
+/**
+ * Buckets a due instant. By default the overdue boundary is day-granular (a chore due today stays
+ * "today" until midnight). Pass `hasTime` for chores with a concrete due time, so they flip to
+ * "overdue" the moment that time passes instead of waiting for the next calendar day.
+ */
+export function dueStatus(
+  dueAt?: string | null,
+  hasTime = false,
+): 'overdue' | 'today' | 'upcoming' | 'later' {
   if (!dueAt) return 'later'
   const due = new Date(dueAt)
-  const todayStart = startOfDay(new Date())
+  const now = new Date()
+  const todayStart = startOfDay(now)
   const tomorrowStart = new Date(todayStart.getTime() + 86_400_000)
   const weekEnd = new Date(todayStart.getTime() + 7 * 86_400_000)
-  if (due < todayStart) return 'overdue'
+  if (hasTime ? due < now : due < todayStart) return 'overdue'
   if (due < tomorrowStart) return 'today'
   if (due <= weekEnd) return 'upcoming'
   return 'later'
 }
 
 export function choreDueStatus(chore: Chore): 'overdue' | 'today' | 'upcoming' | 'later' {
-  return dueStatus(chore.dueAt)
+  return dueStatus(chore.dueAt, choreHasDueTime(chore))
 }
 
 /** Whether a track owner has completed their current obligation (next occurrence is in the future).
  * A not-yet-started track (future start date, no activity) is scheduled — not done. */
-export function trackIsDone(track: ChoreTrack): boolean {
+export function trackIsDone(chore: Chore, track: ChoreTrack): boolean {
   if (!track.started) return false
-  const s = dueStatus(track.dueAt)
+  const s = dueStatus(track.dueAt, choreHasDueTime(chore))
   return s === 'upcoming' || s === 'later'
 }
 
@@ -281,7 +295,7 @@ export function trackIsDone(track: ChoreTrack): boolean {
  * "due in 6 days" (a not-yet-started future occurrence). */
 export function trackStatusText(chore: Chore, track: ChoreTrack): string {
   const progress = trackProgressLabel(chore, track)
-  const s = dueStatus(track.dueAt)
+  const s = dueStatus(track.dueAt, choreHasDueTime(chore))
   const base =
     s === 'overdue' ? `overdue${track.dueAt ? ` · was due ${relativeDayLabel(track.dueAt)}` : ''}`
     : s === 'today' ? 'due today'

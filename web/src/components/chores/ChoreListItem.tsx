@@ -3,7 +3,7 @@ import { Badge } from '@/components/ui/Badge'
 import { Card } from '@/components/ui/Card'
 import { Avatar } from '@/components/ui/Modal'
 import {
-  completionProgressLabel, dueStatus, formatDate, isIndependent,
+  choreHasDueTime, completionProgressLabel, dueStatus, formatDate, isIndependent,
   nextDueTimeLabel, repeatLabel, trackIsDone, trackStatusText,
 } from '@/lib/chore-format'
 import { CheckIcon } from '@/components/chores/icons'
@@ -105,8 +105,8 @@ export function ChoreListItem({
               {isIndependent(chore) ? (
                 <div className="flex shrink-0 items-center -space-x-1.5">
                   {chore.tracks.map((t) => {
-                    const done = trackIsDone(t)
-                    const overdue = dueStatus(t.dueAt) === 'overdue'
+                    const done = trackIsDone(chore, t)
+                    const overdue = dueStatus(t.dueAt, choreHasDueTime(chore)) === 'overdue'
                     return (
                       <span
                         key={t.user.id}
