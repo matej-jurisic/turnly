@@ -179,7 +179,7 @@ export function ChoreFormModal({ title, chore, onClose, onSaved }: ChoreFormModa
           setError(null)
           mutation.mutate()
         }}
-        className="max-h-[70vh] space-y-4 overflow-y-auto pl-1 -ml-1 pr-4 -mr-4"
+        className="max-h-[70vh] space-y-2 overflow-y-auto pl-1 -ml-1 pr-4 -mr-4"
       >
         <div>
           <Label htmlFor="name">Name</Label>
@@ -254,8 +254,8 @@ export function ChoreFormModal({ title, chore, onClose, onSaved }: ChoreFormModa
                 Auto-advance incomplete occurrences
                 <span className="block text-xs text-muted-foreground">
                   {completionsRequired > 1
-                    ? `If not all ${completionsRequired} completions are logged, the occurrence expires and automatically moves to the next one.`
-                    : 'If not completed, the occurrence expires and automatically moves to the next one.'}
+                    ? `If fewer than ${completionsRequired} are completed, the occurrence expires and the schedule moves on.`
+                    : 'If left incomplete, the occurrence expires and the schedule moves on.'}
                 </span>
               </span>
             </label>
@@ -271,7 +271,7 @@ export function ChoreFormModal({ title, chore, onClose, onSaved }: ChoreFormModa
                   <span>
                     Delay auto-advance after due date
                     <span className="block text-xs text-muted-foreground">
-                      Without this, the occurrence expires as soon as it becomes overdue.
+                      Otherwise it expires as soon as it's overdue.
                     </span>
                   </span>
                 </label>
@@ -325,8 +325,7 @@ export function ChoreFormModal({ title, chore, onClose, onSaved }: ChoreFormModa
           <div className="space-y-2 rounded-lg border border-border bg-accent/40 p-3">
             <Label className="mb-0">Times of day</Label>
             <p className="-mt-0.5 text-xs text-muted-foreground">
-              Due at each of these times — every slot is its own to-do (e.g. 08:00 and 20:00 for twice
-              a day). Leave a single time for a once-a-day chore.
+              One to-do per time (e.g. 08:00 and 20:00 for twice a day).
             </p>
             <div className="space-y-1.5">
               {timesOfDay.map((t, i) => (
@@ -399,8 +398,7 @@ export function ChoreFormModal({ title, chore, onClose, onSaved }: ChoreFormModa
               <span>
                 Reset schedule when completed early (grace window)
                 <span className="block text-xs text-muted-foreground">
-                  If completed more than this early, reset the next due date to the completion date
-                  instead of holding the schedule.
+                  If finished more than this early, the next due date resets from completion.
                 </span>
               </span>
             </label>
