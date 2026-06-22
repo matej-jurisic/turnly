@@ -42,6 +42,8 @@ export function SettingsPage() {
 
       <NotificationsCard />
 
+      <QuietHoursCard />
+
       {isAdmin && <TagsCard />}
 
       <Card>
@@ -80,7 +82,12 @@ function AccountCard() {
   const [color, setColor] = useState(user?.avatarColor ?? '')
 
   const mutation = useMutation({
-    mutationFn: (avatarColor: string) => authApi.updateProfile(avatarColor),
+    mutationFn: (avatarColor: string) =>
+      authApi.updateProfile({
+        avatarColor,
+        quietHoursStart: user?.quietHoursStart ?? null,
+        quietHoursEnd: user?.quietHoursEnd ?? null,
+      }),
     onSuccess: (updated) => {
       setUser(updated)
       queryClient.invalidateQueries({ queryKey: ['leaderboard'] })
@@ -262,6 +269,75 @@ function NotificationsCard() {
             {message.text}
           </p>
         )}
+      </CardContent>
+    </Card>
+  )
+}
+
+function QuietHoursCard() {
+  const user = useAuthStore((s) => s.user)
+  const setUser = useAuthStore((s) => s.setUser)
+  const [enabled, setEnabled] = useState(Boolean(user?.quietHoursStart))
+  const [start, setStart] = useState(user?.quietHoursStart ?? '22:00')
+  const [end, setEnd] = useState(user?.quietHoursEnd ?? '07:00')
+
+  const mutation = useMutation({
+    mutationFn: () =>
+      authApi.updateProfile({
+        avatarColor: user!.avatarColor,
+        quietHoursStart: enabled ? start : null,
+        quietHoursEnd: enabled ? end : null,
+      }),
+    onSuccess: (updated) => {
+      setUser(updated)
+      toast.success('Quiet hours updated.')
+    },
+    onError: (err) => toast.error(err instanceof ApiError ? err.message : 'Something went wrong'),
+  })
+
+  // Already-saved state, to gate the Save button.
+  const savedStart = user?.quietHoursStart ?? null
+  const savedEnd = user?.quietHoursEnd ?? null
+  const nextStart = enabled ? start : null
+  const nextEnd = enabled ? end : null
+  const dirty = nextStart !== savedStart || nextEnd !== savedEnd
+  const invalid = enabled && start === end
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Quiet hours</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <p className="text-sm text-muted-foreground">
+          Mute push notifications during these hours. They still arrive in your in-app inbox, so nothing
+          is missed — you just won’t get buzzed. A window like 22:00–07:00 spans midnight.
+        </p>
+        <label className="flex items-center gap-2 text-sm text-foreground">
+          <input
+            type="checkbox"
+            checked={enabled}
+            onChange={(e) => setEnabled(e.target.checked)}
+            className="h-4 w-4 accent-primary"
+          />
+          Enable quiet hours
+        </label>
+        {enabled && (
+          <div className="flex items-end gap-3">
+            <div>
+              <Label htmlFor="quiet-start">From</Label>
+              <Input id="quiet-start" type="time" value={start} onChange={(e) => setStart(e.target.value)} className="w-32" />
+            </div>
+            <div>
+              <Label htmlFor="quiet-end">To</Label>
+              <Input id="quiet-end" type="time" value={end} onChange={(e) => setEnd(e.target.value)} className="w-32" />
+            </div>
+          </div>
+        )}
+        {invalid && <p className="text-sm text-destructive">Start and end can’t be the same time.</p>}
+        <Button onClick={() => mutation.mutate()} disabled={!dirty || invalid || mutation.isPending}>
+          {mutation.isPending ? 'Saving…' : 'Save quiet hours'}
+        </Button>
       </CardContent>
     </Card>
   )

@@ -54,6 +54,8 @@ export function AwardsPage() {
         </div>
       </div>
 
+      {awards && awards.length > 0 && <NextGoalCard balance={balance} awards={awards} />}
+
       {isLoading && <p className="text-muted-foreground">Loading…</p>}
       {error && <p className="text-destructive">{(error as ApiError).message}</p>}
 
@@ -159,6 +161,54 @@ export function AwardsPage() {
         />
       )}
     </div>
+  )
+}
+
+/** Headline progress toward the cheapest award the user can't yet afford. Once everything is
+ * affordable it turns into a small "you can redeem anything" nudge. */
+function NextGoalCard({ balance, awards }: { balance: number; awards: Award[] }) {
+  // Cheapest award still out of reach = the natural next goal.
+  const goal = awards
+    .filter((a) => a.cost > balance)
+    .sort((a, b) => a.cost - b.cost)[0]
+
+  if (!goal) {
+    return (
+      <Card>
+        <CardContent className="flex items-center gap-3 py-4">
+          <span className="text-2xl leading-none">🎉</span>
+          <p className="text-sm text-foreground">
+            You have enough points to redeem any award. Treat yourself!
+          </p>
+        </CardContent>
+      </Card>
+    )
+  }
+
+  const remaining = goal.cost - balance
+  const pct = Math.max(0, Math.min(100, Math.round((balance / goal.cost) * 100)))
+
+  return (
+    <Card>
+      <CardContent className="space-y-3 py-4">
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex min-w-0 items-center gap-2">
+            <span className="text-2xl leading-none">{goal.emoji ?? '🎁'}</span>
+            <div className="min-w-0">
+              <p className="text-xs text-muted-foreground">Next goal</p>
+              <p className="truncate font-semibold text-foreground">{goal.name}</p>
+            </div>
+          </div>
+          <Badge tone="amber">{remaining} pts to go</Badge>
+        </div>
+        <div className="h-2 overflow-hidden rounded-full bg-accent">
+          <div className="h-full rounded-full bg-primary transition-all" style={{ width: `${pct}%` }} />
+        </div>
+        <p className="text-xs text-muted-foreground">
+          {balance} / {goal.cost} pts ({pct}%)
+        </p>
+      </CardContent>
+    </Card>
   )
 }
 

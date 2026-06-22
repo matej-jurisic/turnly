@@ -185,12 +185,16 @@ public class UserService
     {
         if (string.IsNullOrWhiteSpace(req.AvatarColor))
             return Result.Fail<UserDto>(Error.Validation("Avatar color is required."));
+        if (Validators.QuietHours(req.QuietHoursStart, req.QuietHoursEnd, out var quietStart, out var quietEnd) is { } quietError)
+            return Result.Fail<UserDto>(quietError);
 
         var user = await _db.Users.FindAsync([id], ct);
         if (user is null)
             return Result.Fail<UserDto>(Error.NotFound("User not found."));
 
         user.AvatarColor = req.AvatarColor.Trim();
+        user.QuietHoursStart = quietStart;
+        user.QuietHoursEnd = quietEnd;
         await _db.SaveChangesAsync(ct);
         return Result.Success(UserDto.FromEntity(user));
     }

@@ -253,6 +253,13 @@ public class NotificationService
             .GroupBy(s => s.UserId)
             .ToDictionary(g => g.Key, g => g.ToList());
 
+        // Quiet-hours windows for everyone who could receive a push, so we can mute (but still inbox) it.
+        var quietByUser = (await _db.Users
+                .Where(u => recipientIds.Contains(u.Id) && u.QuietHoursStart != null)
+                .Select(u => new { u.Id, u.QuietHoursStart, u.QuietHoursEnd })
+                .ToListAsync(ct))
+            .ToDictionary(u => u.Id, u => (u.QuietHoursStart, u.QuietHoursEnd));
+
         var fired = 0;
         foreach (var chore in chores)
         {
@@ -265,7 +272,7 @@ public class NotificationService
                     {
                         if (track.DueAt is not { } trackDue) continue;
                         if (await TryFireAsync(chore, entry, trackDue, track.UserId, [track.UserId],
-                                delivered, subsByUser, now, ct))
+                                delivered, subsByUser, quietByUser, now, ct))
                             fired++;
                     }
                 }
@@ -278,7 +285,7 @@ public class NotificationService
                         .Distinct()
                         .ToList();
                     if (await TryFireAsync(chore, entry, dueAt, dedupUserId: null, recipients,
-                            delivered, subsByUser, now, ct))
+                            delivered, subsByUser, quietByUser, now, ct))
                         fired++;
                 }
             }
@@ -295,7 +302,8 @@ public class NotificationService
     private async Task<bool> TryFireAsync(
         Chore chore, ChoreNotification entry, DateTimeOffset occurrenceDueAt, Guid? dedupUserId,
         IReadOnlyList<Guid> recipientIds, HashSet<(Guid, long, Guid?)> delivered,
-        Dictionary<Guid, List<PushSubscription>> subsByUser, DateTimeOffset now, CancellationToken ct)
+        Dictionary<Guid, List<PushSubscription>> subsByUser,
+        Dictionary<Guid, (TimeOnly? Start, TimeOnly? End)> quietByUser, DateTimeOffset now, CancellationToken ct)
     {
         var fireAt = NotificationPlanner.FireTime(entry, occurrenceDueAt);
         if (fireAt > now || fireAt < now - StaleWindow)
@@ -307,7 +315,7 @@ public class NotificationService
 
         // In track mode the message names the track owner; otherwise the chore's current assignee.
         await SendEntryAsync(chore, entry, occurrenceDueAt, recipientIds,
-            dedupUserId ?? chore.CurrentAssigneeId, subsByUser, now, ct);
+            dedupUserId ?? chore.CurrentAssigneeId, subsByUser, quietByUser, now, ct);
 
         _db.NotificationDeliveries.Add(new NotificationDelivery
         {
@@ -323,7 +331,7 @@ public class NotificationService
     private async Task SendEntryAsync(
         Chore chore, ChoreNotification entry, DateTimeOffset occurrenceDueAt, IReadOnlyList<Guid> recipientIds,
         Guid? messageAssigneeId, Dictionary<Guid, List<PushSubscription>> subsByUser,
-        DateTimeOffset now, CancellationToken ct)
+        Dictionary<Guid, (TimeOnly? Start, TimeOnly? End)> quietByUser, DateTimeOffset now, CancellationToken ct)
     {
         var (title, body) = BuildMessage(chore, entry, occurrenceDueAt, messageAssigneeId, now);
         var payload = JsonSerializer.Serialize(new
@@ -333,6 +341,10 @@ public class NotificationService
             url = $"/chores?chore={chore.Id}",
             choreId = chore.Id
         });
+
+        // Quiet hours are a local-time-of-day window; the scheduler runs in UTC, so compare against
+        // the server's local clock (a self-hosted family server's configured timezone).
+        var localNow = TimeOnly.FromTimeSpan(now.ToLocalTime().TimeOfDay);
 
         var attempted = 0;
         foreach (var userId in recipientIds)
@@ -347,6 +359,11 @@ public class NotificationService
             });
 
             if (!subsByUser.TryGetValue(userId, out var subs))
+                continue;
+
+            // Suppress the push (but not the inbox row) while this recipient is in their quiet hours.
+            if (quietByUser.TryGetValue(userId, out var quiet) &&
+                QuietHours.Contains(quiet.Start, quiet.End, localNow))
                 continue;
 
             foreach (var sub in subs)

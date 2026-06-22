@@ -157,6 +157,49 @@ public class NotificationServiceTests
     }
 
     [Fact]
+    public async Task ProcessDueAsync_suppresses_push_during_quiet_hours_but_keeps_inbox()
+    {
+        using var ctx = new TestContext();
+        var (_, member) = await SeedUsersAsync(ctx);
+        await SeedChoreAsync(ctx, member, [member], AtDue(), Due);
+        await SubscribeAsync(ctx, member);
+
+        // Quiet window covering the scan's local time-of-day (inclusive start → contained).
+        var localNow = TimeOnly.FromTimeSpan(Due.ToLocalTime().TimeOfDay);
+        var user = await ctx.Db.Users.FirstAsync(u => u.Id == member);
+        user.QuietHoursStart = localNow;
+        user.QuietHoursEnd = localNow.AddHours(1);
+        await ctx.Db.SaveChangesAsync();
+
+        var fired = await ctx.Notifications.ProcessDueAsync(Due);
+
+        Assert.Equal(1, fired);                 // still fires: inbox + dedup recorded
+        Assert.Empty(ctx.Push.Sent);            // but the push is muted
+        Assert.Single(await ctx.Notifications.ListInboxAsync(member));
+    }
+
+    [Fact]
+    public async Task ProcessDueAsync_sends_push_outside_quiet_hours()
+    {
+        using var ctx = new TestContext();
+        var (_, member) = await SeedUsersAsync(ctx);
+        await SeedChoreAsync(ctx, member, [member], AtDue(), Due);
+        await SubscribeAsync(ctx, member);
+
+        // A window two hours ahead of the scan's local time — it does not cover "now".
+        var localNow = TimeOnly.FromTimeSpan(Due.ToLocalTime().TimeOfDay);
+        var user = await ctx.Db.Users.FirstAsync(u => u.Id == member);
+        user.QuietHoursStart = localNow.AddHours(2);
+        user.QuietHoursEnd = localNow.AddHours(3);
+        await ctx.Db.SaveChangesAsync();
+
+        var fired = await ctx.Notifications.ProcessDueAsync(Due);
+
+        Assert.Equal(1, fired);
+        Assert.Single(ctx.Push.Sent);
+    }
+
+    [Fact]
     public async Task ProcessDueAsync_prunes_dead_subscriptions()
     {
         using var ctx = new TestContext();

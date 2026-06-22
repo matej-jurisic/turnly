@@ -153,6 +153,28 @@ public static class Validators
         return null;
     }
 
+    /// <summary>Validates a user's optional quiet-hours window. Both ends must be supplied together
+    /// (or both omitted = off), each in "HH:mm", and the two must differ (a zero-length window is
+    /// meaningless). A window where start &gt; end is allowed — it spans midnight.</summary>
+    public static Error? QuietHours(string? start, string? end, out TimeOnly? parsedStart, out TimeOnly? parsedEnd)
+    {
+        parsedStart = null;
+        parsedEnd = null;
+        var hasStart = !string.IsNullOrWhiteSpace(start);
+        var hasEnd = !string.IsNullOrWhiteSpace(end);
+        if (!hasStart && !hasEnd)
+            return null;
+        if (hasStart != hasEnd)
+            return Error.Validation("Quiet hours need both a start and an end time.");
+        if (DueTime(start, out parsedStart) is { } e1)
+            return e1;
+        if (DueTime(end, out parsedEnd) is { } e2)
+            return e2;
+        if (parsedStart == parsedEnd)
+            return Error.Validation("Quiet hours start and end can't be the same time.");
+        return null;
+    }
+
     /// <summary>Validates an optional due-time string. Null/empty is valid (= end of day); otherwise
     /// it must be "HH:mm". Returns the parsed value via <paramref name="parsed"/>.</summary>
     public static Error? DueTime(string? value, out TimeOnly? parsed)

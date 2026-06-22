@@ -9,6 +9,17 @@ export interface User {
   points: number
   weeklyPoints: number
   createdAt: string
+  /** Quiet-hours window "HH:mm" (server-local). Both set together, or both null = off. During quiet
+   * hours push notifications are suppressed (the in-app inbox still receives them). */
+  quietHoursStart?: string | null
+  quietHoursEnd?: string | null
+}
+
+/** Self-service profile update (avatar color + optional quiet hours). */
+export interface ProfileUpdate {
+  avatarColor: string
+  quietHoursStart?: string | null
+  quietHoursEnd?: string | null
 }
 
 export interface LeaderboardEntry {

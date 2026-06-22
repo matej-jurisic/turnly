@@ -11,10 +11,13 @@ public record UserDto(
     UserRole Role,
     int Points,
     int WeeklyPoints,
-    DateTimeOffset CreatedAt)
+    DateTimeOffset CreatedAt,
+    string? QuietHoursStart = null,
+    string? QuietHoursEnd = null)
 {
     public static UserDto FromEntity(User u, int weeklyPoints = 0) =>
-        new(u.Id, u.Username, u.DisplayName, u.AvatarColor, u.Role, u.Points, weeklyPoints, u.CreatedAt);
+        new(u.Id, u.Username, u.DisplayName, u.AvatarColor, u.Role, u.Points, weeklyPoints, u.CreatedAt,
+            u.QuietHoursStart?.ToString("HH:mm"), u.QuietHoursEnd?.ToString("HH:mm"));
 }
 
 public record LeaderboardEntryDto(
@@ -43,7 +46,7 @@ public record CreateUserRequest(string Username, string DisplayName, string Pass
 
 public record UpdateUserRequest(string DisplayName, string AvatarColor, UserRole Role);
 
-public record UpdateProfileRequest(string AvatarColor);
+public record UpdateProfileRequest(string AvatarColor, string? QuietHoursStart = null, string? QuietHoursEnd = null);
 
 public record ChangePasswordRequest(string CurrentPassword, string NewPassword);
 

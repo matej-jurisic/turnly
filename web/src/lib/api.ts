@@ -11,6 +11,7 @@ import type {
   LeaderboardEntry,
   NotificationInboxItem,
   PointsLogEntry,
+  ProfileUpdate,
   PushDevice,
   PushSubscribeRequest,
   ReassignChoreRequest,
@@ -114,8 +115,8 @@ export const authApi = {
       method: 'POST',
       body: json({ currentPassword, newPassword }),
     }),
-  updateProfile: (avatarColor: string) =>
-    request<User>('/users/me', { method: 'PUT', body: json({ avatarColor }) }),
+  updateProfile: (body: ProfileUpdate) =>
+    request<User>('/users/me', { method: 'PUT', body: json(body) }),
 }
 
 export const usersApi = {

@@ -11,12 +11,24 @@ import { CompleteModal } from '@/components/CompleteModal'
 import { ChoreDetailsModal } from '@/components/ChoreDetailsModal'
 import { ChoreSection } from '@/components/chores/ChoreSection'
 import { ChoreListItem } from '@/components/chores/ChoreListItem'
+import { ChoreCompactItem } from '@/components/chores/ChoreCompactItem'
+import { ChoreCalendar } from '@/components/chores/ChoreCalendar'
+import { Card } from '@/components/ui/Card'
 import { ChoreFormModal } from '@/components/chores/ChoreFormModal'
 import { ReassignModal } from '@/components/chores/ReassignModal'
 import { CopyChoreModal } from '@/components/chores/CopyChoreModal'
 import { RescheduleModal } from '@/components/chores/RescheduleModal'
 import { ChoreFilters, emptyFilters, type ChoreFilterState } from '@/components/chores/ChoreFilters'
 import { choreDueStatus } from '@/lib/chore-format'
+import { cn } from '@/lib/utils'
+
+type ChoreView = 'list' | 'compact' | 'calendar'
+const VIEW_KEY = 'turnly:chore-view'
+const VIEW_OPTIONS: { value: ChoreView; label: string }[] = [
+  { value: 'list', label: 'List' },
+  { value: 'compact', label: 'Compact' },
+  { value: 'calendar', label: 'Calendar' },
+]
 
 export function ChoresPage() {
   const currentUser = useAuthStore((s) => s.user)
@@ -36,6 +48,13 @@ export function ChoresPage() {
   const [copying, setCopying] = useState<Chore | null>(null)
   const [details, setDetails] = useState<Chore | null>(null)
   const [filters, setFilters] = useState<ChoreFilterState>(emptyFilters)
+  const [view, setView] = useState<ChoreView>(
+    () => (localStorage.getItem(VIEW_KEY) as ChoreView | null) ?? 'list',
+  )
+  const changeView = (v: ChoreView) => {
+    setView(v)
+    localStorage.setItem(VIEW_KEY, v)
+  }
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ['chores'] })
 
@@ -87,7 +106,7 @@ export function ChoresPage() {
     return [...map.values()].sort((a, b) => a.displayName.localeCompare(b.displayName))
   }, [chores])
 
-  const { overdue, today, upcoming, later } = useMemo(() => {
+  const { overdue, today, upcoming, later, filtered } = useMemo(() => {
     const filtered = (chores ?? []).filter((c) => {
       // OR within each dimension, AND across dimensions.
       if (filters.tags.length && !filters.tags.some((t) => c.tags.includes(t))) return false
@@ -104,7 +123,7 @@ export function ChoresPage() {
     })
     const buckets = { overdue: [] as Chore[], today: [] as Chore[], upcoming: [] as Chore[], later: [] as Chore[] }
     for (const c of filtered) buckets[choreDueStatus(c)].push(c)
-    return buckets
+    return { ...buckets, filtered }
   }, [chores, filters])
 
   const itemProps = (chore: Chore) => ({
@@ -160,9 +179,28 @@ export function ChoresPage() {
 
   return (
     <div className="space-y-4 pb-24 md:space-y-6">
-      {/* Filters */}
+      {/* View switcher + filters */}
       {(chores ?? []).length > 0 && (
-        <ChoreFilters value={filters} onChange={setFilters} tags={allTags} assignees={allAssignees} currentUserId={currentUser?.id} />
+        <div className="space-y-4">
+          <div className="flex justify-end">
+            <div className="inline-flex rounded-lg border border-border p-0.5 text-sm">
+              {VIEW_OPTIONS.map((o) => (
+                <button
+                  key={o.value}
+                  type="button"
+                  onClick={() => changeView(o.value)}
+                  className={cn(
+                    'rounded-md px-3 py-1 transition-colors',
+                    view === o.value ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-accent',
+                  )}
+                >
+                  {o.label}
+                </button>
+              ))}
+            </div>
+          </div>
+          <ChoreFilters value={filters} onChange={setFilters} tags={allTags} assignees={allAssignees} currentUserId={currentUser?.id} />
+        </div>
       )}
 
       {isLoading && <p className="text-muted-foreground">Loading…</p>}
@@ -171,41 +209,35 @@ export function ChoresPage() {
       {!isLoading && (chores ?? []).length === 0 && (
         <p className="text-muted-foreground">No chores yet{isAdmin ? ', add one to get started.' : '.'}</p>
       )}
-      {!isLoading && (chores ?? []).length > 0 && overdue.length + today.length + upcoming.length + later.length === 0 && (
+      {!isLoading && (chores ?? []).length > 0 && view !== 'calendar' && filtered.length === 0 && (
         <p className="text-muted-foreground">No chores match the current filters.</p>
       )}
 
-      {overdue.length > 0 && (
-        <ChoreSection title="Overdue" tone="destructive" count={overdue.length}>
-          <div className="grid gap-6">
-            {overdue.map((chore) => <ChoreListItem key={chore.id} {...itemProps(chore)} />)}
-          </div>
-        </ChoreSection>
+      {view === 'calendar' && (chores ?? []).length > 0 && (
+        <ChoreCalendar chores={filtered} onSelect={setDetails} />
       )}
 
-      {today.length > 0 && (
-        <ChoreSection title="Today" count={today.length}>
-          <div className="grid gap-6">
-            {today.map((chore) => <ChoreListItem key={chore.id} {...itemProps(chore)} />)}
-          </div>
-        </ChoreSection>
-      )}
-
-      {upcoming.length > 0 && (
-        <ChoreSection title="This week" count={upcoming.length}>
-          <div className="grid gap-6">
-            {upcoming.map((chore) => <ChoreListItem key={chore.id} {...itemProps(chore)} />)}
-          </div>
-        </ChoreSection>
-      )}
-
-      {later.length > 0 && (
-        <ChoreSection title="Later" count={later.length}>
-          <div className="grid gap-6">
-            {later.map((chore) => <ChoreListItem key={chore.id} {...itemProps(chore)} />)}
-          </div>
-        </ChoreSection>
-      )}
+      {view !== 'calendar' &&
+        ([
+          { title: 'Overdue', tone: 'destructive' as const, items: overdue },
+          { title: 'Today', tone: undefined, items: today },
+          { title: 'This week', tone: undefined, items: upcoming },
+          { title: 'Later', tone: undefined, items: later },
+        ])
+          .filter((s) => s.items.length > 0)
+          .map((s) => (
+            <ChoreSection key={s.title} title={s.title} tone={s.tone} count={s.items.length}>
+              {view === 'compact' ? (
+                <Card className="divide-y divide-border p-0">
+                  {s.items.map((chore) => <ChoreCompactItem key={chore.id} {...itemProps(chore)} />)}
+                </Card>
+              ) : (
+                <div className="grid gap-6">
+                  {s.items.map((chore) => <ChoreListItem key={chore.id} {...itemProps(chore)} />)}
+                </div>
+              )}
+            </ChoreSection>
+          ))}
 
       {creating && (
         <ChoreFormModal
