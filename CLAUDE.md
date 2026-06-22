@@ -83,6 +83,42 @@ per-person quota, never rotates); `SkipChoreRequest`/`RescheduleChoreRequest` ga
 `NotificationDelivery.UserId` below). Recurring-only in v1 — `OneTime`-shared, "all assignees"
 notification recipients in track mode, and history migration on strategy switch are out of scope.
 
+**Post-Phase-9 — scheduling, points & UX extensions.** A batch of smaller features shipped after the
+independent-tracks work (no strict phase order):
+- **Multiple times of day** (`Chore.TimesOfDay`, `List<TimeOnly>` via CSV converter) — a day-resolution
+  chore (Daily, or custom DaysOfWeek/DaysOfMonth) can list several fixed times, each a distinct
+  occurrence; `DueTime` mirrors the earliest. The validator restricts it to day-resolution modes;
+  `RecurrenceCalculator` multiplies each qualifying day by the times list when scanning occurrences.
+- **Auto-advance incomplete** (`Chore.AutoAdvanceIncomplete` + `CompletionWindowMinutes`) — a separate
+  minute-polling `BackgroundService` (`Turnly.Api/ChoreAutoAdvanceService`, runs unconditionally, no
+  VAPID dependency) calls `ChoreService.AutoAdvanceAsync(now)`: once a multi-completion occurrence's
+  window (`DueAt + CompletionWindowMinutes`) closes still short of `CompletionsRequired`, it writes
+  `ChoreCompletion.IsExpired` rows for the missing slots (no points, no actor, **not undoable**),
+  advances via `FromScheduledDate`, and rotates so the misser isn't kept on duty. Branches for rotating
+  and Independent (per-track) chores; `OneTime` and custom repeats excluded.
+- **On-time streaks** (`Recurrence/StreakCalculator.CurrentStreak`, pure + unit-tested) — counts the
+  most recent consecutive occurrences completed on/before their `OccurrenceDueAt`; a late, skipped, or
+  expired occurrence resets it. Surfaced as `ChoreDto.CurrentStreak` (personalised to the viewer's own
+  track in Independent mode) and per-track `ChoreAssigneeTrackDto.Streak`.
+- **Chore copying** (`ChoreService.CopyAsync`, `POST /api/chores/{id}/copy` with `CopyChoreRequest`,
+  admin-only; `web/.../chores/CopyChoreModal.tsx`) — clones a chore's definition through the normal
+  create path under a new name, so the copy's schedule starts fresh.
+- **Manual point adjustment** (`UserService.AdjustPointsAsync`, `POST /api/users/{id}/points` with
+  `AdjustPointsRequest(Delta, Description)`, admin-only) — writes a `PointsLogType.Adjustment` entry and
+  moves the balance, like the completion/redemption paths. Surfaced on `UsersPage`.
+- **Quiet hours** (`User.QuietHoursStart/End`, set self-service via `UpdateProfileRequest`;
+  `Notifications/QuietHours.Contains`, wrap-aware) — during the window `NotificationService.SendEntryAsync`
+  suppresses the push but still writes the inbox row. Evaluated against the **family timezone**.
+- **Family timezone** (`AppSetting` entity + `AppSettingsService`, `Notifications/TimeZoneResolver`;
+  `GET /api/settings` member-open, `PUT` admin-only via `SettingsEndpoints`) — an instance-wide IANA/
+  Windows zone id (empty = server local) the notification scan uses to turn `now` into local wall-clock
+  time for quiet-hours evaluation. Set on `SettingsPage` (admin).
+- **Next-goal progress** (`NextGoalCard` on `AwardsPage`, frontend-only) — a progress bar toward the
+  cheapest unaffordable award.
+- **Chore views** (`ChoreView = 'list' | 'compact' | 'calendar'`; `chores/ChoreCalendar.tsx`,
+  `chores/ChoreCompactItem.tsx`, a view switcher in `ChoreFilters`, persisted to `localStorage`).
+- **Inbox delete/clear** (`NotificationService.DeleteInboxAsync`/`ClearInboxAsync`) round out the inbox.
+
 ## Stack & layout
 
 - **Backend:** ASP.NET Core (.NET 10) minimal APIs, EF Core. Solution file is `Turnly.slnx`.
@@ -106,9 +142,13 @@ copy the nearest existing example. Paths are under `src/` / `web/src/` / `tests/
 - `Entities/` — POCOs; convention is `Guid Id = Guid.NewGuid()` + `DateTimeOffset CreatedAt`,
   no base class. `User, RefreshToken, Chore, Tag, ChoreCompletion, ChoreAssignment, ChoreAssigneeTrack,
   PointsLogEntry, Award, Redemption, ChoreNotification, PushSubscription, NotificationDelivery,
-  UserNotification`. `ChoreAssigneeTrack` is one assignee's own `DueAt` + quota for an
+  UserNotification, AppSetting`. `ChoreAssigneeTrack` is one assignee's own `DueAt` + quota for an
   `AssignmentStrategy.Independent` chore (one row per assignee; absent for rotating chores, where the
-  single `Chore.DueAt`/`CurrentAssigneeId` apply).
+  single `Chore.DueAt`/`CurrentAssigneeId` apply). `AppSetting` is a key/value config row (currently
+  just the family timezone). `User.QuietHoursStart/End` is the per-user push-suppression window.
+  `ChoreCompletion.IsExpired` marks an occurrence the auto-advance service closed unfilled (no points,
+  no actor, not undoable) — alongside `IsSkip`; `Chore.TimesOfDay` (multiple due times/day) and
+  `Chore.AutoAdvanceIncomplete`/`CompletionWindowMinutes` back those features.
   `ChoreNotification` is a chore's notification-schedule entry; `PushSubscription` is one Web Push
   device per user; `NotificationDelivery` is a `(ChoreNotificationId, OccurrenceDueAt, UserId)`-unique
   dedup marker that makes each entry fire once per occurrence — `UserId` is the track owner in
@@ -123,7 +163,8 @@ copy the nearest existing example. Paths are under `src/` / `web/src/` / `tests/
   snapshots `AwardName`/`AwardEmoji`/`PointsSpent` (so it outlives the award; FK is `SetNull`) and
   `PointsLogEntry` carries both a `ChoreCompletionId` and a `RedemptionId` link so undo/cancel can
   reverse the matching deduction the same way.
-- `Enums/` — `UserRole, RepeatType, PointsLogType, RedemptionStatus` + Phase 3's `CustomRecurrenceMode,
+- `Enums/` — `UserRole, RepeatType, PointsLogType` (`Completion`/`Redemption`/`Adjustment`),
+  `RedemptionStatus` + Phase 3's `CustomRecurrenceMode,
   RecurrenceUnit, AssignmentStrategy` (which now also has the post-Phase-9 `Independent` value),
   `SchedulingPreference` + Phase 8's
   `NotificationType, NotificationTiming, NotificationOffsetUnit, NotificationRecipients`; **stored as
@@ -132,8 +173,9 @@ copy the nearest existing example. Paths are under `src/` / `web/src/` / `tests/
   skip navs (`Chore.Assignees`, `Chore.Tags`); `Chore.AssigneeTracks`/`Notifications` are cascade
   child collections. `Chore.Weekdays` (`List<DayOfWeek>`, custom
   DaysOfWeek mode), `Chore.WeeksOfMonth` (`List<int>`, optional nth-occurrence restriction for
-  DaysOfWeek) and `Chore.DaysOfMonth`/`Chore.Months` (`List<int>`) are stored via CSV
-  `ValueConverter` + `ValueComparer` (`WeekdaysConverter` / `IntListConverter`).
+  DaysOfWeek), `Chore.DaysOfMonth`/`Chore.Months` (`List<int>`) and `Chore.TimesOfDay`
+  (`List<TimeOnly>`) are stored via CSV `ValueConverter` + `ValueComparer` (`WeekdaysConverter` /
+  `IntListConverter` / `TimesOfDayConverter`). `AppSetting` is keyed by its `Key`.
 - `Common/Result.cs` — `Result`/`Result<T>` + `Error(ErrorType, msg)` (Validation/NotFound/
   Conflict/Unauthorized/Forbidden). **Expected failures return Results, not exceptions.**
 - `Common/Validators.cs` — shared static rules returning `Error?` (`Username`, `Password`,
@@ -144,8 +186,13 @@ copy the nearest existing example. Paths are under `src/` / `web/src/` / `tests/
   chore-input records carry `TrackInput[] Tracks` (per-assignee quotas).
 - `Services/*Service.cs` — ctor-inject `TurnlyDbContext` (+ deps); methods return `Result`/
   `Result<T>`. `AuthService, UserService, SetupService, TagService, ChoreService, AwardService,
-  RedemptionService, NotificationService`. Registered in `ServiceCollectionExtensions.AddTurnlyCore`
-  (also `IPushSender → WebPushSender` singleton + `VapidOptions`). `RedemptionService`
+  RedemptionService, NotificationService, AppSettingsService`. Registered in
+  `ServiceCollectionExtensions.AddTurnlyCore` (also `IPushSender → WebPushSender` singleton +
+  `VapidOptions`). `AppSettingsService` reads/writes the family timezone (`AppSetting`). `UserService`
+  also has `AdjustPointsAsync` (admin manual point grant/deduction → `PointsLogType.Adjustment`).
+  `ChoreService` also has `CopyAsync` (clone via the create path under a new name) and
+  `AutoAdvanceAsync(now)` (expire-and-advance unfilled occurrences, driven by `ChoreAutoAdvanceService`).
+  `RedemptionService`
   mirrors `ChoreService`'s points-award path: `RedeemAsync` writes a negative `PointsLogEntry` +
   decrements `User.Points`; `CancelAsync` reverses it like `UndoCompletionAsync`. `ChoreService.SkipAsync`
   mirrors `CompleteAsync` minus points/rotation (advances the schedule, writes an `IsSkip` completion);
@@ -176,18 +223,24 @@ copy the nearest existing example. Paths are under `src/` / `web/src/` / `tests/
   `NextDue` + rotates) once `CompletionsRequired` completions/skips share the current `DueAt`;
   earlier ones leave `DueAt`/assignee untouched. `ToDto` computes `OccurrenceProgress` the same way.
   `Independent` chores use the parallel `AdvanceTrackAsync`, gated the same way but on each track's
-  own per-person quota and `DueAt`.
+  own per-person quota and `DueAt`. `StreakCalculator.CurrentStreak(completions)` is the pure on-time
+  streak counter (resets on a late/skipped/expired occurrence); `ToDto` feeds it the right completion
+  set (whole chore, or one track's rows in Independent mode).
 - `Notifications/` — `NotificationPlanner.FireTime(entry, dueAt)` is pure + unit-tested (before/at/
   after offset math). `VapidOptions` (`IsConfigured`), `IPushSender`/`WebPushSender` (WebPush lib;
-  maps 404/410 → `Gone` so the service prunes the subscription).
+  maps 404/410 → `Gone` so the service prunes the subscription). `QuietHours.Contains(start, end, now)`
+  (pure, wrap-aware) gates per-user push suppression; `TimeZoneResolver` turns the configured family
+  zone id (IANA or Windows) into a `TimeZoneInfo` (falls back to server-local) so the scan can evaluate
+  quiet hours in local wall-clock time.
 - ⚠️ **SQLite can't `ORDER BY` a `DateTimeOffset`** — order date fields client-side after
   `ToListAsync` (see `ChoreService.ListAsync`, `LatestCompletionsAsync`, `GetPointsLogAsync`).
 
 **Backend (`Turnly.Api`)**
 - `Program.cs` — `AddTurnlyCore`, `JsonStringEnumConverter`, JWT bearer (claims unmapped:
   `sub`/`role`), `"Admin"` authorization policy, then `app.Map*Endpoints()` + SPA fallback. Also
-  registers `NotificationSchedulerService` (a `BackgroundService` that polls `ProcessDueAsync` every
-  minute; idle until VAPID keys are configured).
+  registers two `BackgroundService`s: `NotificationSchedulerService` (polls `ProcessDueAsync` every
+  minute; idle until VAPID keys are configured) and `ChoreAutoAdvanceService` (polls
+  `ChoreService.AutoAdvanceAsync` every minute; runs unconditionally, no VAPID dependency).
 - `Endpoints/*Endpoints.cs` — `MapGroup(...).RequireAuthorization()`; thin handlers:
   parse → call service → `result.Succeeded ? Results.Ok/... : result.Error!.ToProblem()`.
   Per-endpoint `.RequireAuthorization("Admin")` for admin-only ops (e.g. chore create/edit/
@@ -195,7 +248,9 @@ copy the nearest existing example. Paths are under `src/` / `web/src/` / `tests/
   member; chores/skip is admin-only (skipping advances past the due date with no points). The
   chore list/get handlers pass `principal.GetUserId()` as the viewer id so track-mode chores are
   personalised to the caller; `skip`/`reschedule` take an optional `UserId` to target one assignee's
-  track.
+  track. Admin-only `POST /api/chores/{id}/copy` (`CopyChoreRequest`) duplicates a chore, and admin-only
+  `POST /api/users/{id}/points` (`AdjustPointsRequest`) grants/deducts points.
+  `SettingsEndpoints` (`/api/settings`): member-open `GET` (family + server timezone), admin-only `PUT`.
   `AwardEndpoints` follows the
   same split: listing awards + redeeming (`POST /api/awards/{id}/redeem`) and `GET /api/redemptions`
   (own for members, all for admins) are member-open; award create/edit/delete and redemption
@@ -203,7 +258,7 @@ copy the nearest existing example. Paths are under `src/` / `web/src/` / `tests/
   `NotificationEndpoints` (`/api/notifications`): member-open `GET /vapid-key`, `POST /subscribe`
   (captures the User-Agent → friendly `PushSubscription.DeviceLabel`), `POST /unsubscribe`,
   `GET /devices` + `DELETE /devices/{id}` (a user's own push devices), `GET /inbox` +
-  `POST /inbox/read` (the in-app inbox); admin-only `POST /test`
+  `POST /inbox/read` + `DELETE /inbox/{id}` + `DELETE /inbox` (the in-app inbox); admin-only `POST /test`
   (dev: immediate push to the caller's devices). Chore notification entries are nested in the chore
   create/update request, not a separate endpoint.
 - `Endpoints/ApiResults.cs` — `Error.ToProblem()` (status mapping) and
@@ -225,6 +280,14 @@ copy the nearest existing example. Paths are under `src/` / `web/src/` / `tests/
   of the single current→next assignee, the details modal exposing an admin per-track Skip; `ChoreMenu`
   hides Reassign; `CompleteModal` limits the admin "Completed by" picker to the chore's assignees.
   Helpers (`isIndependent`, `dueStatus`, `trackIsDone`, `trackStatusText`) live in `lib/chore-format.ts`.
+- **Post-Phase-9 frontend bits:** `ChoreFormModal` also exposes the multiple-times-of-day editor and the
+  auto-advance toggle + window; `chores/CopyChoreModal.tsx` is the copy-under-new-name dialog (from
+  `ChoreMenu`). `ChoreFilters` carries the **view switcher** (`ChoreView = 'list' | 'compact' | 'calendar'`,
+  persisted to `localStorage`), rendered by `chores/ChoreCompactItem.tsx` and `chores/ChoreCalendar.tsx`.
+  `AwardsPage`'s `NextGoalCard` shows progress to the cheapest unaffordable award. `UsersPage` has the
+  admin point-adjust action. `SettingsPage` holds the user **quiet hours** editor and the admin **family
+  timezone** setting (`settingsApi` in `lib/api.ts`). Streaks come through on `ChoreDto.currentStreak` /
+  per-track `streak`.
 - **Notifications (Phase 8):** `lib/push.ts` wraps the browser Push API
   (`enablePush`/`disablePush`/`isPushEnabled`, VAPID key decode); `web/public/sw.js` is the service
   worker (push + `notificationclick` opens `/chores?chore=<id>`, shows the app's `icon-192.png` +
@@ -259,7 +322,7 @@ copy the nearest existing example. Paths are under `src/` / `web/src/` / `tests/
 
 ```bash
 dotnet build                              # build solution
-dotnet test                               # all tests (currently 132, keep them green)
+dotnet test                               # all tests (currently 298, keep them green)
 dotnet run --project src/Turnly.Api       # backend (dev) on http://localhost:5199
 cd web && npm install && npm run dev      # frontend on :5173, proxies /api → :5199
 cd web && npm run build                   # typechecks (tsc -b) + production build

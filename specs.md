@@ -53,6 +53,14 @@
 - **Completion count** — for the non-custom repeat types, a chore can require being completed `{x}`
   times before the occurrence advances (e.g. "3× per week"); each completion **or skip** counts toward
   closing the occurrence. (For `Everyone (independent)` chores this count is set **per assignee**.)
+- **Multiple times of day** — a day-resolution chore (Daily, or the custom Days-of-week / Days-of-month
+  modes) can list several fixed times of day (e.g. 08:00 and 20:00 for "twice a day"); each time is a
+  distinct occurrence. Empty = a single daily slot at the chore's due time.
+- **Auto-advance incomplete** — for multi-completion chores, the schedule can roll forward
+  automatically once the completion window closes: any unfilled slots are recorded as **missed
+  (expired)** and the chore advances to the next occurrence (and rotates the assignee) without waiting
+  for a person to act. An optional window (minutes/hours/days after the due time) gives a grace period
+  before the occurrence is considered missed.
 - **Start date / datetime** — when the first occurrence begins
 
 ### Scheduling Preference on Completion
@@ -85,9 +93,12 @@ Per-chore notification schedule — a list of notification entries, each with:
 - Completing a chore logs: who, when, notes (optional)
 - Completions can be undone; points are reversed on undo
 - **Skip occurrence** — a recurring chore's current occurrence can be skipped instead of completed: it advances the recurrence to the next due date (per the chore's scheduling preference) without awarding points or flagging it overdue; skips are logged and can be undone (one-time chores cannot be skipped)
+- **Missed / expired occurrence** — when a chore has **auto-advance** on, the background service closes an unfilled occurrence after its completion window passes: the missing slots are logged as expired (no points, no actor, not undoable) and the schedule advances. Expired occurrences appear in history and break the on-time streak.
 - Points awarded on completion (fixed value set per chore)
 - Points are per-user, accumulated over time
-- **Points log** — each user has a full history of point changes: earnings (per completion) and deductions (per redemption)
+- **Points log** — each user has a full history of point changes: earnings (per completion), deductions (per redemption), and **manual admin adjustments**
+- **Manual point adjustment** — an admin can grant or deduct points from any user with an optional reason; the change is recorded in that user's points log
+- **On-time streak** — each chore tracks how many of its most recent occurrences were completed on or before the due date; a late completion, a skip, or a missed (expired) occurrence resets the streak to 0. For `Everyone (independent)` chores the streak is tracked per assignee.
 
 ---
 
@@ -98,6 +109,7 @@ Per-chore notification schedule — a list of notification entries, each with:
 - Redemption is logged: who redeemed, which award, when
 - Admin can fulfill / mark a redemption as delivered
 - Point balance decreases on redemption
+- **Next-goal progress** — the awards page shows a progress bar toward the cheapest award the user can't yet afford (or a "redeem anything" nudge once everything is affordable)
 
 ---
 
@@ -111,6 +123,9 @@ Per-chore notification schedule — a list of notification entries, each with:
 - All notifications for a chore instance stop firing once it is marked complete (for
   `Everyone (independent)` chores, reminders fire **per assignee** and stop once that person completes
   their own share)
+- **Quiet hours** — each user can set a nightly window (e.g. 22:00–07:00, wrap-aware) during which push
+  notifications are suppressed; the in-app inbox row is still written so nothing is lost. The window is
+  evaluated against the configured **family timezone** (see Self-Hosting).
 
 ---
 
@@ -121,6 +136,7 @@ Per-chore notification schedule — a list of notification entries, each with:
 - Upcoming chores (next 7 days)
 - Per-user point totals (current week / all time)
 - Filterable by tag and assignee
+- **Chore views** — list, compact, and calendar layouts (the chosen view persists per browser)
 
 ---
 
@@ -157,6 +173,9 @@ Per-chore notification schedule — a list of notification entries, each with:
 - SQLite by default (Postgres optional)
 - Environment variable configuration
 - No external dependencies required (push handled via self-hosted VAPID keys)
+- **Family timezone** — an admin sets the instance's timezone (IANA or Windows id) in settings; it is
+  used to evaluate per-user quiet hours against local wall-clock time. Falls back to the server's host
+  zone when unset.
 
 ---
 
@@ -235,23 +254,33 @@ The `Everyone (independent)` assignment strategy: a shared chore gives each assi
 schedule + per-person quota (no rotation), an admin manual **reschedule** of the current occurrence,
 and notifications that fan out per assignee.
 
+### Post-Phase-9 — Scheduling, points & UX extensions
+Shipped after the independent-tracks work, in no strict phase order:
+- **Multiple times of day** per day-resolution chore (each time a distinct occurrence).
+- **Auto-advance incomplete** occurrences — a background service expires unfilled multi-completion
+  slots after a configurable window, logs them as missed, and advances/rotates.
+- **On-time streaks** per chore (per assignee for independent chores).
+- **Chore copying** — duplicate a chore (fresh schedule) under a new name.
+- **Manual point adjustments** by an admin (logged in the points log).
+- **Quiet hours** — per-user nightly push-suppression window, evaluated in the family timezone.
+- **Family timezone** — admin-configured instance timezone backing quiet hours.
+- **Next-goal progress** on the awards page; **list / compact / calendar** chore views.
+
 ---
 
 ## On wait
 
 - Complete at time
 
-- **Per-user time zone** — `User.TimeZoneId` (IANA); prerequisite for quiet hours + digest
-  (everything currently runs in UTC). Set manually by an admin on the user add/edit form (a zone
-  picker); no auto-detection for now.
 - **Vacation / availability** — `UserAvailability` (date range per user); `AdvanceScheduleAsync`
   filters unavailable users out of the assignee list before `AssignmentPicker.Pick` (fall back to
   the full list if everyone's away), and `SendEntryAsync` skips away recipients (push + inbox).
-  Independent of the time-zone work.
-- **Quiet hours** — per-user nightly window (`QuietHoursEnabled/Start/End` on `User`, wrap-aware);
-  in `SendEntryAsync`, suppress push for recipients currently in quiet hours but keep the inbox row.
-  v1 just drops the push; full version defers/replays it after the window (needs a per-recipient
-  pending-push queue, since today's dedup is per-occurrence, not per-recipient).
+- **Per-user time zone** — quiet hours currently use a single instance-wide **family timezone**
+  (`AppSetting`); a per-user `User.TimeZoneId` (IANA) would let each member's quiet hours/digest run in
+  their own zone. Not yet implemented.
+- **Quiet hours — defer & replay.** Shipped (per-user wrap-aware window suppresses push, keeps the
+  inbox row). The remaining extension: instead of dropping the muted push, defer and replay it after
+  the window (needs a per-recipient pending-push queue, since today's dedup is per-occurrence).
 - **Daily digest** — opt-in per-user morning summary (one push instead of N): `DigestEnabled` +
   `DigestAtLocal` on `User`, a `DigestDelivery (UserId, LocalDate)` dedup row, and a new
   `ProcessDigestsAsync(now)` scan called from the same minute tick. Reuses the dashboard's

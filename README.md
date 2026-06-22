@@ -4,13 +4,16 @@ Family chore management web app (PWA). Self-hosted, simple, actually works.
 
 This repository currently implements **Phases 1–9**: foundation (auth, users, roles, Docker),
 chore CRUD with recurrence and assignment strategies, a dashboard with today/overdue/upcoming
-views, per-user point totals, filtering, and global search, a history/stats view, awards and
-point redemption, per-occurrence skip and one-off reassignment, Web Push notifications
-(per-chore reminder/due/follow-up schedule via self-hosted VAPID keys), and UX polish (swipe
-actions, completion confetti, admin complete-on-behalf and activity-entry deletion). **Shared
-chores** can also be set to "Everyone (independent)", giving each assignee their own schedule and
-per-person quota — one chore for "everyone does the dishes once a week" without anyone blocking
-anyone else. See [`specs.md`](./specs.md) for the full product spec and roadmap.
+views (list, compact, and calendar layouts), per-user point totals, filtering, and global search,
+a history/stats view, awards and point redemption (with next-goal progress), per-occurrence skip
+and one-off reassignment, Web Push notifications (per-chore reminder/due/follow-up schedule via
+self-hosted VAPID keys, with per-user quiet hours), and UX polish (swipe actions, completion
+confetti, admin complete-on-behalf and activity-entry deletion). **Shared chores** can also be set
+to "Everyone (independent)", giving each assignee their own schedule and per-person quota — one
+chore for "everyone does the dishes once a week" without anyone blocking anyone else. Chores can
+also fire **multiple times a day**, **auto-advance** past missed occurrences, track an **on-time
+streak**, and be **copied**; admins can **adjust points** manually and set the instance's **family
+timezone**. See [`specs.md`](./specs.md) for the full product spec and roadmap.
 
 ## Stack
 
@@ -81,6 +84,10 @@ npx web-push generate-vapid-keys
 Then each user enables push per-device under **Settings → Notifications**, and chores get a
 notification schedule (reminder / due / follow-up) in the chore form. Without keys, the
 background scheduler stays idle and the rest of the app works normally.
+
+Users can also set **quiet hours** (a nightly window that suppresses push but still records the
+in-app inbox item) in settings. Quiet hours are evaluated against the **family timezone** an admin
+configures under **Settings** (falling back to the server's host zone when unset).
 
 ## Tests
 
