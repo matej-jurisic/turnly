@@ -244,7 +244,7 @@ function QuickViews({
         title={activePreset ? `Quick view: ${activePreset.label}` : 'Quick views'}
         className={iconButtonClass(!!activePreset)}
       >
-        <BookmarkIcon />
+        <FunnelIcon />
       </button>
 
       {open && (
@@ -374,10 +374,10 @@ function SlidersIcon() {
   )
 }
 
-function BookmarkIcon() {
+function FunnelIcon() {
   return (
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" />
+      <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
     </svg>
   )
 }

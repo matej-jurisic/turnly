@@ -121,7 +121,7 @@ export function ChoreCalendar({
                 onClick={() => setSelected(key)}
                 aria-pressed={isSelected}
                 className={cn(
-                  'flex min-h-[4.5rem] flex-col items-center gap-1 border-b border-r border-border p-1.5 transition-colors last:border-r-0 [&:nth-child(7n)]:border-r-0 hover:bg-accent/60',
+                  'flex min-h-[3.25rem] flex-col items-center gap-1 border-b border-r border-border p-1.5 transition-colors last:border-r-0 [&:nth-child(7n)]:border-r-0 hover:bg-accent/60',
                   !inMonth && 'bg-accent/30',
                   isSelected && 'bg-primary/5 ring-1 ring-inset ring-primary',
                 )}

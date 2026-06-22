@@ -4,7 +4,6 @@ import {
   choreHasDueTime, dueStatus, formatDate, isIndependent, nextDueTimeLabel, showStreak,
 } from '@/lib/chore-format'
 import { CheckIcon } from '@/components/chores/icons'
-import { ChoreMenu } from '@/components/chores/ChoreMenu'
 
 /** Actions shared by every chore-row layout (list / compact). Mirrors the object built by
  * `ChoresPage.itemProps`. */
@@ -77,8 +76,6 @@ export function ChoreCompactItem(props: ChoreItemProps) {
           {assignee && <span className="truncate text-xs text-muted-foreground">{assignee}</span>}
         </div>
       </button>
-
-      <ChoreMenu {...props} />
     </div>
   )
 }
