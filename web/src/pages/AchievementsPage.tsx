@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ApiError, achievementsApi, usersApi } from '@/lib/api'
 import { toast } from '@/lib/toast'
 import { confirm } from '@/lib/confirm'
@@ -32,6 +32,7 @@ export function AchievementsPage() {
     queryKey: ['achievements', targetUserId],
     queryFn: () => achievementsApi.list(isOwnView ? undefined : targetUserId),
     enabled: Boolean(targetUserId),
+    placeholderData: keepPreviousData,
   })
 
   const revokeMutation = useMutation({
@@ -77,7 +78,7 @@ export function AchievementsPage() {
             <option value="locked">Locked</option>
           </Select>
           {total > 0 && (
-            <Badge tone="violet">
+            <Badge tone="violet" className="shrink-0 whitespace-nowrap">
               {earnedCount} / {total}
             </Badge>
           )}

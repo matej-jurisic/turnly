@@ -1,11 +1,15 @@
 import { useState } from 'react'
-import { keepPreviousData, useQuery } from '@tanstack/react-query'
-import { choresApi, historyApi, tagsApi, usersApi } from '@/lib/api'
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { ApiError, choresApi, historyApi, tagsApi, usersApi } from '@/lib/api'
+import { toast } from '@/lib/toast'
+import { confirm } from '@/lib/confirm'
+import { useAuthStore } from '@/store/auth'
 import type { ChartWeek, ChoreHistoryEntry, UserStats } from '@/lib/types'
 import type { BadgeTone } from '@/components/ui/Badge'
 import { Badge } from '@/components/ui/Badge'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { Avatar } from '@/components/ui/Modal'
+import { TrashIcon } from '@/components/chores/icons'
 import { cn } from '@/lib/utils'
 
 interface Segment {
@@ -15,6 +19,8 @@ interface Segment {
 }
 
 export function HistoryPage() {
+  const isAdmin = useAuthStore((s) => s.user?.role === 'Admin')
+  const queryClient = useQueryClient()
   const [filterTag, setFilterTag] = useState('')
   const [filterUserId, setFilterUserId] = useState('')
   const [filterChoreId, setFilterChoreId] = useState('')
@@ -36,6 +42,33 @@ export function HistoryPage() {
   })
 
   const hasFilter = filterTag || filterUserId || filterChoreId
+
+  // Admins can delete completions/skips/expired entries to fix up history; deletion reverses the
+  // entry's points but never reschedules the chore. Reassignments aren't completion rows, so they
+  // can't be deleted through this path.
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => choresApi.deleteActivity(id),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['history'] })
+      void queryClient.invalidateQueries({ queryKey: ['stats'] })
+      void queryClient.invalidateQueries({ queryKey: ['chores'] })
+      void queryClient.invalidateQueries({ queryKey: ['me'] })
+      void queryClient.invalidateQueries({ queryKey: ['leaderboard'] })
+    },
+    onError: (err) => toast.error(err instanceof ApiError ? err.message : 'Delete failed'),
+  })
+
+  const onDeleteEntry = async (entry: ChoreHistoryEntry) => {
+    const { title, message } =
+      entry.kind === 'skip'
+        ? { title: 'Delete skip', message: 'Delete this skip from the log? The chore schedule is not changed.' }
+        : entry.kind === 'expired'
+          ? { title: 'Delete expired entry', message: 'Delete this auto-expired entry from the log? The chore schedule is not changed.' }
+          : { title: 'Delete completion', message: `Delete this completion? ${entry.pointsAwarded} points will be reversed and the chore schedule is not changed.` }
+    if (await confirm({ title, message, confirmLabel: 'Delete' })) {
+      deleteMutation.mutate(entry.id)
+    }
+  }
 
   // Donut chart 1: completion timing (all-time, from stats)
   const totalOnTime = stats?.userStats.reduce((s, u) => s + u.onTimeCount, 0) ?? 0
@@ -201,6 +234,17 @@ export function HistoryPage() {
                         )}
                       </div>
                     </div>
+                    {isAdmin && entry.kind !== 'reassignment' && (
+                      <button
+                        type="button"
+                        onClick={() => onDeleteEntry(entry)}
+                        disabled={deleteMutation.isPending}
+                        aria-label="Delete entry"
+                        className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
+                      >
+                        <TrashIcon />
+                      </button>
+                    )}
                   </li>
                 )
               })}
