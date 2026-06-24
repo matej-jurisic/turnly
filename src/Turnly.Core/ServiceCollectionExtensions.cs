@@ -41,6 +41,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<RedemptionService>();
         services.AddScoped<NotificationService>();
         services.AddScoped<AppSettingsService>();
+        services.AddScoped<AchievementService>();
         services.AddSingleton<IPushSender, WebPushSender>();
 
         return services;

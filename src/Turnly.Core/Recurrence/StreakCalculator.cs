@@ -9,7 +9,13 @@ namespace Turnly.Core.Recurrence;
 /// (<see cref="Enums.AssignmentStrategy.Independent"/>).</summary>
 public static class StreakCalculator
 {
-    public static int CurrentStreak(IEnumerable<ChoreCompletion> completions)
+    /// <param name="completions">The completion rows for one schedule (or several, when
+    /// <paramref name="userId"/> attributes the streak to a person across a chore).</param>
+    /// <param name="userId">When set, an occurrence only continues the streak if the person who
+    /// *closed* it (the latest completion) is this user — so on a rotating chore the streak follows
+    /// the individual and stops as soon as someone else takes a turn. Null counts the schedule's
+    /// streak regardless of who completed each occurrence (the chore- or track-wide streak).</param>
+    public static int CurrentStreak(IEnumerable<ChoreCompletion> completions, Guid? userId = null)
     {
         // An occurrence is the set of rows sharing one OccurrenceDueAt (the existing grouping key).
         var occurrences = completions
@@ -23,10 +29,12 @@ public static class StreakCalculator
         {
             // A skipped or missed occurrence in the chain stops the streak.
             if (occ.Any(c => c.IsSkip || c.IsExpired)) break;
-            // On time only when the closing completion landed on/before the due date — so a
-            // multi-completion occurrence counts only once fully done in time.
-            if (occ.Max(c => c.CompletedAt) <= occ.Key) streak++;
-            else break;
+            // The closing completion (latest) decides on-time-ness — so a multi-completion occurrence
+            // counts only once fully done — and, when scoped, whose streak it is.
+            var closing = occ.OrderByDescending(c => c.CompletedAt).First();
+            if (closing.CompletedAt > occ.Key) break; // late
+            if (userId is { } uid && closing.CompletedByUserId != uid) break; // closed by someone else
+            streak++;
         }
         return streak;
     }

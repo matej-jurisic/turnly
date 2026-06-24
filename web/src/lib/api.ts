@@ -10,6 +10,7 @@ import type {
   CreateChoreRequest,
   CreateUserRequest,
   LeaderboardEntry,
+  Achievement,
   NotificationInboxItem,
   PointsLogEntry,
   ProfileUpdate,
@@ -200,6 +201,10 @@ export const notificationsApi = {
     request<void>(`/notifications/inbox/${id}`, { method: 'DELETE' }),
   clearInbox: () =>
     request<{ cleared: number }>('/notifications/inbox', { method: 'DELETE' }),
+}
+
+export const achievementsApi = {
+  list: () => request<Achievement[]>('/achievements'),
 }
 
 export const historyApi = {

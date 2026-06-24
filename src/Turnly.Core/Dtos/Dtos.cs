@@ -421,3 +421,17 @@ public record StatsDto(
     IEnumerable<UserStatsDto> UserStats,
     IEnumerable<ChartWeekDto> Chart,
     int TotalMissedCount);
+
+/// <summary>A catalog achievement projected for one user: its definition plus the user's current
+/// <see cref="Progress"/> toward <see cref="Threshold"/> and whether it's been earned. Cosmetic —
+/// no points are involved.</summary>
+public record AchievementDto(
+    string Key,
+    string Name,
+    string Description,
+    string Emoji,
+    string Category,
+    int Threshold,
+    int Progress,
+    bool Earned,
+    DateTimeOffset? EarnedAt);

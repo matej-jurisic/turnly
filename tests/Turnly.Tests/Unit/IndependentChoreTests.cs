@@ -233,6 +233,9 @@ public class IndependentChoreTests
 
         // Alice completes first, advancing her track past this occurrence.
         await ctx.Chores.CompleteAsync(id, a, new CompleteChoreRequest(null));
+        // Completing unlocks an achievement (which pushes to Alice); ignore that — this test is about
+        // the chore notification scan firing only for Bob's still-due track.
+        ctx.Push.Sent.Clear();
         var fired = await ctx.Notifications.ProcessDueAsync(Start);
 
         Assert.Equal(1, fired); // only Bob's track is still due now

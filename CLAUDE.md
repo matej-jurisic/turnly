@@ -119,6 +119,31 @@ independent-tracks work (no strict phase order):
   `chores/ChoreCompactItem.tsx`, a view switcher in `ChoreFilters`, persisted to `localStorage`).
 - **Inbox delete/clear** (`NotificationService.DeleteInboxAsync`/`ClearInboxAsync`) round out the inbox.
 
+**Post-Phase-9 — Achievements.** Cosmetic, collectible badges (no points). The catalog is **defined in
+code** (`Core/Achievements/AchievementCatalog.cs`: `AchievementDefinition` records with a stable `Key`,
+presentation, `Category`, `Threshold`, and a pure `Progress` selector over an `AchievementStats` record)
+— completion milestones, on-time-streak milestones, lifetime-points milestones, redemption count, and
+variety (distinct chores / distinct tags). Adding one is just another catalog entry, no migration.
+`UserAchievement { UserId, AchievementKey, EarnedAt }` (unique on `(UserId, AchievementKey)`) is the
+per-user "unlocked" marker; earned achievements are **permanent**. `AchievementService` has a
+**side-effect-free read** (`ListForUserAsync` → `AchievementDto[]` with live progress + earned status,
+progress clamped to threshold) and an **inline grant** (`EvaluateForUserAsync(userId, now)`) that grants
+newly-met achievements and fires a one-time inbox + push notification per unlock (push suppressed during
+the user's quiet hours, inbox row always written). Granting is wired into the three metric-moving
+mutations — `ChoreService.CompleteAsync`, `RedemptionService.RedeemAsync`, `UserService.AdjustPointsAsync`
+each call it after they save — so a badge unlocks at the moment it's earned (no background worker). Those
+three services therefore take `AchievementService` as a ctor dependency (it depends only on the DbContext +
+`IPushSender`, so no cycle). Because the model is permanent and the read is side-effect-free, **reversals
+need no handling**: undo / redemption-cancel / negative adjustment lower the *live* metrics (so unearned
+progress correctly drops) but never revoke an earned badge, and re-crossing a threshold is a no-op (the
+"already earned" guard skips it — no re-grant, no re-notify). `ComputeStatsAsync` aggregates the metrics
+(lifetime points = sum of *positive* points-log deltas); streak milestones reuse
+`StreakCalculator.CurrentStreak(completions, userId?)` — the optional `userId` overload attributes the
+streak to the person who *closed* each occurrence (stops when someone else takes a turn), preserving the
+chore-/track-wide behavior when null. Endpoint: `GET /api/achievements` (caller's own, read-only). Frontend:
+`pages/AchievementsPage.tsx` (grouped-by-category grid, earned vs. locked-with-progress-bar),
+`achievementsApi` in `lib/api.ts`, `/achievements` route + nav tab.
+
 ## Stack & layout
 
 - **Backend:** ASP.NET Core (.NET 10) minimal APIs, EF Core. Solution file is `Turnly.slnx`.

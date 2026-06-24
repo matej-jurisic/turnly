@@ -9,7 +9,7 @@ public class StreakCalculatorTests
 
     /// <summary>A completion of the occurrence due on <paramref name="dayOffset"/>, finished
     /// <paramref name="lateHours"/> after the due time (negative = early/on time).</summary>
-    private static ChoreCompletion Done(int dayOffset, double lateHours = 0, bool isSkip = false, bool isExpired = false)
+    private static ChoreCompletion Done(int dayOffset, double lateHours = 0, bool isSkip = false, bool isExpired = false, Guid? by = null)
     {
         var due = Base.AddDays(dayOffset);
         return new ChoreCompletion
@@ -18,6 +18,7 @@ public class StreakCalculatorTests
             CompletedAt = due.AddHours(lateHours),
             IsSkip = isSkip,
             IsExpired = isExpired,
+            CompletedByUserId = by,
         };
     }
 
@@ -82,6 +83,24 @@ public class StreakCalculatorTests
             Done(0, -1),
         };
         Assert.Equal(2, StreakCalculator.CurrentStreak(onTime));
+    }
+
+    [Fact]
+    public void Scoped_to_user_stops_when_someone_else_closed_an_occurrence()
+    {
+        var me = Guid.NewGuid();
+        var other = Guid.NewGuid();
+        // Newest two I closed on time; the next-older one was closed by someone else.
+        var completions = new[]
+        {
+            Done(3, -1, by: me),
+            Done(2, -1, by: me),
+            Done(1, -1, by: other),
+            Done(0, -1, by: me),
+        };
+        // Unscoped counts the whole on-time run; scoped to me stops at the other person's turn.
+        Assert.Equal(4, StreakCalculator.CurrentStreak(completions));
+        Assert.Equal(2, StreakCalculator.CurrentStreak(completions, me));
     }
 
     [Fact]

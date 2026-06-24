@@ -12,11 +12,13 @@ public class ChoreService
 {
     private readonly TurnlyDbContext _db;
     private readonly TagService _tags;
+    private readonly AchievementService _achievements;
 
-    public ChoreService(TurnlyDbContext db, TagService tags)
+    public ChoreService(TurnlyDbContext db, TagService tags, AchievementService achievements)
     {
         _db = db;
         _tags = tags;
+        _achievements = achievements;
     }
 
     /// <summary><paramref name="viewerId"/> personalises track-mode chores to the logged-in user:
@@ -246,6 +248,10 @@ public class ChoreService
         }
 
         await _db.SaveChangesAsync(ct);
+
+        // A completion is the main thing that can unlock an achievement — evaluate the credited user.
+        await _achievements.EvaluateForUserAsync(userId, now, ct);
+
         return await GetAsync(chore.Id, ct: ct);
     }
 

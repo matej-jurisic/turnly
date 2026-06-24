@@ -10,10 +10,12 @@ namespace Turnly.Core.Services;
 public class RedemptionService
 {
     private readonly TurnlyDbContext _db;
+    private readonly AchievementService _achievements;
 
-    public RedemptionService(TurnlyDbContext db)
+    public RedemptionService(TurnlyDbContext db, AchievementService achievements)
     {
         _db = db;
+        _achievements = achievements;
     }
 
     /// <summary>Lists redemptions. Admins (<paramref name="includeAll"/>) see everyone's;
@@ -67,6 +69,10 @@ public class RedemptionService
         });
 
         await _db.SaveChangesAsync(ct);
+
+        // Redeeming can unlock the redemption-count achievements.
+        await _achievements.EvaluateForUserAsync(userId, DateTimeOffset.UtcNow, ct);
+
         redemption.User = user;
         return Result.Success(RedemptionDto.FromEntity(redemption));
     }

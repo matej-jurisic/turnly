@@ -13,6 +13,7 @@ import { SettingsPage } from '@/pages/SettingsPage'
 import { PointsPage } from '@/pages/PointsPage'
 import { HistoryPage } from '@/pages/HistoryPage'
 import { AwardsPage } from '@/pages/AwardsPage'
+import { AchievementsPage } from '@/pages/AchievementsPage'
 
 export default function App() {
   return (
@@ -75,6 +76,7 @@ function AppRoutes() {
           />
           <Route path="/points" element={<PointsPage />} />
           <Route path="/awards" element={<AwardsPage />} />
+          <Route path="/achievements" element={<AchievementsPage />} />
           <Route path="/history" element={<HistoryPage />} />
           <Route path="/settings" element={<SettingsPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />

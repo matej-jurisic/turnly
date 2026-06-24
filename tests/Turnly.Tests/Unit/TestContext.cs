@@ -30,6 +30,7 @@ public sealed class TestContext : IDisposable
     public FakePushSender Push { get; }
     public NotificationService Notifications { get; }
     public AppSettingsService Settings { get; }
+    public AchievementService Achievements { get; }
 
     public TestContext()
     {
@@ -51,14 +52,15 @@ public sealed class TestContext : IDisposable
             RefreshTokenDays = 180
         }));
 
-        Users = new UserService(Db, Hasher);
+        Push = new FakePushSender();
+        Achievements = new AchievementService(Db, Push);
+        Users = new UserService(Db, Hasher, Achievements);
         Auth = new AuthService(Db, Hasher, Tokens);
         Setup = new SetupService(Db, Hasher, Auth);
         Tags = new TagService(Db);
-        Chores = new ChoreService(Db, Tags);
+        Chores = new ChoreService(Db, Tags, Achievements);
         Awards = new AwardService(Db);
-        Redemptions = new RedemptionService(Db);
-        Push = new FakePushSender();
+        Redemptions = new RedemptionService(Db, Achievements);
         Notifications = new NotificationService(Db, Push, NullLogger<NotificationService>.Instance);
         Settings = new AppSettingsService(Db);
     }

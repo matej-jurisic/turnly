@@ -249,43 +249,18 @@ Swipe actions on chores, completion delight, admin deletion of activity entries
 (completions and skips) from chore details, admin completing a chore on behalf of any user, and
 refactoring the chores page into multiple components.
 
-### Post-Phase-9 — Per-assignee independent tracks
-The `Everyone (independent)` assignment strategy: a shared chore gives each assignee their own
-schedule + per-person quota (no rotation), an admin manual **reschedule** of the current occurrence,
-and notifications that fan out per assignee.
+### Phase 10 — Independent assignment tracks
+The `Everyone (independent)` assignment strategy (per-assignee schedule + quota, no rotation), admin manual reschedule of the current occurrence, and per-assignee notification fan-out.
 
-### Post-Phase-9 — Scheduling, points & UX extensions
-Shipped after the independent-tracks work, in no strict phase order:
-- **Multiple times of day** per day-resolution chore (each time a distinct occurrence).
-- **Auto-advance incomplete** occurrences — a background service expires unfilled multi-completion
-  slots after a configurable window, logs them as missed, and advances/rotates.
-- **On-time streaks** per chore (per assignee for independent chores).
-- **Chore copying** — duplicate a chore (fresh schedule) under a new name.
-- **Manual point adjustments** by an admin (logged in the points log).
-- **Quiet hours** — per-user nightly push-suppression window, evaluated in the family timezone.
-- **Family timezone** — admin-configured instance timezone backing quiet hours.
-- **Next-goal progress** on the awards page; **list / compact / calendar** chore views.
+### Phase 11 — Scheduling, points & UX extensions
+Multiple times of day per chore, auto-advance of incomplete occurrences, on-time streaks, chore copying, manual admin point adjustments, per-user quiet hours, admin-configured family timezone, awards next-goal progress, and list / compact / calendar chore views.
 
 ---
 
 ## On wait
 
-- Complete at time
-
-- **Vacation / availability** — `UserAvailability` (date range per user); `AdvanceScheduleAsync`
-  filters unavailable users out of the assignee list before `AssignmentPicker.Pick` (fall back to
-  the full list if everyone's away), and `SendEntryAsync` skips away recipients (push + inbox).
-- **Per-user time zone** — quiet hours currently use a single instance-wide **family timezone**
-  (`AppSetting`); a per-user `User.TimeZoneId` (IANA) would let each member's quiet hours/digest run in
-  their own zone. Not yet implemented.
-- **Quiet hours — defer & replay.** Shipped (per-user wrap-aware window suppresses push, keeps the
-  inbox row). The remaining extension: instead of dropping the muted push, defer and replay it after
-  the window (needs a per-recipient pending-push queue, since today's dedup is per-occurrence).
-- **Daily digest** — opt-in per-user morning summary (one push instead of N): `DigestEnabled` +
-  `DigestAtLocal` on `User`, a `DigestDelivery (UserId, LocalDate)` dedup row, and a new
-  `ProcessDigestsAsync(now)` scan called from the same minute tick. Reuses the dashboard's
-  today/overdue grouping. Consider a per-user "per-event | digest | both" notification style that
-  ties this together with quiet hours.
+- Vacation / availability — per-user date ranges that exclude unavailable users from assignment and skip them as notification recipients
+- Daily digest — opt-in per-user morning summary (one push instead of N), reusing the dashboard's today/overdue grouping
 
 ## Out of Scope (v1)
 

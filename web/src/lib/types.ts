@@ -376,3 +376,17 @@ export interface Stats {
   chart: ChartWeek[]
   totalMissedCount: number
 }
+
+/** A catalog achievement projected for the current user. Cosmetic — no points. `progress` is
+ * clamped to `threshold`; `earned`/`earnedAt` reflect whether it's been unlocked. */
+export interface Achievement {
+  key: string
+  name: string
+  description: string
+  emoji: string
+  category: string
+  threshold: number
+  progress: number
+  earned: boolean
+  earnedAt?: string | null
+}

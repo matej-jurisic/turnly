@@ -14,11 +14,13 @@ public class UserService
 
     private readonly TurnlyDbContext _db;
     private readonly IPasswordHasher _hasher;
+    private readonly AchievementService _achievements;
 
-    public UserService(TurnlyDbContext db, IPasswordHasher hasher)
+    public UserService(TurnlyDbContext db, IPasswordHasher hasher, AchievementService achievements)
     {
         _db = db;
         _hasher = hasher;
+        _achievements = achievements;
     }
 
     public async Task<List<UserDto>> ListAsync(CancellationToken ct = default)
@@ -238,6 +240,10 @@ public class UserService
         user.Points += req.Delta;
 
         await _db.SaveChangesAsync(ct);
+
+        // A positive grant can push the user past a lifetime-points milestone.
+        await _achievements.EvaluateForUserAsync(id, DateTimeOffset.UtcNow, ct);
+
         return Result.Success(UserDto.FromEntity(user));
     }
 
