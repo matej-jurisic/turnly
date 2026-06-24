@@ -250,9 +250,14 @@ public class ChoreService
         await _db.SaveChangesAsync(ct);
 
         // A completion is the main thing that can unlock an achievement — evaluate the credited user.
-        await _achievements.EvaluateForUserAsync(userId, now, ct);
+        var unlocked = await _achievements.EvaluateForUserAsync(userId, now, ct);
 
-        return await GetAsync(chore.Id, ct: ct);
+        var result = await GetAsync(chore.Id, ct: ct);
+        // Hand any freshly-unlocked badges back to the client to celebrate, but only on the earner's own
+        // session — an admin completing on someone else's behalf shouldn't get the other user's popup.
+        if (result.Succeeded && unlocked.Count > 0 && userId == actingUserId)
+            return Result.Success(result.Value! with { UnlockedAchievements = [.. unlocked] });
+        return result;
     }
 
     /// <summary>Skips the current occurrence of a recurring chore: advances the schedule to the

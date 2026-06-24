@@ -39,35 +39,49 @@ public class AchievementServiceTests
     }
 
     [Fact]
-    public async Task Unlocking_writes_an_inbox_notification()
+    public async Task Unlocking_is_returned_with_the_completion()
     {
         using var ctx = new TestContext();
         var (_, member) = await SeedUsersAsync(ctx);
         var chore = (await ctx.Chores.CreateAsync(DailyChore(member))).Value!;
 
-        await ctx.Chores.CompleteAsync(chore.Id, member, new CompleteChoreRequest(null));
+        // The completion response surfaces the freshly-unlocked badge so the client can celebrate it.
+        var dto = (await ctx.Chores.CompleteAsync(chore.Id, member, new CompleteChoreRequest(null))).Value!;
 
-        var inbox = await ctx.Notifications.ListInboxAsync(member);
-        Assert.Contains(inbox, n => n.Title.Contains("Achievement unlocked") && n.Body.Contains("Getting Started"));
+        Assert.Contains(dto.UnlockedAchievements, a => a.Key == "first-completion" && a.Earned);
     }
 
     [Fact]
-    public async Task An_achievement_is_granted_and_notified_only_once()
+    public async Task An_already_earned_achievement_is_granted_and_returned_only_once()
     {
         using var ctx = new TestContext();
         var (_, member) = await SeedUsersAsync(ctx);
         var chore = (await ctx.Chores.CreateAsync(DailyChore(member))).Value!;
 
-        // Complete two occurrences; "first-completion" should still only exist once.
+        // Complete two occurrences; "first-completion" should only ever be granted/returned once.
         await ctx.Chores.CompleteAsync(chore.Id, member, new CompleteChoreRequest(null));
-        await ctx.Chores.CompleteAsync(chore.Id, member, new CompleteChoreRequest(null));
+        var second = (await ctx.Chores.CompleteAsync(chore.Id, member, new CompleteChoreRequest(null))).Value!;
 
         var rows = await ctx.Db.UserAchievements
             .CountAsync(a => a.UserId == member && a.AchievementKey == "first-completion");
         Assert.Equal(1, rows);
+        Assert.DoesNotContain(second.UnlockedAchievements, a => a.Key == "first-completion");
+    }
 
-        var inbox = await ctx.Notifications.ListInboxAsync(member);
-        Assert.Equal(1, inbox.Count(n => n.Body.Contains("Getting Started")));
+    [Fact]
+    public async Task Completing_on_behalf_does_not_return_the_badge_to_the_admin()
+    {
+        using var ctx = new TestContext();
+        var (admin, member) = await SeedUsersAsync(ctx);
+        var chore = (await ctx.Chores.CreateAsync(DailyChore(member))).Value!;
+
+        // Admin credits the completion to the member: the member earns the badge, but the admin's
+        // response must not carry it (no celebration popup for someone else's unlock).
+        var dto = (await ctx.Chores.CompleteAsync(chore.Id, admin, new CompleteChoreRequest(null) { CompletedByUserId = member })).Value!;
+
+        Assert.Empty(dto.UnlockedAchievements);
+        var member_first = (await ctx.Achievements.ListForUserAsync(member)).Single(a => a.Key == "first-completion");
+        Assert.True(member_first.Earned);
     }
 
     [Fact]

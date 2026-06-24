@@ -53,7 +53,7 @@ public sealed class TestContext : IDisposable
         }));
 
         Push = new FakePushSender();
-        Achievements = new AchievementService(Db, Push);
+        Achievements = new AchievementService(Db);
         Users = new UserService(Db, Hasher, Achievements);
         Auth = new AuthService(Db, Hasher, Tokens);
         Setup = new SetupService(Db, Hasher, Auth);

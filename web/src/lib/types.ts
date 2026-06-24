@@ -221,6 +221,9 @@ export interface Chore extends RecurrenceFields {
    * above are personalised to the viewing user's own track. */
   tracks: ChoreTrack[]
   createdAt: string
+  /** Achievements the completing user just unlocked, returned only on a self-completion response so
+   * the client can show a celebration popup. Absent/empty otherwise. */
+  unlockedAchievements?: Achievement[]
 }
 
 export interface ChoreRequest extends RecurrenceFields {
@@ -344,6 +347,9 @@ export interface Redemption {
   status: RedemptionStatus
   redeemedAt: string
   fulfilledAt?: string | null
+  /** Achievements the user just unlocked by redeeming, returned only on the redeem response so the
+   * client can show a celebration popup. Absent/empty otherwise. */
+  unlockedAchievements?: Achievement[]
 }
 
 export interface UserStats {

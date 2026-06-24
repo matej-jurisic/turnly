@@ -5,6 +5,7 @@ import { useAuthStore } from '@/store/auth'
 import { Layout } from '@/components/Layout'
 import { Toaster } from '@/components/ui/Toaster'
 import { ConfirmHost } from '@/components/ui/ConfirmHost'
+import { AchievementCelebration } from '@/components/AchievementCelebration'
 import { SetupPage } from '@/pages/SetupPage'
 import { LoginPage } from '@/pages/LoginPage'
 import { UsersPage } from '@/pages/UsersPage'
@@ -21,6 +22,7 @@ export default function App() {
       <AppRoutes />
       <Toaster />
       <ConfirmHost />
+      <AchievementCelebration />
     </>
   )
 }

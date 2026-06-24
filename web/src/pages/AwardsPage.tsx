@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ApiError, authApi, awardsApi, redemptionsApi } from '@/lib/api'
 import { toast } from '@/lib/toast'
 import { confirm } from '@/lib/confirm'
+import { celebrateAchievements } from '@/lib/achievementCelebration'
 import { useAuthStore } from '@/store/auth'
 import type { Award, AwardRequest, Redemption } from '@/lib/types'
 import { Button } from '@/components/ui/Button'
@@ -38,7 +39,10 @@ export function AwardsPage() {
 
   const redeemMutation = useMutation({
     mutationFn: (id: string) => awardsApi.redeem(id),
-    onSuccess: refreshAfterSpend,
+    onSuccess: (redemption) => {
+      refreshAfterSpend()
+      celebrateAchievements(redemption.unlockedAchievements)
+    },
     onError: (err) => toast.error(err instanceof ApiError ? err.message : 'Redeem failed'),
   })
 
@@ -297,48 +301,82 @@ function RedemptionRow({
   onDelete: () => void
   busy: boolean
 }) {
-  return (
-    <li className="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-3 sm:px-6">
-      <span className="text-2xl leading-none">{r.awardEmoji ?? '🎁'}</span>
-      {isAdmin && <Avatar color={r.user.avatarColor} name={r.user.displayName} size={28} />}
-      <div className="min-w-0 flex-1">
-        <p className="truncate text-sm text-foreground">
-          {r.awardName}
-          {isAdmin && <span className="ml-2 text-xs text-muted-foreground">{r.user.displayName}</span>}
-        </p>
-        <p className="text-xs text-muted-foreground">{new Date(r.redeemedAt).toLocaleDateString()}</p>
-      </div>
-      <div className="ml-auto flex items-center gap-3">
-        <span className="text-sm text-destructive">−{r.pointsSpent}</span>
-        <Badge tone={r.status === 'Fulfilled' ? 'green' : 'amber'}>{r.status}</Badge>
-      </div>
-      {isAdmin && (
-        <div className="flex gap-1">
-          {r.status === 'Pending' && (
-            <>
-              <Button size="sm" variant="ghost" disabled={busy} onClick={onFulfill}>Fulfill</Button>
-              <Button
-                size="sm"
-                variant="ghost"
-                className="text-destructive hover:bg-destructive/10"
-                disabled={busy}
-                onClick={onCancel}
-              >
-                Cancel
-              </Button>
-            </>
-          )}
+  const statusBadge = (
+    <Badge tone={r.status === 'Fulfilled' ? 'green' : 'amber'}>{r.status}</Badge>
+  )
+
+  const actions = isAdmin ? (
+    <div className="flex gap-1">
+      {r.status === 'Pending' && (
+        <>
+          <Button size="sm" variant="ghost" disabled={busy} onClick={onFulfill}>Fulfill</Button>
           <Button
             size="sm"
             variant="ghost"
             className="text-destructive hover:bg-destructive/10"
             disabled={busy}
-            onClick={onDelete}
+            onClick={onCancel}
           >
-            Delete
+            Cancel
           </Button>
-        </div>
+        </>
       )}
+      <Button
+        size="sm"
+        variant="ghost"
+        className="text-destructive hover:bg-destructive/10"
+        disabled={busy}
+        onClick={onDelete}
+      >
+        Delete
+      </Button>
+    </div>
+  ) : null
+
+  return (
+    <li>
+      {/* Desktop / tablet: single row */}
+      <div className="hidden flex-wrap items-center gap-x-3 gap-y-2 px-6 py-3 sm:flex">
+        <span className="text-2xl leading-none">{r.awardEmoji ?? '🎁'}</span>
+        {isAdmin && <Avatar color={r.user.avatarColor} name={r.user.displayName} size={28} />}
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm text-foreground">
+            {r.awardName}
+            {isAdmin && <span className="ml-2 text-xs text-muted-foreground">{r.user.displayName}</span>}
+          </p>
+          <p className="text-xs text-muted-foreground">{new Date(r.redeemedAt).toLocaleDateString()}</p>
+        </div>
+        <div className="ml-auto flex items-center gap-3">
+          <span className="text-sm text-destructive">−{r.pointsSpent}</span>
+          {statusBadge}
+        </div>
+        {actions}
+      </div>
+
+      {/* Mobile: three stacked sections */}
+      <div className="flex flex-col gap-2 px-4 py-3 sm:hidden">
+        {/* 1: emoji, name, status */}
+        <div className="flex items-center gap-3">
+          <span className="text-2xl leading-none">{r.awardEmoji ?? '🎁'}</span>
+          <p className="min-w-0 flex-1 truncate text-sm text-foreground">{r.awardName}</p>
+          {statusBadge}
+        </div>
+        {/* 2: date, points spent, avatar, username */}
+        <div className="flex items-center gap-3">
+          <span className="text-xs text-muted-foreground">
+            {new Date(r.redeemedAt).toLocaleDateString()}
+          </span>
+          <span className="text-sm text-destructive">−{r.pointsSpent}</span>
+          {isAdmin && (
+            <span className="ml-auto flex items-center gap-2">
+              <Avatar color={r.user.avatarColor} name={r.user.displayName} size={24} />
+              <span className="truncate text-xs text-muted-foreground">{r.user.displayName}</span>
+            </span>
+          )}
+        </div>
+        {/* 3: actions */}
+        {actions}
+      </div>
     </li>
   )
 }

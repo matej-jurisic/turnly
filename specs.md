@@ -125,7 +125,7 @@ Per-chore notification schedule — a list of notification entries, each with:
   - **Variety** — completing 10 different chores, or chores across 5 different tags
 - **Permanently earned** — once unlocked, a badge is never revoked automatically; undoing a completion, cancelling a redemption, or an admin deducting points lowers the *live* progress of still-locked achievements but never takes back one already earned. An **admin can manually revoke** an earned badge from a user (it can be re-earned later if the threshold is met again)
 - **Admin view** — an admin can view any user's achievements (their own by default) from the achievements page, and revoke earned ones from there
-- **Unlock notification** — earning a badge writes a one-time in-app inbox item and sends a push (suppressed during quiet hours, like other notifications); it fires the moment the earning activity is logged
+- **Unlock celebration** — earning a badge shows a one-time celebration popup (with confetti) the moment the earning activity is logged. The unlocked badge rides back on the completion/redemption response, so it pops for the person who earned it (a member completing their own chore or redeeming an award); an admin acting on someone else's behalf doesn't see another user's popup. No inbox item or push is sent for an unlock
 - **Achievements page** — a dedicated page listing earned and still-locked achievements (locked ones show a progress bar toward their threshold), grouped by category
 
 ---
@@ -273,7 +273,7 @@ The `Everyone (independent)` assignment strategy (per-assignee schedule + quota,
 Multiple times of day per chore, auto-advance of incomplete occurrences, on-time streaks, chore copying, manual admin point adjustments, per-user quiet hours, admin-configured family timezone, awards next-goal progress, and list / compact / calendar chore views.
 
 ### Phase 12 — Achievements
-Cosmetic, permanently-earned badges from a built-in catalog (completion, on-time-streak, lifetime-points, redemption, and variety milestones). Granted **inline** on the activity that earns them — completing a chore, redeeming an award, or receiving a point adjustment — with a one-time inbox + push notification on unlock, and a dedicated achievements page showing earned and still-locked badges (with progress bars) grouped by category.
+Cosmetic, permanently-earned badges from a built-in catalog (completion, on-time-streak, lifetime-points, redemption, and variety milestones). Granted **inline** on the activity that earns them — completing a chore, redeeming an award, or receiving a point adjustment — with a one-time **celebration popup** (confetti) on unlock for the earner, and a dedicated achievements page showing earned and still-locked badges (with progress bars) grouped by category.
 
 ---
 

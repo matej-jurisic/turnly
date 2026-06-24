@@ -115,6 +115,11 @@ public record ChoreDto(
             currentStreak,
             tracks ?? [],
             c.CreatedAt);
+
+    /// <summary>Achievements the credited user just unlocked with this completion — set only on the
+    /// response to a self-completion so the client can show a celebration popup. Empty otherwise; not
+    /// part of the chore's persistent state.</summary>
+    public AchievementDto[] UnlockedAchievements { get; init; } = [];
 }
 
 /// <summary>One assignee's independent schedule on a track-mode chore: their own due date, quota,
@@ -366,6 +371,10 @@ public record RedemptionDto(
     public static RedemptionDto FromEntity(Redemption r) =>
         new(r.Id, r.AwardId, r.AwardName, r.AwardEmoji,
             UserDto.FromEntity(r.User!), r.PointsSpent, r.Status, r.RedeemedAt, r.FulfilledAt);
+
+    /// <summary>Achievements the user just unlocked by redeeming — set only on the redeem response so the
+    /// client can show a celebration popup. Empty otherwise.</summary>
+    public AchievementDto[] UnlockedAchievements { get; init; } = [];
 }
 
 public record PushSubscribeRequest(string Endpoint, string P256dh, string Auth);

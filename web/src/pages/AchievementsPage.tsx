@@ -8,7 +8,7 @@ import type { Achievement } from '@/lib/types'
 import { Badge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
 import { Card, CardContent } from '@/components/ui/Card'
-import { Label, Select } from '@/components/ui/Field'
+import { Select } from '@/components/ui/Field'
 import { cn } from '@/lib/utils'
 
 // Order categories deterministically; anything unknown falls to the end.
@@ -23,6 +23,8 @@ export function AchievementsPage() {
   const [viewUserId, setViewUserId] = useState(currentUser?.id ?? '')
   const targetUserId = isAdmin ? viewUserId : (currentUser?.id ?? '')
   const isOwnView = targetUserId === currentUser?.id
+
+  const [statusFilter, setStatusFilter] = useState<'all' | 'earned' | 'locked'>('all')
 
   const { data: users } = useQuery({ queryKey: ['users'], queryFn: usersApi.list, enabled: isAdmin })
 
@@ -41,7 +43,10 @@ export function AchievementsPage() {
   const earnedCount = achievements?.filter((a) => a.earned).length ?? 0
   const total = achievements?.length ?? 0
 
-  const groups = groupByCategory(achievements ?? [])
+  const filtered = (achievements ?? []).filter((a) =>
+    statusFilter === 'all' ? true : statusFilter === 'earned' ? a.earned : !a.earned,
+  )
+  const groups = groupByCategory(filtered)
 
   return (
     <div className="space-y-8">
@@ -49,25 +54,31 @@ export function AchievementsPage() {
         <h1 className="text-2xl font-semibold text-foreground">Achievements</h1>
         <div className="flex items-center gap-3">
           {isAdmin && users && users.length > 0 && (
-            <div className="flex items-center gap-2">
-              <Label htmlFor="achievement-user" className="mb-0 shrink-0">User</Label>
-              <Select
-                id="achievement-user"
-                value={viewUserId}
-                onChange={(e) => setViewUserId(e.target.value)}
-              >
-                {users.map((u) => (
-                  <option key={u.id} value={u.id}>
-                    {u.displayName}
-                    {u.id === currentUser?.id ? ' (you)' : ''}
-                  </option>
-                ))}
-              </Select>
-            </div>
+            <Select
+              id="achievement-user"
+              value={viewUserId}
+              onChange={(e) => setViewUserId(e.target.value)}
+            >
+              {users.map((u) => (
+                <option key={u.id} value={u.id}>
+                  {u.displayName}
+                  {u.id === currentUser?.id ? ' (you)' : ''}
+                </option>
+              ))}
+            </Select>
           )}
+          <Select
+            id="achievement-status"
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value as 'all' | 'earned' | 'locked')}
+          >
+            <option value="all">All</option>
+            <option value="earned">Completed</option>
+            <option value="locked">Locked</option>
+          </Select>
           {total > 0 && (
             <Badge tone="violet">
-              {earnedCount} / {total} unlocked
+              {earnedCount} / {total}
             </Badge>
           )}
         </div>

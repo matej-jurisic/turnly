@@ -70,11 +70,11 @@ public class RedemptionService
 
         await _db.SaveChangesAsync(ct);
 
-        // Redeeming can unlock the redemption-count achievements.
-        await _achievements.EvaluateForUserAsync(userId, DateTimeOffset.UtcNow, ct);
+        // Redeeming can unlock the redemption-count achievements; hand them back so the client celebrates.
+        var unlocked = await _achievements.EvaluateForUserAsync(userId, DateTimeOffset.UtcNow, ct);
 
         redemption.User = user;
-        return Result.Success(RedemptionDto.FromEntity(redemption));
+        return Result.Success(RedemptionDto.FromEntity(redemption) with { UnlockedAchievements = [.. unlocked] });
     }
 
     public async Task<Result<RedemptionDto>> FulfillAsync(Guid id, CancellationToken ct = default)

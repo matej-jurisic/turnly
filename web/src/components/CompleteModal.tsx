@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { choresApi, usersApi, ApiError } from '@/lib/api'
 import { celebrate } from '@/lib/confetti'
+import { celebrateAchievements } from '@/lib/achievementCelebration'
 import { isIndependent } from '@/lib/chore-format'
 import { useAuthStore } from '@/store/auth'
 import type { Chore, User } from '@/lib/types'
@@ -44,8 +45,9 @@ export function CompleteModal({ chore, onClose, onDone }: CompleteModalProps) {
         notes: notes.trim() || null,
         completedByUserId: onBehalf ? completedByUserId : null,
       }),
-    onSuccess: () => {
+    onSuccess: (completed) => {
       celebrate()
+      celebrateAchievements(completed.unlockedAchievements)
       onDone()
     },
     onError: (err) => setError(err instanceof ApiError ? err.message : 'Failed to complete'),

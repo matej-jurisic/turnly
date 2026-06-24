@@ -118,8 +118,6 @@ public class NotificationServiceTests
         // Complete it before the follow-up window; this advances DueAt to the next day.
         var complete = await ctx.Chores.CompleteAsync(choreId, member, new CompleteChoreRequest(null));
         Assert.True(complete.Succeeded);
-        // Completing unlocks an achievement (which pushes); ignore that here — we're testing the
-        // chore follow-up scan in isolation.
         ctx.Push.Sent.Clear();
 
         // Scan at the original follow-up time: the old occurrence's follow-up must not fire.

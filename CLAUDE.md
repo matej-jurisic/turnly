@@ -3,6 +3,12 @@
 Guidance for working in the Turnly repository. See `specs.md` for the full product spec
 and 9-phase roadmap, and `README.md` for user-facing setup.
 
+> **Keep the docs in sync.** Whenever you add a feature or change how something works, check that
+> `CLAUDE.md`, `specs.md`, and `README.md` still describe the behavior accurately, and update any that
+> have drifted. `CLAUDE.md` is the implementation/architecture reference, `specs.md` is the product
+> spec + roadmap, and `README.md` is the user-facing overview — a behavior change usually touches more
+> than one. Treat this as part of the change, not a follow-up.
+
 ## What this is
 
 Self-hosted family chore-management web app (PWA). **Phases 1–9 are complete.** Phase 1
@@ -130,15 +136,21 @@ per-user "unlocked" marker; earned achievements are **permanent** (except for an
 re-earned if its threshold is met again). `AchievementService` has a
 **side-effect-free read** (`ListForUserAsync` → `AchievementDto[]` with live progress + earned status,
 progress clamped to threshold) and an **inline grant** (`EvaluateForUserAsync(userId, now)`) that grants
-newly-met achievements and fires a one-time inbox + push notification per unlock (push suppressed during
-the user's quiet hours, inbox row always written). Granting is wired into the three metric-moving
+newly-met achievements and **returns them as `AchievementDto[]`** (there is no inbox/push notification for an
+unlock — see below). Granting is wired into the three metric-moving
 mutations — `ChoreService.CompleteAsync`, `RedemptionService.RedeemAsync`, `UserService.AdjustPointsAsync`
-each call it after they save — so a badge unlocks at the moment it's earned (no background worker). Those
-three services therefore take `AchievementService` as a ctor dependency (it depends only on the DbContext +
-`IPushSender`, so no cycle). Because the model is permanent and the read is side-effect-free, **reversals
+each call it after they save — so a badge unlocks at the moment it's earned (no background worker). The
+completion and redeem responses surface the freshly-unlocked badges back to the client via a
+`UnlockedAchievements` init-property on `ChoreDto`/`RedemptionDto` (completion only when the earner is the
+acting user — an admin completing on someone else's behalf gets nothing), which the frontend turns into a
+**celebration popup** (`celebrateAchievements` → the `useAchievementCelebrationStore` queue rendered by
+`components/AchievementCelebration.tsx`, mounted at the app root with confetti; mirrors the `lib/toast`
+pattern). `AdjustPointsAsync` still grants but doesn't surface a popup (the earner isn't the actor). Those
+three services therefore take `AchievementService` as a ctor dependency (it depends only on the DbContext,
+so no cycle). Because the model is permanent and the read is side-effect-free, **reversals
 need no handling**: undo / redemption-cancel / negative adjustment lower the *live* metrics (so unearned
 progress correctly drops) but never revoke an earned badge, and re-crossing a threshold is a no-op (the
-"already earned" guard skips it — no re-grant, no re-notify). `ComputeStatsAsync` aggregates the metrics
+"already earned" guard skips it — no re-grant). `ComputeStatsAsync` aggregates the metrics
 (lifetime points = sum of *positive* points-log deltas); streak milestones reuse
 `StreakCalculator.CurrentStreak(completions, userId?)` — the optional `userId` overload attributes the
 streak to the person who *closed* each occurrence (stops when someone else takes a turn), preserving the
