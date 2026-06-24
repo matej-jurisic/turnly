@@ -125,7 +125,9 @@ presentation, `Category`, `Threshold`, and a pure `Progress` selector over an `A
 — completion milestones, on-time-streak milestones, lifetime-points milestones, redemption count, and
 variety (distinct chores / distinct tags). Adding one is just another catalog entry, no migration.
 `UserAchievement { UserId, AchievementKey, EarnedAt }` (unique on `(UserId, AchievementKey)`) is the
-per-user "unlocked" marker; earned achievements are **permanent**. `AchievementService` has a
+per-user "unlocked" marker; earned achievements are **permanent** (except for an explicit admin revoke —
+`AchievementService.RevokeAsync(userId, key)` deletes the `UserAchievement` row; the badge can later be
+re-earned if its threshold is met again). `AchievementService` has a
 **side-effect-free read** (`ListForUserAsync` → `AchievementDto[]` with live progress + earned status,
 progress clamped to threshold) and an **inline grant** (`EvaluateForUserAsync(userId, now)`) that grants
 newly-met achievements and fires a one-time inbox + push notification per unlock (push suppressed during
@@ -140,9 +142,10 @@ progress correctly drops) but never revoke an earned badge, and re-crossing a th
 (lifetime points = sum of *positive* points-log deltas); streak milestones reuse
 `StreakCalculator.CurrentStreak(completions, userId?)` — the optional `userId` overload attributes the
 streak to the person who *closed* each occurrence (stops when someone else takes a turn), preserving the
-chore-/track-wide behavior when null. Endpoint: `GET /api/achievements` (caller's own, read-only). Frontend:
-`pages/AchievementsPage.tsx` (grouped-by-category grid, earned vs. locked-with-progress-bar),
-`achievementsApi` in `lib/api.ts`, `/achievements` route + nav tab.
+chore-/track-wide behavior when null. Endpoints: `GET /api/achievements` (caller's own; admins may pass
+`?userId=` to view anyone's) + admin-only `DELETE /api/achievements/{userId}/{key}` (revoke). Frontend:
+`pages/AchievementsPage.tsx` (grouped-by-category grid, earned vs. locked-with-progress-bar; for admins a
+user picker + a per-badge Revoke action), `achievementsApi` in `lib/api.ts`, `/achievements` route + nav tab.
 
 ## Stack & layout
 
@@ -219,7 +222,9 @@ copy the nearest existing example. Paths are under `src/` / `web/src/` / `tests/
   `AutoAdvanceAsync(now)` (expire-and-advance unfilled occurrences, driven by `ChoreAutoAdvanceService`).
   `RedemptionService`
   mirrors `ChoreService`'s points-award path: `RedeemAsync` writes a negative `PointsLogEntry` +
-  decrements `User.Points`; `CancelAsync` reverses it like `UndoCompletionAsync`. `ChoreService.SkipAsync`
+  decrements `User.Points`; `CancelAsync` reverses it like `UndoCompletionAsync` (pending only), and
+  `DeleteAsync` (admin) removes a redemption of **any** status and refunds its points the same way (so a
+  fulfilled redemption can also be reversed). `ChoreService.SkipAsync`
   mirrors `CompleteAsync` minus points/rotation (advances the schedule, writes an `IsSkip` completion);
   `ReassignAsync` sets `CurrentAssigneeId` + logs a `ChoreAssignment` (same as the edit path).
   For `Independent` chores these branch instead to a per-track path: `Apply` nulls the current
@@ -279,7 +284,7 @@ copy the nearest existing example. Paths are under `src/` / `web/src/` / `tests/
   `AwardEndpoints` follows the
   same split: listing awards + redeeming (`POST /api/awards/{id}/redeem`) and `GET /api/redemptions`
   (own for members, all for admins) are member-open; award create/edit/delete and redemption
-  fulfill/cancel are admin-only.
+  fulfill/cancel/delete (`DELETE /api/redemptions/{id}`, refund + remove any status) are admin-only.
   `NotificationEndpoints` (`/api/notifications`): member-open `GET /vapid-key`, `POST /subscribe`
   (captures the User-Agent → friendly `PushSubscription.DeviceLabel`), `POST /unsubscribe`,
   `GET /devices` + `DELETE /devices/{id}` (a user's own push devices), `GET /inbox` +

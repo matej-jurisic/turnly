@@ -108,8 +108,25 @@ Per-chore notification schedule — a list of notification entries, each with:
 - Users can redeem an award by spending points from their balance
 - Redemption is logged: who redeemed, which award, when
 - Admin can fulfill / mark a redemption as delivered
+- Admin can cancel a still-pending redemption (refunds the spent points and removes it), or delete a redemption of **any** status — including an already-fulfilled one — which likewise refunds the points it spent
 - Point balance decreases on redemption
 - **Next-goal progress** — the awards page shows a progress bar toward the cheapest award the user can't yet afford (or a "redeem anything" nudge once everything is affordable)
+
+---
+
+## Achievements
+
+- **Collectible badges**, separate from spendable points — purely cosmetic, no point value
+- **Built-in catalog** — a predefined set defined by the app (not admin-configurable), grouped into:
+  - **Completion milestones** — first chore, then 10 / 50 / 100 / 500 lifetime completions
+  - **On-time streak milestones** — reaching a 7 / 30 / 100-occurrence on-time streak (reuses the streak)
+  - **Points milestones** — 100 / 1,000 / 10,000 lifetime points *earned* (gross positive inflow; spends and deductions don't lower it)
+  - **Redemption** — first redemption, then 10 awards redeemed
+  - **Variety** — completing 10 different chores, or chores across 5 different tags
+- **Permanently earned** — once unlocked, a badge is never revoked automatically; undoing a completion, cancelling a redemption, or an admin deducting points lowers the *live* progress of still-locked achievements but never takes back one already earned. An **admin can manually revoke** an earned badge from a user (it can be re-earned later if the threshold is met again)
+- **Admin view** — an admin can view any user's achievements (their own by default) from the achievements page, and revoke earned ones from there
+- **Unlock notification** — earning a badge writes a one-time in-app inbox item and sends a push (suppressed during quiet hours, like other notifications); it fires the moment the earning activity is logged
+- **Achievements page** — a dedicated page listing earned and still-locked achievements (locked ones show a progress bar toward their threshold), grouped by category
 
 ---
 
@@ -254,6 +271,9 @@ The `Everyone (independent)` assignment strategy (per-assignee schedule + quota,
 
 ### Phase 11 — Scheduling, points & UX extensions
 Multiple times of day per chore, auto-advance of incomplete occurrences, on-time streaks, chore copying, manual admin point adjustments, per-user quiet hours, admin-configured family timezone, awards next-goal progress, and list / compact / calendar chore views.
+
+### Phase 12 — Achievements
+Cosmetic, permanently-earned badges from a built-in catalog (completion, on-time-streak, lifetime-points, redemption, and variety milestones). Granted **inline** on the activity that earns them — completing a chore, redeeming an award, or receiving a point adjustment — with a one-time inbox + push notification on unlock, and a dedicated achievements page showing earned and still-locked badges (with progress bars) grouped by category.
 
 ---
 

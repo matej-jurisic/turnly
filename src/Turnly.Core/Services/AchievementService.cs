@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Turnly.Core.Achievements;
+using Turnly.Core.Common;
 using Turnly.Core.Data;
 using Turnly.Core.Dtos;
 using Turnly.Core.Entities;
@@ -86,6 +87,21 @@ public class AchievementService
 
         await _db.SaveChangesAsync(ct);
         return newly.Count;
+    }
+
+    /// <summary>Admin: revokes a single earned achievement from a user (removes the
+    /// <see cref="UserAchievement"/> row). The badge can be re-earned later if its threshold is met
+    /// again, since granting only checks live progress against already-earned keys.</summary>
+    public async Task<Result> RevokeAsync(Guid userId, string key, CancellationToken ct = default)
+    {
+        var row = await _db.UserAchievements
+            .FirstOrDefaultAsync(a => a.UserId == userId && a.AchievementKey == key, ct);
+        if (row is null)
+            return Result.Fail(Error.NotFound("Achievement not earned by this user."));
+
+        _db.UserAchievements.Remove(row);
+        await _db.SaveChangesAsync(ct);
+        return Result.Success();
     }
 
     /// <summary>Writes a per-achievement inbox row and (unless the user is in quiet hours) pushes it

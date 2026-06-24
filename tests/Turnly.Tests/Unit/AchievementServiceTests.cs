@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Turnly.Core.Common;
 using Turnly.Core.Dtos;
 using Turnly.Core.Enums;
 
@@ -110,6 +111,33 @@ public class AchievementServiceTests
         var first = (await ctx.Achievements.ListForUserAsync(member)).Single(a => a.Key == "first-completion");
         Assert.True(first.Earned);
         Assert.Equal(0, first.Progress); // live progress reflects the reversal
+    }
+
+    [Fact]
+    public async Task RevokeAsync_removes_an_earned_badge()
+    {
+        using var ctx = new TestContext();
+        var (_, member) = await SeedUsersAsync(ctx);
+        var chore = (await ctx.Chores.CreateAsync(DailyChore(member))).Value!;
+        await ctx.Chores.CompleteAsync(chore.Id, member, new CompleteChoreRequest(null));
+
+        var result = await ctx.Achievements.RevokeAsync(member, "first-completion");
+
+        Assert.True(result.Succeeded);
+        var first = (await ctx.Achievements.ListForUserAsync(member)).Single(a => a.Key == "first-completion");
+        Assert.False(first.Earned);
+    }
+
+    [Fact]
+    public async Task RevokeAsync_returns_not_found_when_not_earned()
+    {
+        using var ctx = new TestContext();
+        var (_, member) = await SeedUsersAsync(ctx);
+
+        var result = await ctx.Achievements.RevokeAsync(member, "first-completion");
+
+        Assert.False(result.Succeeded);
+        Assert.Equal(ErrorType.NotFound, result.Error!.Type);
     }
 
     [Fact]

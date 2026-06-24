@@ -71,5 +71,13 @@ public static class AwardEndpoints
             var result = await redemptions.CancelAsync(id, ct);
             return result.Succeeded ? Results.NoContent() : result.Error!.ToProblem();
         }).RequireAuthorization("Admin");
+
+        // Admin: delete any redemption (any status) and refund the points it spent.
+        redemptionsGroup.MapDelete("/{id:guid}", async (Guid id,
+            RedemptionService redemptions, CancellationToken ct) =>
+        {
+            var result = await redemptions.DeleteAsync(id, ct);
+            return result.Succeeded ? Results.NoContent() : result.Error!.ToProblem();
+        }).RequireAuthorization("Admin");
     }
 }

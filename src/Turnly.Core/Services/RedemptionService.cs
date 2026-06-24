@@ -115,4 +115,27 @@ public class RedemptionService
         await _db.SaveChangesAsync(ct);
         return Result.Success();
     }
+
+    /// <summary>Admin: deletes a redemption regardless of status, refunding the points it spent and
+    /// removing its points-log deduction. Unlike <see cref="CancelAsync"/> (pending only) this also
+    /// reverses already-fulfilled redemptions.</summary>
+    public async Task<Result> DeleteAsync(Guid id, CancellationToken ct = default)
+    {
+        var redemption = await _db.Redemptions.FirstOrDefaultAsync(r => r.Id == id, ct);
+        if (redemption is null)
+            return Result.Fail(Error.NotFound("Redemption not found."));
+
+        var logEntry = await _db.PointsLog.FirstOrDefaultAsync(e => e.RedemptionId == id, ct);
+        if (logEntry is not null)
+        {
+            var user = await _db.Users.FindAsync([redemption.UserId], ct);
+            if (user is not null)
+                user.Points -= logEntry.Delta; // delta is negative, so this refunds
+            _db.PointsLog.Remove(logEntry);
+        }
+
+        _db.Redemptions.Remove(redemption);
+        await _db.SaveChangesAsync(ct);
+        return Result.Success();
+    }
 }

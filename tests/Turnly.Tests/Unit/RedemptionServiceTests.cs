@@ -117,6 +117,34 @@ public class RedemptionServiceTests
     }
 
     [Fact]
+    public async Task DeleteAsync_refunds_points_and_removes_even_when_fulfilled()
+    {
+        using var ctx = new TestContext();
+        var user = await SeedUserAsync(ctx, 100);
+        var award = await SeedAwardAsync(ctx, 30);
+        var redemption = (await ctx.Redemptions.RedeemAsync(user.Id, award.Id)).Value!;
+        await ctx.Redemptions.FulfillAsync(redemption.Id); // cancel would now be rejected
+
+        var result = await ctx.Redemptions.DeleteAsync(redemption.Id);
+
+        Assert.True(result.Succeeded);
+        Assert.Equal(100, (await ctx.Db.Users.FindAsync(user.Id))!.Points);
+        Assert.Empty(await ctx.Db.Redemptions.ToListAsync());
+        Assert.Empty(await ctx.Db.PointsLog.ToListAsync());
+    }
+
+    [Fact]
+    public async Task DeleteAsync_returns_not_found_for_unknown_id()
+    {
+        using var ctx = new TestContext();
+
+        var result = await ctx.Redemptions.DeleteAsync(Guid.NewGuid());
+
+        Assert.False(result.Succeeded);
+        Assert.Equal(ErrorType.NotFound, result.Error!.Type);
+    }
+
+    [Fact]
     public async Task ListAsync_scopes_to_user_unless_admin()
     {
         using var ctx = new TestContext();

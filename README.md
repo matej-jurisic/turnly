@@ -12,8 +12,12 @@ confetti, admin complete-on-behalf and activity-entry deletion). **Shared chores
 to "Everyone (independent)", giving each assignee their own schedule and per-person quota — one
 chore for "everyone does the dishes once a week" without anyone blocking anyone else. Chores can
 also fire **multiple times a day**, **auto-advance** past missed occurrences, track an **on-time
-streak**, and be **copied**; admins can **adjust points** manually and set the instance's **family
-timezone**. See [`specs.md`](./specs.md) for the full product spec and roadmap.
+streak**, and be **copied**; admins can **adjust points** manually, **delete a redemption of any
+status** (refunding its points), and set the instance's **family timezone**. Members also earn
+**achievements** — collectible, permanently-earned badges for milestones (completion counts, on-time
+streaks, points earned, redemptions, and variety), unlocked the moment they're earned and shown on a
+dedicated page where admins can view any user's badges and revoke them. See [`specs.md`](./specs.md) for the full
+product spec and roadmap.
 
 ## Stack
 

@@ -1,17 +1,41 @@
-import { useQuery } from '@tanstack/react-query'
-import { ApiError, achievementsApi } from '@/lib/api'
+import { useState } from 'react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { ApiError, achievementsApi, usersApi } from '@/lib/api'
+import { toast } from '@/lib/toast'
+import { confirm } from '@/lib/confirm'
+import { useAuthStore } from '@/store/auth'
 import type { Achievement } from '@/lib/types'
 import { Badge } from '@/components/ui/Badge'
+import { Button } from '@/components/ui/Button'
 import { Card, CardContent } from '@/components/ui/Card'
+import { Label, Select } from '@/components/ui/Field'
 import { cn } from '@/lib/utils'
 
 // Order categories deterministically; anything unknown falls to the end.
 const CATEGORY_ORDER = ['Completions', 'Streaks', 'Points', 'Rewards', 'Variety']
 
 export function AchievementsPage() {
+  const currentUser = useAuthStore((s) => s.user)
+  const isAdmin = currentUser?.role === 'Admin'
+  const queryClient = useQueryClient()
+
+  // Admins can inspect (and revoke from) any user; everyone else sees their own.
+  const [viewUserId, setViewUserId] = useState(currentUser?.id ?? '')
+  const targetUserId = isAdmin ? viewUserId : (currentUser?.id ?? '')
+  const isOwnView = targetUserId === currentUser?.id
+
+  const { data: users } = useQuery({ queryKey: ['users'], queryFn: usersApi.list, enabled: isAdmin })
+
   const { data: achievements, isLoading, error } = useQuery({
-    queryKey: ['achievements'],
-    queryFn: achievementsApi.list,
+    queryKey: ['achievements', targetUserId],
+    queryFn: () => achievementsApi.list(isOwnView ? undefined : targetUserId),
+    enabled: Boolean(targetUserId),
+  })
+
+  const revokeMutation = useMutation({
+    mutationFn: (key: string) => achievementsApi.revoke(targetUserId, key),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['achievements', targetUserId] }),
+    onError: (err) => toast.error(err instanceof ApiError ? err.message : 'Revoke failed'),
   })
 
   const earnedCount = achievements?.filter((a) => a.earned).length ?? 0
@@ -21,13 +45,32 @@ export function AchievementsPage() {
 
   return (
     <div className="space-y-8">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-2xl font-semibold text-foreground">Achievements</h1>
-        {total > 0 && (
-          <Badge tone="violet">
-            {earnedCount} / {total} unlocked
-          </Badge>
-        )}
+        <div className="flex items-center gap-3">
+          {isAdmin && users && users.length > 0 && (
+            <div className="flex items-center gap-2">
+              <Label htmlFor="achievement-user" className="mb-0 shrink-0">User</Label>
+              <Select
+                id="achievement-user"
+                value={viewUserId}
+                onChange={(e) => setViewUserId(e.target.value)}
+              >
+                {users.map((u) => (
+                  <option key={u.id} value={u.id}>
+                    {u.displayName}
+                    {u.id === currentUser?.id ? ' (you)' : ''}
+                  </option>
+                ))}
+              </Select>
+            </div>
+          )}
+          {total > 0 && (
+            <Badge tone="violet">
+              {earnedCount} / {total} unlocked
+            </Badge>
+          )}
+        </div>
       </div>
 
       {isLoading && <p className="text-muted-foreground">Loading…</p>}
@@ -38,7 +81,23 @@ export function AchievementsPage() {
           <h2 className="text-sm font-semibold text-muted-foreground">{category}</h2>
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {items.map((a) => (
-              <AchievementCard key={a.key} achievement={a} />
+              <AchievementCard
+                key={a.key}
+                achievement={a}
+                canRevoke={isAdmin && a.earned}
+                revoking={revokeMutation.isPending}
+                onRevoke={async () => {
+                  if (
+                    await confirm({
+                      title: 'Revoke achievement',
+                      message: `Revoke "${a.name}"? It can be re-earned if the threshold is met again.`,
+                      confirmLabel: 'Revoke',
+                    })
+                  ) {
+                    revokeMutation.mutate(a.key)
+                  }
+                }}
+              />
             ))}
           </div>
         </section>
@@ -47,7 +106,17 @@ export function AchievementsPage() {
   )
 }
 
-function AchievementCard({ achievement: a }: { achievement: Achievement }) {
+function AchievementCard({
+  achievement: a,
+  canRevoke,
+  revoking,
+  onRevoke,
+}: {
+  achievement: Achievement
+  canRevoke: boolean
+  revoking: boolean
+  onRevoke: () => void
+}) {
   const pct = a.threshold > 0 ? Math.min(100, Math.round((a.progress / a.threshold) * 100)) : 0
 
   return (
@@ -69,9 +138,22 @@ function AchievementCard({ achievement: a }: { achievement: Achievement }) {
 
         <div className="mt-auto space-y-1.5 pt-1">
           {a.earned ? (
-            <p className="text-xs text-muted-foreground">
-              Unlocked{a.earnedAt ? ` ${new Date(a.earnedAt).toLocaleDateString()}` : ''}
-            </p>
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-xs text-muted-foreground">
+                Unlocked{a.earnedAt ? ` ${new Date(a.earnedAt).toLocaleDateString()}` : ''}
+              </p>
+              {canRevoke && (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="text-destructive hover:bg-destructive/10"
+                  disabled={revoking}
+                  onClick={onRevoke}
+                >
+                  Revoke
+                </Button>
+              )}
+            </div>
           ) : (
             <>
               <div className="h-2 overflow-hidden rounded-full bg-accent">

@@ -183,6 +183,7 @@ export const redemptionsApi = {
   list: () => request<Redemption[]>('/redemptions'),
   fulfill: (id: string) => request<Redemption>(`/redemptions/${id}/fulfill`, { method: 'POST', body: json({}) }),
   cancel: (id: string) => request<void>(`/redemptions/${id}/cancel`, { method: 'POST', body: json({}) }),
+  remove: (id: string) => request<void>(`/redemptions/${id}`, { method: 'DELETE' }),
 }
 
 export const notificationsApi = {
@@ -204,7 +205,10 @@ export const notificationsApi = {
 }
 
 export const achievementsApi = {
-  list: () => request<Achievement[]>('/achievements'),
+  list: (userId?: string) =>
+    request<Achievement[]>(`/achievements${userId ? `?userId=${userId}` : ''}`),
+  revoke: (userId: string, key: string) =>
+    request<void>(`/achievements/${userId}/${encodeURIComponent(key)}`, { method: 'DELETE' }),
 }
 
 export const historyApi = {

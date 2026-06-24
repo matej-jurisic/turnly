@@ -227,6 +227,12 @@ function RedemptionsSection({ isAdmin, onChange }: { isAdmin: boolean; onChange:
     onError: (err) => toast.error(err instanceof ApiError ? err.message : 'Cancel failed'),
   })
 
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => redemptionsApi.remove(id),
+    onSuccess: onChange,
+    onError: (err) => toast.error(err instanceof ApiError ? err.message : 'Delete failed'),
+  })
+
   return (
     <Card>
       <CardHeader>
@@ -255,7 +261,18 @@ function RedemptionsSection({ isAdmin, onChange }: { isAdmin: boolean; onChange:
                     cancelMutation.mutate(r.id)
                   }
                 }}
-                busy={fulfillMutation.isPending || cancelMutation.isPending}
+                onDelete={async () => {
+                  if (
+                    await confirm({
+                      title: 'Delete redemption',
+                      message: `Delete this redemption and refund ${r.pointsSpent} points? This removes it from the history.`,
+                      confirmLabel: 'Delete',
+                    })
+                  ) {
+                    deleteMutation.mutate(r.id)
+                  }
+                }}
+                busy={fulfillMutation.isPending || cancelMutation.isPending || deleteMutation.isPending}
               />
             ))}
           </ul>
@@ -270,16 +287,18 @@ function RedemptionRow({
   isAdmin,
   onFulfill,
   onCancel,
+  onDelete,
   busy,
 }: {
   redemption: Redemption
   isAdmin: boolean
   onFulfill: () => void
   onCancel: () => void
+  onDelete: () => void
   busy: boolean
 }) {
   return (
-    <li className="flex items-center gap-3 px-6 py-3">
+    <li className="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-3 sm:px-6">
       <span className="text-2xl leading-none">{r.awardEmoji ?? '🎁'}</span>
       {isAdmin && <Avatar color={r.user.avatarColor} name={r.user.displayName} size={28} />}
       <div className="min-w-0 flex-1">
@@ -289,19 +308,34 @@ function RedemptionRow({
         </p>
         <p className="text-xs text-muted-foreground">{new Date(r.redeemedAt).toLocaleDateString()}</p>
       </div>
-      <span className="text-sm text-destructive">−{r.pointsSpent}</span>
-      <Badge tone={r.status === 'Fulfilled' ? 'green' : 'amber'}>{r.status}</Badge>
-      {isAdmin && r.status === 'Pending' && (
+      <div className="ml-auto flex items-center gap-3">
+        <span className="text-sm text-destructive">−{r.pointsSpent}</span>
+        <Badge tone={r.status === 'Fulfilled' ? 'green' : 'amber'}>{r.status}</Badge>
+      </div>
+      {isAdmin && (
         <div className="flex gap-1">
-          <Button size="sm" variant="ghost" disabled={busy} onClick={onFulfill}>Fulfill</Button>
+          {r.status === 'Pending' && (
+            <>
+              <Button size="sm" variant="ghost" disabled={busy} onClick={onFulfill}>Fulfill</Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="text-destructive hover:bg-destructive/10"
+                disabled={busy}
+                onClick={onCancel}
+              >
+                Cancel
+              </Button>
+            </>
+          )}
           <Button
             size="sm"
             variant="ghost"
             className="text-destructive hover:bg-destructive/10"
             disabled={busy}
-            onClick={onCancel}
+            onClick={onDelete}
           >
-            Cancel
+            Delete
           </Button>
         </div>
       )}
