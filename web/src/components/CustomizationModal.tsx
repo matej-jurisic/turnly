@@ -92,11 +92,6 @@ export function CustomizationModal({ onClose }: { onClose: () => void }) {
               />
             ))}
           </div>
-          {ownedThemes.length === 0 && (
-            <p className="text-xs text-muted-foreground">
-              Unlock theme palettes in the Gacha to add more options here.
-            </p>
-          )}
         </section>
 
         {/* Avatar color */}
@@ -121,9 +116,6 @@ export function CustomizationModal({ onClose }: { onClose: () => void }) {
               )
             })}
           </div>
-          {ownedColors.length <= 1 && (
-            <p className="text-xs text-muted-foreground">Unlock more avatar colors in the Gacha.</p>
-          )}
         </section>
 
         {/* Avatar frame */}
@@ -148,11 +140,6 @@ export function CustomizationModal({ onClose }: { onClose: () => void }) {
               />
             ))}
           </div>
-          {ownedFrames.length === 0 && (
-            <p className="text-xs text-muted-foreground">
-              Unlock avatar frames in the Gacha to add more options here.
-            </p>
-          )}
         </section>
       </div>
     </Modal>

@@ -43,6 +43,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<AppSettingsService>();
         services.AddScoped<AchievementService>();
         services.AddScoped<GachaService>();
+        services.AddScoped<ResetService>();
         services.AddSingleton<IPushSender, WebPushSender>();
 
         return services;

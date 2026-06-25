@@ -12,9 +12,9 @@ export async function syncAppearanceFromServer(queryClient: QueryClient): Promis
   const me = await authApi.me()
   useAuthStore.getState().setUser(me)
   applyPalette(me.equippedThemeKey)
-  await Promise.all([
-    queryClient.invalidateQueries({ queryKey: ['gacha'] }),
-    queryClient.invalidateQueries({ queryKey: ['me'] }),
-    queryClient.invalidateQueries({ queryKey: ['leaderboard'] }),
-  ])
+  // Fire the invalidations without awaiting their refetches: callers only need the store/palette
+  // updated synchronously, and the affected surfaces can refresh on their own.
+  void queryClient.invalidateQueries({ queryKey: ['gacha'] })
+  void queryClient.invalidateQueries({ queryKey: ['me'] })
+  void queryClient.invalidateQueries({ queryKey: ['leaderboard'] })
 }

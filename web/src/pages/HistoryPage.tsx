@@ -89,8 +89,9 @@ export function HistoryPage() {
   const now = new Date()
   const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate())
   const tomorrowStart = new Date(todayStart.getTime() + 86_400_000)
-  let overdueTasks = 0, todayTasks = 0, upcomingTasks = 0
+  let overdueTasks = 0, todayTasks = 0, upcomingTasks = 0, pausedTasks = 0
   for (const chore of chores) {
+    if (chore.isFrozen) { pausedTasks++; continue }
     if (!chore.dueAt) continue
     const due = new Date(chore.dueAt)
     if (due < todayStart) overdueTasks++
@@ -121,6 +122,7 @@ export function HistoryPage() {
             { label: 'Overdue', count: overdueTasks, color: 'var(--destructive)' },
             { label: 'Due today', count: todayTasks, color: 'var(--warning)' },
             { label: 'Upcoming', count: upcomingTasks, color: 'var(--primary)' },
+            { label: 'Paused', count: pausedTasks, color: 'var(--muted-foreground)' },
           ]}
         />
       </div>

@@ -96,11 +96,12 @@ notification recipients in track mode, and history migration on strategy switch 
   `RecurrenceCalculator` multiplies each qualifying day by the times list when scanning occurrences.
 - **Auto-advance incomplete** (`Chore.AutoAdvanceIncomplete` + `CompletionWindowMinutes`) — a separate
   minute-polling `BackgroundService` (`Turnly.Api/ChoreAutoAdvanceService`, runs unconditionally, no
-  VAPID dependency) calls `ChoreService.AutoAdvanceAsync(now)`: once a multi-completion occurrence's
+  VAPID dependency) calls `ChoreService.AutoAdvanceAsync(now)`: once an occurrence's
   window (`DueAt + CompletionWindowMinutes`) closes still short of `CompletionsRequired`, it writes
   `ChoreCompletion.IsExpired` rows for the missing slots (no points, no actor, **not undoable**),
   advances via `FromScheduledDate`, and rotates so the misser isn't kept on duty. Branches for rotating
-  and Independent (per-track) chores; `OneTime` and custom repeats excluded.
+  and Independent (per-track) chores; `OneTime` excluded. Custom repeats are supported (they always
+  close on a single completion, so one `IsExpired` row is written before advancing).
 - **On-time streaks** (`Recurrence/StreakCalculator.CurrentStreak`, pure + unit-tested) — counts the
   most recent consecutive occurrences completed on/before their `OccurrenceDueAt`; a late, skipped, or
   expired occurrence resets it. Surfaced as `ChoreDto.CurrentStreak` (personalised to the viewer's own
@@ -228,6 +229,21 @@ palette overrides all tokens; choosing Light/Dark clears the equipped palette), 
 pre-auth `ThemeToggle` (Login/Setup screens) is unchanged. (The earlier dev-only `/gacha-showcase` page was
 removed once this shipped; the brainstorm doc `gacha.md` is kept.)
 
+**Fresh start (admin reset).** An admin-only "clean slate" that keeps every chore (and its schedule)
+but wipes the accumulated state, e.g. at the start of a new month. `ResetService.FreshStartAsync`
+(ctor-injects only `TurnlyDbContext`) runs one transaction of `ExecuteDeleteAsync` over
+`ChoreCompletions` (completions/skips/expired activity), `ChoreAssignments` (assignment history — the
+`*Id` back-links are plain columns, not FK constraints, so order is free), `PointsLog`, `Redemptions`,
+`UserAchievements`, `UserCosmetics`, and `UserNotifications` (inbox), then one `ExecuteUpdateAsync` that
+zeroes every user's `Points`/`Dust`/`PullsSinceLegendary`, clears `EquippedFrameKey`/`EquippedThemeKey`,
+and resets `AvatarColor` to the one `Default` cosmetic's hex. Chores keep their `CurrentAssigneeId`/
+`DueAt`/tracks untouched (rotation re-reads assignment rows fresh, so an empty table just resets
+`LeastAssigned` fairness); users, tags, awards, push devices, and notification schedules are kept.
+Endpoint: admin-only `POST /api/settings/fresh-start` (`SettingsEndpoints`). Frontend: a "Danger zone"
+card on `SettingsPage` (`DangerZoneCard`, admin-only) with a destructive `confirm` then
+`settingsApi.freshStart()`; on success it calls `syncAppearanceFromServer` (the current user's
+points/cosmetics reset) and invalidates the history/balance surfaces.
+
 ## Stack & layout
 
 - **Backend:** ASP.NET Core (.NET 10) minimal APIs, EF Core. Solution file is `Turnly.slnx`.
@@ -295,9 +311,11 @@ copy the nearest existing example. Paths are under `src/` / `web/src/` / `tests/
   chore-input records carry `TrackInput[] Tracks` (per-assignee quotas).
 - `Services/*Service.cs` — ctor-inject `TurnlyDbContext` (+ deps); methods return `Result`/
   `Result<T>`. `AuthService, UserService, SetupService, TagService, ChoreService, AwardService,
-  RedemptionService, NotificationService, AppSettingsService`. Registered in
+  RedemptionService, NotificationService, AppSettingsService, AchievementService, GachaService,
+  ResetService`. Registered in
   `ServiceCollectionExtensions.AddTurnlyCore` (also `IPushSender → WebPushSender` singleton +
-  `VapidOptions`). `AppSettingsService` reads/writes the family timezone (`AppSetting`). `UserService`
+  `VapidOptions`). `AppSettingsService` reads/writes the family timezone (`AppSetting`);
+  `ResetService.FreshStartAsync` is the admin "fresh start" wipe (see the Fresh start section). `UserService`
   also has `AdjustPointsAsync` (admin manual point grant/deduction → `PointsLogType.Adjustment`).
   `ChoreService` also has `CopyAsync` (clone via the create path under a new name) and
   `AutoAdvanceAsync(now)` (expire-and-advance unfilled occurrences, driven by `ChoreAutoAdvanceService`).
@@ -361,8 +379,8 @@ copy the nearest existing example. Paths are under `src/` / `web/src/` / `tests/
   personalised to the caller; `skip`/`reschedule` take an optional `UserId` to target one assignee's
   track. Admin-only `POST /api/chores/{id}/copy` (`CopyChoreRequest`) duplicates a chore, and admin-only
   `POST /api/users/{id}/points` (`AdjustPointsRequest`) grants/deducts points.
-  `SettingsEndpoints` (`/api/settings`): member-open `GET` (family + server timezone), admin-only `PUT`.
-  `AwardEndpoints` follows the
+  `SettingsEndpoints` (`/api/settings`): member-open `GET` (family + server timezone), admin-only `PUT`,
+  and admin-only `POST /fresh-start` (the `ResetService` wipe). `AwardEndpoints` follows the
   same split: listing awards + redeeming (`POST /api/awards/{id}/redeem`) and `GET /api/redemptions`
   (own for members, all for admins) are member-open; award create/edit/delete and redemption
   fulfill/cancel/delete (`DELETE /api/redemptions/{id}`, refund + remove any status) are admin-only.

@@ -187,6 +187,14 @@ chore-earned points used for awards, so it is a reward sink, not gambling.
 - While frozen the user is excluded from rotation, their independent chore tracks receive no auto-advance or notifications, and they are removed from `AllAssignees` push notification recipients
 - On **Unfreeze**, stale independent track due dates (in the past) are stepped forward to the next future occurrence
 
+### Fresh start (admin only)
+
+- A **Fresh start** action in Settings (Danger zone) gives a clean slate while **keeping every chore and its schedule**
+- Clears all chore activity (completions, skips, auto-expired slots), assignment history, the points log, award redemptions, achievements, and gacha progress (owned cosmetics, dust, pity)
+- Resets every user's points to **0** and their equipped cosmetics (frame, theme, avatar color) back to the free defaults
+- Keeps users, tags, awards, push devices, and notification schedules; each chore keeps its current assignee and next due date
+- Irreversible — a confirmation is required before it runs
+
 ---
 
 ## Dashboard

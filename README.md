@@ -24,8 +24,10 @@ paused, no notifications — with a preview of affected chores before confirming
 points-funded **gacha** for cosmetics (no real money): spend points on pulls to collect rarity-tiered
 **avatar frames** (shown on every avatar) and **app theme palettes** (recolor your own app), with a
 pity counter that guarantees a Legendary, a dust economy that turns duplicates into a specific
-crafted item, published drop rates, and one-per-slot equipping. See
-[`specs.md`](./specs.md) for the full product spec and feature list.
+crafted item, published drop rates, and one-per-slot equipping. For a clean slate, admins can run a
+**fresh start** (Settings → Danger zone) that wipes all activity, point history, redemptions,
+achievements, and gacha progress and resets everyone's points to 0, while keeping every chore and its
+schedule intact. See [`specs.md`](./specs.md) for the full product spec and feature list.
 
 ## Stack
 

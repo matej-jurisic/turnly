@@ -32,6 +32,7 @@ public sealed class TestContext : IDisposable
     public AppSettingsService Settings { get; }
     public AchievementService Achievements { get; }
     public GachaService Gacha { get; }
+    public ResetService Reset { get; }
 
     public TestContext()
     {
@@ -66,6 +67,7 @@ public sealed class TestContext : IDisposable
         Settings = new AppSettingsService(Db);
         // Seeded RNG so gacha pulls are deterministic in tests.
         Gacha = new GachaService(Db, new Random(12345));
+        Reset = new ResetService(Db);
     }
 
     public void Dispose()

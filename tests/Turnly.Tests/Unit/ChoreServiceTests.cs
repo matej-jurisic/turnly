@@ -1258,6 +1258,27 @@ public class ChoreServiceTests
     }
 
     [Fact]
+    public async Task AutoAdvanceAsync_advances_custom_interval_chore()
+    {
+        using var ctx = new TestContext();
+        var (_, member) = await SeedUsersAsync(ctx);
+        // Custom every-3-days chore. CompletionsRequired is forced to 1 for custom repeats, so a single
+        // IsExpired row should be written and DueAt advanced one interval.
+        var chore = (await ctx.Chores.CreateAsync(
+            NewChore(member, [member], RepeatType.Custom, customMode: CustomRecurrenceMode.Interval,
+                intervalCount: 3, intervalUnit: RecurrenceUnit.Day, start: Start)
+            with { AutoAdvanceIncomplete = true })).Value!;
+        var originalDue = chore.DueAt!.Value;
+
+        var advanced = await ctx.Chores.AutoAdvanceAsync(Start.AddHours(1));
+
+        Assert.Equal(1, advanced);
+        var expired = await ctx.Db.ChoreCompletions.Where(c => c.IsExpired).ToListAsync();
+        Assert.Single(expired);
+        Assert.Equal(originalDue.AddDays(3), (await ctx.Db.Chores.FindAsync(chore.Id))!.DueAt);
+    }
+
+    [Fact]
     public async Task AutoAdvanceAsync_rotates_assignee_after_expiry()
     {
         using var ctx = new TestContext();
@@ -1275,7 +1296,7 @@ public class ChoreServiceTests
     }
 
     [Fact]
-    public async Task CreateAsync_clears_auto_advance_for_custom_recurrence()
+    public async Task CreateAsync_allows_auto_advance_for_custom_recurrence()
     {
         using var ctx = new TestContext();
         var (_, member) = await SeedUsersAsync(ctx);
@@ -1284,7 +1305,7 @@ public class ChoreServiceTests
                 customMode: CustomRecurrenceMode.Interval, intervalCount: 2, intervalUnit: RecurrenceUnit.Week)
             with { AutoAdvanceIncomplete = true })).Value!;
 
-        Assert.False(chore.AutoAdvanceIncomplete);
+        Assert.True(chore.AutoAdvanceIncomplete);
     }
 
     [Fact]

@@ -865,9 +865,9 @@ public class ChoreService
         chore.GraceMinutes = req.SchedulingPreference == SchedulingPreference.SmartScheduling && req.GraceMinutes is > 0
             ? req.GraceMinutes
             : null;
-        // Auto-advance applies to all recurring non-custom non-independent chores.
-        var supportsAutoAdvance = req.RepeatType != RepeatType.Custom
-            && req.RepeatType != RepeatType.OneTime
+        // Auto-advance applies to all recurring non-independent chores (custom included — they always
+        // close on a single completion, but can still be advanced/rotated when overdue).
+        var supportsAutoAdvance = req.RepeatType != RepeatType.OneTime
             && req.AssignmentStrategy != AssignmentStrategy.Independent;
         chore.AutoAdvanceIncomplete = supportsAutoAdvance && req.AutoAdvanceIncomplete;
         chore.CompletionWindowMinutes = supportsAutoAdvance && req.AutoAdvanceIncomplete && req.CompletionWindowMinutes is > 0

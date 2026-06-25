@@ -118,7 +118,7 @@ export function ChoreFormModal({ title, chore, onClose, onSaved }: ChoreFormModa
   const windowUnitMinutes = GRACE_UNITS.find((u) => u.value === windowUnit)?.minutes ?? 24 * 60
   const completionWindowMinutes =
     autoAdvanceEnabled && windowEnabled ? Math.max(1, windowValue) * windowUnitMinutes : null
-  const showAutoAdvance = !isCustom && !isIndependent && repeatType !== 'OneTime'
+  const showAutoAdvance = !isIndependent && repeatType !== 'OneTime'
 
   // "N times a day" fixed slots are only meaningful for day-resolution schedules.
   const supportsTimes =

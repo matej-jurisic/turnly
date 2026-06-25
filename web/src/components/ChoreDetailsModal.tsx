@@ -63,9 +63,11 @@ export function ChoreDetailsModal({ chore, onClose, onComplete }: ChoreDetailsMo
         )}
 
         {chore.isFrozen && (
-          <div className="rounded-lg border border-border bg-accent/50 px-3 py-2 text-sm text-muted-foreground">
-            This chore is <strong className="text-foreground">paused</strong>. Completions and skips are
-            disabled until an admin unpauses it.
+          <div>
+            <div className="rounded-lg border border-border bg-accent/50 px-3 py-2 text-sm text-muted-foreground">
+              This chore is <strong className="text-foreground">paused</strong>. Completions and skips are
+              disabled until an admin unpauses it.
+            </div>
           </div>
         )}
 
@@ -193,6 +195,17 @@ export function ChoreDetailsModal({ chore, onClose, onComplete }: ChoreDetailsMo
               {chore.schedulingPreference === 'SmartScheduling' && chore.graceMinutes ? (
                 <span className="block text-xs text-muted-foreground">
                   Resets if done &gt;{formatGrace(chore.graceMinutes)} early
+                </span>
+              ) : null}
+            </div>
+          )}
+          {chore.repeatType !== 'OneTime' && (
+            <div>
+              <dt className="text-xs text-muted-foreground">Auto-advance</dt>
+              <dd className="text-foreground">{chore.autoAdvanceIncomplete ? 'On' : 'Off'}</dd>
+              {chore.autoAdvanceIncomplete && chore.completionWindowMinutes ? (
+                <span className="block text-xs text-muted-foreground">
+                  Expires {formatGrace(chore.completionWindowMinutes)} after due
                 </span>
               ) : null}
             </div>

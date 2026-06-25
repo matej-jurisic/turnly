@@ -63,10 +63,11 @@ public class Chore
     /// <see cref="SchedulingPreference"/> is <see cref="SchedulingPreference.SmartScheduling"/>.</summary>
     public int? GraceMinutes { get; set; }
 
-    /// <summary>When true and <see cref="CompletionsRequired"/> &gt; 1, the background service
-    /// automatically expires unfilled slots and advances to the next occurrence once the completion
-    /// window has closed (see <see cref="CompletionWindowMinutes"/>). Only meaningful for
-    /// non-custom, non-independent chores.</summary>
+    /// <summary>When true, the background service automatically expires any unfilled slots and advances
+    /// to the next occurrence once the completion window has closed (see <see cref="CompletionWindowMinutes"/>).
+    /// Writes one <c>IsExpired</c> row per missing completion (so single-completion chores get one), then
+    /// advances and rotates. Applies to recurring non-independent chores (custom included; OneTime
+    /// excluded).</summary>
     public bool AutoAdvanceIncomplete { get; set; }
 
     /// <summary>How many minutes after <see cref="DueAt"/> the auto-advance window closes. Null means

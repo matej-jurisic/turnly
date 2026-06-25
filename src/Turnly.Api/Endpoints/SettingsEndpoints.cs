@@ -17,5 +17,13 @@ public static class SettingsEndpoints
             var result = await settings.SetTimeZoneAsync(req.TimeZone, ct);
             return result.Succeeded ? Results.Ok(result.Value) : result.Error!.ToProblem();
         }).RequireAuthorization("Admin");
+
+        // "Fresh start": wipe all activity/point history/gacha/achievements and zero balances,
+        // keeping chores (and their schedules) intact. Irreversible, admin-only.
+        group.MapPost("/fresh-start", async (ResetService reset, CancellationToken ct) =>
+        {
+            var result = await reset.FreshStartAsync(ct);
+            return result.Succeeded ? Results.Ok() : result.Error!.ToProblem();
+        }).RequireAuthorization("Admin");
     }
 }

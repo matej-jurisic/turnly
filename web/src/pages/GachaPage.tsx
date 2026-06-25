@@ -5,7 +5,7 @@ import { Modal } from '@/components/ui/Modal'
 import { gachaApi } from '@/lib/api'
 import { syncAppearanceFromServer } from '@/lib/appearance'
 import { celebrate } from '@/lib/confetti'
-import { frameClasses, RARITY_COLOR, RARITY_ORDER } from '@/lib/cosmetics'
+import { frameClasses, RARITY_COLOR, RARITY_ORDER, SLOT_LABEL } from '@/lib/cosmetics'
 import { toast } from '@/lib/toast'
 import type { Cosmetic, CosmeticRarity, CosmeticSlot, PullResult } from '@/lib/types'
 import { useAuthStore } from '@/store/auth'
@@ -21,9 +21,11 @@ export function GachaPage() {
 
   const pull = useMutation({
     mutationFn: (count: number) => gachaApi.pull(count),
-    onSuccess: async (results) => {
-      await syncAppearanceFromServer(queryClient)
+    onSuccess: (results) => {
+      // The pull response already has everything the reveal renders, so show it instantly and
+      // refresh balances/avatars in the background instead of gating the popup behind round trips.
       setReveal(results)
+      void syncAppearanceFromServer(queryClient)
     },
     onError: (e: Error) => toast.error(e.message),
   })
@@ -65,14 +67,16 @@ export function GachaPage() {
           <CardTitle>Pull</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="flex flex-wrap gap-3">
+          <div className="flex gap-3">
             <Button
+              className="flex-1"
               onClick={() => pull.mutate(1)}
               disabled={busy || state.points < state.pullCost}
             >
               Pull x1 ({state.pullCost} pts)
             </Button>
             <Button
+              className="flex-1"
               variant="secondary"
               onClick={() => pull.mutate(10)}
               disabled={busy || state.points < state.tenPullCost}
@@ -318,12 +322,17 @@ function RevealModal({ results, onClose }: { results: PullResult[]; onClose: () 
       <div className="space-y-4">
         <div className="grid grid-cols-3 gap-3 sm:grid-cols-5">
           {results.map((r, i) => (
-            <div key={i} className="flex flex-col items-center gap-1 text-center">
+            <div key={i} className="flex min-w-0 flex-col items-center gap-1 text-center">
               <span
-                className="inline-block h-3 w-3 rounded-full"
+                className="inline-block h-3 w-3 shrink-0 rounded-full"
                 style={{ background: RARITY_COLOR[r.cosmetic.rarity] }}
               />
-              <span className="text-xs font-medium text-foreground">{r.cosmetic.name}</span>
+              <span className="w-full break-words text-xs font-medium text-foreground">
+                {r.cosmetic.name}
+              </span>
+              <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                {SLOT_LABEL[r.cosmetic.slot]}
+              </span>
               <span className="text-[11px] text-muted-foreground">
                 {r.isNew ? 'New!' : `+${r.dustAwarded} dust`}
               </span>

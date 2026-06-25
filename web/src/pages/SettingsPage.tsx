@@ -3,6 +3,8 @@ import type { FormEvent } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { authApi, notificationsApi, settingsApi, tagsApi, ApiError } from '@/lib/api'
 import { toast } from '@/lib/toast'
+import { confirm } from '@/lib/confirm'
+import { syncAppearanceFromServer } from '@/lib/appearance'
 import { disablePush, enablePush, getCurrentEndpoint, isPushEnabled, pushPermission } from '@/lib/push'
 import { useAuthStore } from '@/store/auth'
 import { Button } from '@/components/ui/Button'
@@ -64,6 +66,8 @@ export function SettingsPage() {
       {isAdmin && <TimezoneCard />}
 
       {isAdmin && <TagsCard />}
+
+      {isAdmin && <DangerZoneCard />}
 
       <Card>
         <CardHeader>
@@ -458,6 +462,56 @@ function TagsCard() {
           <Button type="submit" variant="secondary" disabled={createMutation.isPending}>Add</Button>
         </form>
         {error && <p className="text-sm text-destructive">{error}</p>}
+      </CardContent>
+    </Card>
+  )
+}
+
+function DangerZoneCard() {
+  const queryClient = useQueryClient()
+  const [busy, setBusy] = useState(false)
+
+  async function onFreshStart() {
+    const ok = await confirm({
+      title: 'Fresh start',
+      message:
+        'This permanently deletes all activity, point history, redemptions, achievements, and gacha progress, and resets everyone’s points to 0. Your chores and their schedules are kept. This cannot be undone.',
+      confirmLabel: 'Reset everything',
+    })
+    if (!ok) return
+    setBusy(true)
+    try {
+      await settingsApi.freshStart()
+      // Refresh the signed-in user (points/cosmetics reset) and every balance/history surface.
+      await syncAppearanceFromServer(queryClient)
+      for (const key of [
+        ['chores'], ['history'], ['points-log'], ['achievements'],
+        ['redemptions'], ['awards'], ['inbox'],
+      ]) {
+        queryClient.invalidateQueries({ queryKey: key })
+      }
+      toast.success('Fresh start complete. Points and history cleared.')
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : 'Fresh start failed')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Danger zone</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <p className="text-sm text-muted-foreground">
+          Clear all activity, point history, redemptions, achievements, and gacha progress, and reset
+          everyone&apos;s points to 0. Your chores and their schedules stay exactly as they are. Use this
+          for a clean slate, for example at the start of a new month. This cannot be undone.
+        </p>
+        <Button type="button" variant="danger" disabled={busy} onClick={onFreshStart}>
+          {busy ? 'Resetting…' : 'Fresh start'}
+        </Button>
       </CardContent>
     </Card>
   )

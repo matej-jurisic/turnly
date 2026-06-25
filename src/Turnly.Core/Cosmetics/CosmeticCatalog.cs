@@ -24,8 +24,8 @@ public record CosmeticDefinition(
 /// directly. Craft cost is higher than the dupe award so duplicates don't trivially craft.</summary>
 public record RarityConfig(CosmeticRarity Rarity, double Odds, int DustAward, int DustCraftCost);
 
-/// <summary>The fixed catalog of gacha cosmetics plus the economy constants. v1 ships two slots
-/// (avatar frames, app theme palettes). All numbers here are tunable knobs.</summary>
+/// <summary>The fixed catalog of gacha cosmetics plus the economy constants (avatar frames, app
+/// theme palettes, and avatar colors). All numbers here are tunable knobs.</summary>
 public static class CosmeticCatalog
 {
     /// <summary>Point cost of a single pull.</summary>
@@ -61,8 +61,9 @@ public static class CosmeticCatalog
         new("frame-dashed",      "Achiever",       "A dashed violet ring.",                   CosmeticSlot.Frame, CosmeticRarity.Rare),
         new("frame-double",      "Double Ring",    "A crisp double ring.",                    CosmeticSlot.Frame, CosmeticRarity.Rare),
         new("frame-beaded",      "Beaded Ring",    "A playful beaded ring.",                  CosmeticSlot.Frame, CosmeticRarity.Rare),
-        // Epic: animated ring.
+        // Epic: animated rings.
         new("frame-holo",        "Holographic",    "A shifting holographic ring.",            CosmeticSlot.Frame, CosmeticRarity.Epic),
+        new("frame-frostfire",   "Frostfire",      "A spinning ice-and-flame ring.",          CosmeticSlot.Frame, CosmeticRarity.Epic),
         // Legendary: showpiece animated ring.
         new("frame-liquid-gold", "Liquid Gold",    "A molten, rotating gold ring.",           CosmeticSlot.Frame, CosmeticRarity.Legendary),
 
@@ -70,29 +71,33 @@ public static class CosmeticCatalog
         // Rare: light recolors.
         new("theme-peach",       "Peach",          "A warm peach palette.",                   CosmeticSlot.Theme, CosmeticRarity.Rare),
         new("theme-sky",         "Sky",            "A breezy sky-blue palette.",              CosmeticSlot.Theme, CosmeticRarity.Rare),
+        new("theme-mint",        "Mint",           "A fresh light mint palette.",             CosmeticSlot.Theme, CosmeticRarity.Rare),
+        new("theme-lavender",    "Lavender",       "A soft lavender palette.",                CosmeticSlot.Theme, CosmeticRarity.Rare),
+        new("theme-rosewater",   "Rosewater",      "A delicate blush palette.",               CosmeticSlot.Theme, CosmeticRarity.Rare),
         // Epic: distinctive palettes.
         new("theme-midnight",    "Midnight",       "A deep navy palette.",                    CosmeticSlot.Theme, CosmeticRarity.Epic),
         new("theme-sakura",      "Sakura",         "A soft pink blossom palette.",            CosmeticSlot.Theme, CosmeticRarity.Epic),
         new("theme-matrix",      "Matrix",         "Green-on-black terminal vibes.",          CosmeticSlot.Theme, CosmeticRarity.Epic),
         new("theme-sepia",       "Sepia",          "A warm newsprint palette.",               CosmeticSlot.Theme, CosmeticRarity.Epic),
+        new("theme-crimson",     "Crimson",        "A dark blood-red palette.",               CosmeticSlot.Theme, CosmeticRarity.Epic),
+        new("theme-ocean",       "Ocean",          "A deep ocean-blue palette.",              CosmeticSlot.Theme, CosmeticRarity.Epic),
+        new("theme-graphite",    "Graphite",       "A sleek monochrome palette.",             CosmeticSlot.Theme, CosmeticRarity.Epic),
         // Legendary: premium palettes.
         new("theme-galaxy",      "Galaxy",         "A cosmic purple starfield palette.",      CosmeticSlot.Theme, CosmeticRarity.Legendary),
         new("theme-aurora",      "Aurora",         "Shifting northern-lights palette.",       CosmeticSlot.Theme, CosmeticRarity.Legendary),
+        new("theme-sunset",      "Sunset",         "A glowing dusk-orange palette.",          CosmeticSlot.Theme, CosmeticRarity.Legendary),
+        new("theme-nebula",      "Nebula",         "A radiant cosmic-magenta palette.",       CosmeticSlot.Theme, CosmeticRarity.Legendary),
 
         // ---- Avatar colors ----------------------------------------------------------------
         // The default purple is free (owned by everyone, never rolled). The rest are collectible.
         new("color-indigo", "Indigo", "The classic purple avatar.", CosmeticSlot.Color, CosmeticRarity.Common, Value: "#6366f1", Default: true),
-        new("color-red",    "Red",    "A bold red avatar.",         CosmeticSlot.Color, CosmeticRarity.Common, Value: "#ef4444"),
         new("color-amber",  "Amber",  "A warm amber avatar.",       CosmeticSlot.Color, CosmeticRarity.Common, Value: "#f59e0b"),
         new("color-green",  "Green",  "A fresh green avatar.",      CosmeticSlot.Color, CosmeticRarity.Common, Value: "#22c55e"),
         new("color-blue",   "Blue",   "A clean blue avatar.",       CosmeticSlot.Color, CosmeticRarity.Common, Value: "#3b82f6"),
         new("color-slate",  "Slate",  "A cool slate avatar.",       CosmeticSlot.Color, CosmeticRarity.Common, Value: "#64748b"),
         new("color-cyan",   "Cyan",   "A bright cyan avatar.",      CosmeticSlot.Color, CosmeticRarity.Rare, Value: "#06b6d4"),
-        new("color-orange", "Orange", "A vivid orange avatar.",     CosmeticSlot.Color, CosmeticRarity.Rare, Value: "#f97316"),
         new("color-teal",   "Teal",   "A calm teal avatar.",        CosmeticSlot.Color, CosmeticRarity.Rare, Value: "#14b8a6"),
-        new("color-lime",   "Lime",   "A zesty lime avatar.",       CosmeticSlot.Color, CosmeticRarity.Rare, Value: "#84cc16"),
         new("color-pink",   "Pink",   "A playful pink avatar.",     CosmeticSlot.Color, CosmeticRarity.Epic, Value: "#ec4899"),
-        new("color-violet", "Violet", "A rich violet avatar.",      CosmeticSlot.Color, CosmeticRarity.Epic, Value: "#8b5cf6"),
         new("color-purple", "Purple", "A deep purple avatar.",      CosmeticSlot.Color, CosmeticRarity.Epic, Value: "#a855f7"),
         new("color-rose",   "Rose",   "An elegant rose avatar.",    CosmeticSlot.Color, CosmeticRarity.Legendary, Value: "#e11d48"),
     ];

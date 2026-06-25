@@ -177,6 +177,7 @@ export const settingsApi = {
   get: () => request<AppSettings>('/settings'),
   update: (timeZone: string | null) =>
     request<AppSettings>('/settings', { method: 'PUT', body: json({ timeZone }) }),
+  freshStart: () => request<void>('/settings/fresh-start', { method: 'POST' }),
 }
 
 export const awardsApi = {
