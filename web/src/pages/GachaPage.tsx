@@ -1,16 +1,16 @@
-import { useEffect, useState } from 'react'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { Badge } from '@/components/ui/Badge'
+import { Button } from '@/components/ui/Button'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
+import { Modal } from '@/components/ui/Modal'
 import { gachaApi } from '@/lib/api'
-import { useAuthStore } from '@/store/auth'
 import { syncAppearanceFromServer } from '@/lib/appearance'
 import { celebrate } from '@/lib/confetti'
 import { frameClasses, RARITY_COLOR, RARITY_ORDER } from '@/lib/cosmetics'
 import { toast } from '@/lib/toast'
 import type { Cosmetic, CosmeticRarity, CosmeticSlot, PullResult } from '@/lib/types'
-import { Badge } from '@/components/ui/Badge'
-import { Button } from '@/components/ui/Button'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
-import { Modal } from '@/components/ui/Modal'
+import { useAuthStore } from '@/store/auth'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useEffect, useState } from 'react'
 
 export function GachaPage() {
   const user = useAuthStore((s) => s.user)
@@ -239,7 +239,7 @@ function CosmeticCard({
         <Button
           size="sm"
           variant="secondary"
-          className="w-full"
+          className="w-full whitespace-nowrap text-xs md:text-sm"
           disabled={busy || dust < c.dustCraftCost}
           onClick={onCraft}
           title={dust < c.dustCraftCost ? 'Not enough dust' : undefined}
