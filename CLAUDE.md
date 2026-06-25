@@ -159,6 +159,30 @@ chore-/track-wide behavior when null. Endpoints: `GET /api/achievements` (caller
 `pages/AchievementsPage.tsx` (grouped-by-category grid, earned vs. locked-with-progress-bar; for admins a
 user picker + a per-badge Revoke action), `achievementsApi` in `lib/api.ts`, `/achievements` route + nav tab.
 
+**Post-Phase-9 — Freeze (per-chore & per-user).** Two admin-only "pause" toggles:
+- **Per-chore freeze** (`Chore.IsFrozen bool`) — blocks `CompleteAsync`/`SkipAsync` (returns Validation error),
+  skips the chore in `AutoAdvanceAsync` and `NotificationService.ProcessDueAsync`, and places it in a
+  "Paused" bucket visible to all users. On unfreeze (`ChoreService.UnfreezeAsync`), recurring chores whose
+  `DueAt` is in the past are stepped forward via `FromScheduledDate` until `DueAt >= now`; Independent chores
+  apply this per-track and recalculate the mirror `DueAt`; OneTime chores are left at their current `DueAt`
+  (appear overdue but remain completable). `RescheduleAsync` is allowed while frozen. Endpoints: admin-only
+  `POST /api/chores/{id}/freeze` + `POST /api/chores/{id}/unfreeze`. Frontend: "Paused" bucket in
+  `ChoresPage`, grey "Paused" badge on cards, complete button disabled, "Pause / Unpause" in `ChoreMenu`,
+  banner in `ChoreDetailsModal`.
+- **Per-user freeze** (`User.IsFrozen bool`) — excludes the user from rotation in `RotateAssigneeAsync`,
+  skips their Independent tracks in `AutoAdvanceAsync` and `NotificationService.ProcessDueAsync` (also
+  filters them from `AllAssignees` recipients), and at freeze time auto-reassigns any rotating chore they
+  currently own (`UserService.FreezeAsync` calls `ChoreService.ExecuteChoreReassignmentsForFreezeAsync` —
+  picks a new assignee using the same `AssignmentPicker` with the user excluded; chores with no other
+  eligible assignee get `CurrentAssigneeId = null`). `UserService.GetFreezePreviewAsync` computes and
+  returns the predicted reassignments as `UserFreezePreviewDto` before any change. On unfreeze
+  (`UserService.UnfreezeAsync`), stale Independent tracks (DueAt in the past) are stepped forward per-track
+  via `ChoreService.StepForwardIfOverdue` (same loop as chore unfreeze). `UserService` now depends on
+  `ChoreService` (no cycle). Endpoints: admin-only `GET /api/users/{id}/freeze-preview`,
+  `POST /api/users/{id}/freeze`, `POST /api/users/{id}/unfreeze`. Frontend: "Away" amber badge on frozen
+  users in `UsersPage`, Freeze/Unfreeze action buttons, `FreezeUserModal.tsx` shows the preview before
+  confirming. Both `UserDto.IsFrozen` and `ChoreDto.IsFrozen` are `init` properties (not positional).
+
 ## Stack & layout
 
 - **Backend:** ASP.NET Core (.NET 10) minimal APIs, EF Core. Solution file is `Turnly.slnx`.

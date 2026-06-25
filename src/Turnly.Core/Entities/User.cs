@@ -22,6 +22,11 @@ public class User
     public TimeOnly? QuietHoursStart { get; set; }
     public TimeOnly? QuietHoursEnd { get; set; }
 
+    /// <summary>When true the user is suspended: excluded from assignment rotation, their Independent
+    /// tracks get no auto-advance or notifications, and rotating chores they own are reassigned on
+    /// freeze. Admin-only toggle. On unfreeze, stale Independent tracks are stepped forward.</summary>
+    public bool IsFrozen { get; set; }
+
     public ICollection<RefreshToken> RefreshTokens { get; set; } = new List<RefreshToken>();
     public ICollection<PointsLogEntry> PointsLog { get; set; } = new List<PointsLogEntry>();
 }

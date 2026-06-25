@@ -13,6 +13,7 @@ export interface ChoreItemProps {
   undoPending: boolean
   skipPending: boolean
   deletePending: boolean
+  freezePending?: boolean
   onComplete: () => void
   onUndo: () => void
   onSkip: () => void
@@ -22,6 +23,8 @@ export interface ChoreItemProps {
   onCopy: () => void
   onDelete: () => void
   onDetails: () => void
+  onFreeze?: () => void
+  onUnfreeze?: () => void
 }
 
 const DUE_TONE = { overdue: 'red', today: 'amber', upcoming: 'blue', later: 'neutral' } as const
@@ -43,7 +46,7 @@ function assigneeLabel(chore: Chore): string {
  * below. Same actions as `ChoreListItem`, less chrome. */
 export function ChoreCompactItem(props: ChoreItemProps) {
   const { chore, onComplete, onDetails } = props
-  const canComplete = Boolean(chore.dueAt)
+  const canComplete = Boolean(chore.dueAt) && !chore.isFrozen
   const status = dueStatus(chore.dueAt, choreHasDueTime(chore))
   const assignee = assigneeLabel(chore)
 
@@ -75,11 +78,13 @@ export function ChoreCompactItem(props: ChoreItemProps) {
         <div className="flex min-w-0 items-center gap-2">
           <Badge tone="violet" className="shrink-0">{chore.points} pts</Badge>
           {assignee && <span className="min-w-0 truncate text-xs text-muted-foreground">{assignee}</span>}
-          {chore.dueAt && (
+          {chore.isFrozen ? (
+            <Badge tone="neutral" className="ml-auto shrink-0">Paused</Badge>
+          ) : chore.dueAt ? (
             <Badge tone={DUE_TONE[status]} className="ml-auto shrink-0">
               {formatDate(chore.dueAt)}{nextDueTimeLabel(chore) && ` · ${nextDueTimeLabel(chore)}`}
             </Badge>
-          )}
+          ) : null}
         </div>
       </button>
     </div>

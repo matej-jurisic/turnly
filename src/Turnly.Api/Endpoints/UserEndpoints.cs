@@ -53,6 +53,26 @@ public static class UserEndpoints
             return result.Succeeded ? Results.Ok(result.Value) : result.Error!.ToProblem();
         });
 
+        // Freeze a user (admin only): reassigns their rotating chores, pauses their Independent
+        // tracks and notifications. Preview endpoint returns affected chores before confirming.
+        group.MapGet("/{id:guid}/freeze-preview", async (Guid id, UserService users, CancellationToken ct) =>
+        {
+            var result = await users.GetFreezePreviewAsync(id, ct);
+            return result.Succeeded ? Results.Ok(result.Value) : result.Error!.ToProblem();
+        });
+
+        group.MapPost("/{id:guid}/freeze", async (Guid id, UserService users, CancellationToken ct) =>
+        {
+            var result = await users.FreezeAsync(id, ct);
+            return result.Succeeded ? Results.Ok(result.Value) : result.Error!.ToProblem();
+        });
+
+        group.MapPost("/{id:guid}/unfreeze", async (Guid id, UserService users, CancellationToken ct) =>
+        {
+            var result = await users.UnfreezeAsync(id, ct);
+            return result.Succeeded ? Results.Ok(result.Value) : result.Error!.ToProblem();
+        });
+
         // Endpoints accessible to any authenticated member.
         var self = app.MapGroup("/api/users").RequireAuthorization();
 

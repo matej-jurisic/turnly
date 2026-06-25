@@ -404,4 +404,88 @@ public class NotificationServiceTests
         Assert.False(result.Succeeded);
         Assert.Equal(ErrorType.Forbidden, result.Error!.Type);
     }
+
+    // ── Freeze-aware notification filtering ─────────────────────────────────────────────────────
+
+    [Fact]
+    public async Task ProcessDueAsync_skips_frozen_chores()
+    {
+        using var ctx = new TestContext();
+        var (_, member) = await SeedUsersAsync(ctx);
+        var choreId = await SeedChoreAsync(ctx, member, [member], AtDue(), Due);
+        await SubscribeAsync(ctx, member);
+        // Freeze the chore directly on the entity
+        var chore = await ctx.Db.Chores.FindAsync(choreId);
+        chore!.IsFrozen = true;
+        await ctx.Db.SaveChangesAsync();
+
+        var fired = await ctx.Notifications.ProcessDueAsync(Due);
+
+        Assert.Equal(0, fired);
+        Assert.Empty(ctx.Push.Sent);
+        Assert.Equal(0, await ctx.Db.UserNotifications.CountAsync());
+    }
+
+    [Fact]
+    public async Task ProcessDueAsync_skips_frozen_users_independent_track()
+    {
+        using var ctx = new TestContext();
+        var (admin, member) = await SeedUsersAsync(ctx);
+        // Independent chore with two tracks
+        var req = new CreateChoreRequest(
+            "Dishes", null, "🍽️", 10, RepeatType.Weekly, null, null, null,
+            null, null, null, null, 1, false,
+            AssignmentStrategy.Independent, SchedulingPreference.FromScheduledDate, null, false, null,
+            Due.AddDays(-7), [admin, member], admin, null,
+            [AtDue()], null,
+            [new TrackInput(admin, 1), new TrackInput(member, 1)]);
+        var result = await ctx.Chores.CreateAsync(req);
+        Assert.True(result.Succeeded);
+        // Force both tracks to Due
+        var tracks = await ctx.Db.ChoreAssigneeTracks.Where(t => t.ChoreId == result.Value!.Id).ToListAsync();
+        foreach (var t in tracks) t.DueAt = Due;
+        var choreEntity = await ctx.Db.Chores.FindAsync(result.Value!.Id);
+        choreEntity!.DueAt = Due;
+        await ctx.Db.SaveChangesAsync();
+
+        // Subscribe both, freeze admin
+        await SubscribeAsync(ctx, admin, "https://push.example/admin");
+        await SubscribeAsync(ctx, member, "https://push.example/member");
+        var adminUser = await ctx.Db.Users.FindAsync(admin);
+        adminUser!.IsFrozen = true;
+        await ctx.Db.SaveChangesAsync();
+
+        var fired = await ctx.Notifications.ProcessDueAsync(Due);
+
+        // Only member's track should fire (1 notification)
+        Assert.Equal(1, fired);
+        Assert.Single(ctx.Push.Sent);
+        Assert.Contains("member", ctx.Push.Sent[0].Endpoint);
+    }
+
+    [Fact]
+    public async Task ProcessDueAsync_excludes_frozen_user_from_all_assignees_recipients()
+    {
+        using var ctx = new TestContext();
+        var (admin, member) = await SeedUsersAsync(ctx);
+        // AllAssignees notification on a rotating chore
+        var notification = new ChoreNotificationInput(
+            NotificationType.Due, NotificationTiming.AtDue, 0, NotificationOffsetUnit.Minutes,
+            NotificationRecipients.AllAssignees);
+        var choreId = await SeedChoreAsync(ctx, admin, [admin, member], notification, Due);
+        await SubscribeAsync(ctx, admin, "https://push.example/admin");
+        await SubscribeAsync(ctx, member, "https://push.example/member");
+
+        // Freeze admin
+        var adminUser = await ctx.Db.Users.FindAsync(admin);
+        adminUser!.IsFrozen = true;
+        await ctx.Db.SaveChangesAsync();
+
+        var fired = await ctx.Notifications.ProcessDueAsync(Due);
+
+        // Only member should receive the notification
+        Assert.Equal(1, fired);
+        Assert.Single(ctx.Push.Sent);
+        Assert.Contains("member", ctx.Push.Sent[0].Endpoint);
+    }
 }

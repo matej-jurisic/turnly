@@ -1441,4 +1441,209 @@ public class ChoreServiceTests
         Assert.False(result.Succeeded);
         Assert.Equal(ErrorType.NotFound, result.Error!.Type);
     }
+
+    // ── Per-chore freeze ────────────────────────────────────────────────────────────────────────
+
+    [Fact]
+    public async Task FreezeAsync_sets_frozen_flag()
+    {
+        using var ctx = new TestContext();
+        var (_, member) = await SeedUsersAsync(ctx);
+        var chore = (await ctx.Chores.CreateAsync(NewChore(member, [member]))).Value!;
+
+        var result = await ctx.Chores.FreezeAsync(chore.Id);
+
+        Assert.True(result.Succeeded);
+        Assert.True(result.Value!.IsFrozen);
+        Assert.True((await ctx.Db.Chores.FindAsync(chore.Id))!.IsFrozen);
+    }
+
+    [Fact]
+    public async Task FreezeAsync_returns_not_found_for_unknown_chore()
+    {
+        using var ctx = new TestContext();
+
+        var result = await ctx.Chores.FreezeAsync(Guid.NewGuid());
+
+        Assert.False(result.Succeeded);
+        Assert.Equal(ErrorType.NotFound, result.Error!.Type);
+    }
+
+    [Fact]
+    public async Task CompleteAsync_rejects_frozen_chore()
+    {
+        using var ctx = new TestContext();
+        var (_, member) = await SeedUsersAsync(ctx);
+        var chore = (await ctx.Chores.CreateAsync(NewChore(member, [member]))).Value!;
+        await ctx.Chores.FreezeAsync(chore.Id);
+
+        var result = await ctx.Chores.CompleteAsync(chore.Id, member, new CompleteChoreRequest(null));
+
+        Assert.False(result.Succeeded);
+        Assert.Equal(ErrorType.Validation, result.Error!.Type);
+    }
+
+    [Fact]
+    public async Task SkipAsync_rejects_frozen_chore()
+    {
+        using var ctx = new TestContext();
+        var (admin, member) = await SeedUsersAsync(ctx);
+        var chore = (await ctx.Chores.CreateAsync(NewChore(member, [member]))).Value!;
+        await ctx.Chores.FreezeAsync(chore.Id);
+
+        var result = await ctx.Chores.SkipAsync(chore.Id, admin, new SkipChoreRequest(null));
+
+        Assert.False(result.Succeeded);
+        Assert.Equal(ErrorType.Validation, result.Error!.Type);
+    }
+
+    [Fact]
+    public async Task RescheduleAsync_allowed_on_frozen_chore()
+    {
+        using var ctx = new TestContext();
+        var (_, member) = await SeedUsersAsync(ctx);
+        var chore = (await ctx.Chores.CreateAsync(NewChore(member, [member]))).Value!;
+        await ctx.Chores.FreezeAsync(chore.Id);
+
+        var newDue = Start.AddDays(7);
+        var result = await ctx.Chores.RescheduleAsync(chore.Id, new RescheduleChoreRequest(newDue, null));
+
+        Assert.True(result.Succeeded);
+        Assert.Equal(newDue, result.Value!.DueAt);
+    }
+
+    [Fact]
+    public async Task UnfreezeAsync_clears_frozen_flag()
+    {
+        using var ctx = new TestContext();
+        var (_, member) = await SeedUsersAsync(ctx);
+        var chore = (await ctx.Chores.CreateAsync(NewChore(member, [member]))).Value!;
+        await ctx.Chores.FreezeAsync(chore.Id);
+
+        var result = await ctx.Chores.UnfreezeAsync(chore.Id);
+
+        Assert.True(result.Succeeded);
+        Assert.False(result.Value!.IsFrozen);
+    }
+
+    [Fact]
+    public async Task UnfreezeAsync_advances_overdue_recurring_chore()
+    {
+        using var ctx = new TestContext();
+        var (_, member) = await SeedUsersAsync(ctx);
+        // Create a daily chore with DueAt in the past (Start is in the past relative to "now")
+        var chore = (await ctx.Chores.CreateAsync(NewChore(member, [member]))).Value!;
+        // Start = 2026-06-17, which is past relative to test "now" (~2026-06-25)
+        await ctx.Chores.FreezeAsync(chore.Id);
+
+        var result = await ctx.Chores.UnfreezeAsync(chore.Id);
+
+        Assert.True(result.Succeeded);
+        // Should have advanced to a future date
+        Assert.True(result.Value!.DueAt >= DateTimeOffset.UtcNow);
+    }
+
+    [Fact]
+    public async Task UnfreezeAsync_leaves_one_time_chore_due_at_unchanged()
+    {
+        using var ctx = new TestContext();
+        var (_, member) = await SeedUsersAsync(ctx);
+        var chore = (await ctx.Chores.CreateAsync(
+            NewChore(member, [member], RepeatType.OneTime))).Value!;
+        var originalDue = chore.DueAt;
+        await ctx.Chores.FreezeAsync(chore.Id);
+
+        var result = await ctx.Chores.UnfreezeAsync(chore.Id);
+
+        Assert.True(result.Succeeded);
+        Assert.Equal(originalDue, result.Value!.DueAt);
+    }
+
+    [Fact]
+    public async Task UnfreezeAsync_preserves_partial_multi_completion_progress()
+    {
+        using var ctx = new TestContext();
+        var (_, member) = await SeedUsersAsync(ctx);
+        var chore = (await ctx.Chores.CreateAsync(
+            NewChore(member, [member], completionsRequired: 3))).Value!;
+
+        // Log 2 of 3 completions
+        await ctx.Chores.CompleteAsync(chore.Id, member, new CompleteChoreRequest(null));
+        await ctx.Chores.CompleteAsync(chore.Id, member, new CompleteChoreRequest(null));
+        var countBefore = await ctx.Db.ChoreCompletions.CountAsync();
+        await ctx.Chores.FreezeAsync(chore.Id);
+
+        await ctx.Chores.UnfreezeAsync(chore.Id);
+
+        // Partial completions must be preserved
+        Assert.Equal(countBefore, await ctx.Db.ChoreCompletions.CountAsync());
+    }
+
+    [Fact]
+    public async Task UnfreezeAsync_advances_overdue_independent_tracks()
+    {
+        using var ctx = new TestContext();
+        var (admin, member) = await SeedUsersAsync(ctx);
+        var req = new CreateChoreRequest(
+            "Dishes", null, "🍽️", 10, RepeatType.Daily, null, null, null,
+            null, null, null, null, 1, false,
+            AssignmentStrategy.Independent, SchedulingPreference.FromScheduledDate, null, false, null,
+            Start, [admin, member], admin, null, null, null,
+            [new TrackInput(admin, 1), new TrackInput(member, 1)]);
+        var chore = (await ctx.Chores.CreateAsync(req)).Value!;
+        await ctx.Chores.FreezeAsync(chore.Id);
+
+        var result = await ctx.Chores.UnfreezeAsync(chore.Id);
+
+        Assert.True(result.Succeeded);
+        // Both tracks should have DueAt >= now since Start is in the past
+        foreach (var track in result.Value!.Tracks)
+            Assert.True(track.DueAt >= DateTimeOffset.UtcNow);
+        Assert.True(result.Value!.DueAt >= DateTimeOffset.UtcNow);
+    }
+
+    [Fact]
+    public async Task AutoAdvanceAsync_skips_frozen_chores()
+    {
+        using var ctx = new TestContext();
+        var (_, member) = await SeedUsersAsync(ctx);
+        // Chore with a tiny completion window (0 minutes) so it would normally auto-advance
+        var req = NewChore(member, [member], completionsRequired: 2) with
+        {
+            AutoAdvanceIncomplete = true,
+            CompletionWindowMinutes = 0
+        };
+        var chore = (await ctx.Chores.CreateAsync(req)).Value!;
+        await ctx.Chores.FreezeAsync(chore.Id);
+        var originalDue = (await ctx.Db.Chores.FindAsync(chore.Id))!.DueAt;
+
+        // Run auto-advance well past the due date
+        var advanced = await ctx.Chores.AutoAdvanceAsync(Start.AddDays(10));
+
+        Assert.Equal(0, advanced);
+        var entity = await ctx.Db.Chores.FindAsync(chore.Id);
+        Assert.Equal(originalDue, entity!.DueAt);
+    }
+
+    [Fact]
+    public async Task AutoAdvanceAsync_skips_frozen_independent_track_chores()
+    {
+        using var ctx = new TestContext();
+        var (admin, member) = await SeedUsersAsync(ctx);
+        var req = new CreateChoreRequest(
+            "Dishes", null, "🍽️", 10, RepeatType.Daily, null, null, null,
+            null, null, null, null, 2, false,
+            AssignmentStrategy.Independent, SchedulingPreference.FromScheduledDate, null, true, 0,
+            Start, [admin, member], admin, null, null, null,
+            [new TrackInput(admin, 2), new TrackInput(member, 2)]);
+        var chore = (await ctx.Chores.CreateAsync(req)).Value!;
+        await ctx.Chores.FreezeAsync(chore.Id);
+        var originalDue = (await ctx.Db.Chores.FindAsync(chore.Id))!.DueAt;
+
+        var advanced = await ctx.Chores.AutoAdvanceAsync(Start.AddDays(10));
+
+        Assert.Equal(0, advanced);
+        var entity = await ctx.Db.Chores.FindAsync(chore.Id);
+        Assert.Equal(originalDue, entity!.DueAt);
+    }
 }

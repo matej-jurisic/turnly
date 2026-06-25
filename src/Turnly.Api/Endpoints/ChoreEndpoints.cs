@@ -90,6 +90,20 @@ public static class ChoreEndpoints
             return result.Succeeded ? Results.Ok(result.Value) : result.Error!.ToProblem();
         }).RequireAuthorization("Admin");
 
+        // Freeze / unfreeze a chore (admin only): suspends completions, skips, auto-advance,
+        // and notifications. On unfreeze, overdue recurring chores step forward.
+        group.MapPost("/{id:guid}/freeze", async (Guid id, ChoreService chores, CancellationToken ct) =>
+        {
+            var result = await chores.FreezeAsync(id, ct);
+            return result.Succeeded ? Results.Ok(result.Value) : result.Error!.ToProblem();
+        }).RequireAuthorization("Admin");
+
+        group.MapPost("/{id:guid}/unfreeze", async (Guid id, ChoreService chores, CancellationToken ct) =>
+        {
+            var result = await chores.UnfreezeAsync(id, ct);
+            return result.Succeeded ? Results.Ok(result.Value) : result.Error!.ToProblem();
+        }).RequireAuthorization("Admin");
+
         // Undo a completion (any member may undo their own; admins may undo any).
         var completions = app.MapGroup("/api/completions").RequireAuthorization();
         completions.MapDelete("/{id:guid}", async (Guid id, ClaimsPrincipal principal,

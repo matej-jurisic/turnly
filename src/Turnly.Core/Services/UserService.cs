@@ -15,12 +15,14 @@ public class UserService
     private readonly TurnlyDbContext _db;
     private readonly IPasswordHasher _hasher;
     private readonly AchievementService _achievements;
+    private readonly ChoreService _chores;
 
-    public UserService(TurnlyDbContext db, IPasswordHasher hasher, AchievementService achievements)
+    public UserService(TurnlyDbContext db, IPasswordHasher hasher, AchievementService achievements, ChoreService chores)
     {
         _db = db;
         _hasher = hasher;
         _achievements = achievements;
+        _chores = chores;
     }
 
     public async Task<List<UserDto>> ListAsync(CancellationToken ct = default)
@@ -271,4 +273,59 @@ public class UserService
 
     private async Task<bool> IsLastAdminAsync(CancellationToken ct)
         => await _db.Users.CountAsync(u => u.Role == UserRole.Admin, ct) <= 1;
+
+    public async Task<Result<UserFreezePreviewDto>> GetFreezePreviewAsync(Guid userId, CancellationToken ct = default)
+    {
+        var user = await _db.Users.FindAsync([userId], ct);
+        if (user is null)
+            return Result.Fail<UserFreezePreviewDto>(Error.NotFound("User not found."));
+
+        var (reassignments, unassignable) = await _chores.GetChoreReassignmentsForFreezeAsync(userId, ct);
+
+        return Result.Success(new UserFreezePreviewDto(
+            reassignments.Select(r => new FreezeReassignmentDto(
+                r.Chore.Id, r.Chore.Name, r.Chore.Emoji,
+                r.NewAssignee.Id, r.NewAssignee.DisplayName, r.NewAssignee.AvatarColor)).ToArray(),
+            unassignable.Select(c => new FreezeUnassignableDto(c.Id, c.Name, c.Emoji)).ToArray()));
+    }
+
+    public async Task<Result<UserDto>> FreezeAsync(Guid userId, CancellationToken ct = default)
+    {
+        var user = await _db.Users.FindAsync([userId], ct);
+        if (user is null)
+            return Result.Fail<UserDto>(Error.NotFound("User not found."));
+
+        user.IsFrozen = true;
+        await _chores.ExecuteChoreReassignmentsForFreezeAsync(userId, ct);
+        await _db.SaveChangesAsync(ct);
+        return Result.Success(UserDto.FromEntity(user));
+    }
+
+    public async Task<Result<UserDto>> UnfreezeAsync(Guid userId, CancellationToken ct = default)
+    {
+        var user = await _db.Users.FindAsync([userId], ct);
+        if (user is null)
+            return Result.Fail<UserDto>(Error.NotFound("User not found."));
+
+        user.IsFrozen = false;
+        var now = DateTimeOffset.UtcNow;
+
+        // Advance any stale Independent tracks belonging to this user.
+        var trackChores = await _db.Chores
+            .Include(c => c.AssigneeTracks)
+            .Where(c => c.AssignmentStrategy == AssignmentStrategy.Independent
+                     && c.AssigneeTracks.Any(t => t.UserId == userId))
+            .ToListAsync(ct);
+
+        foreach (var chore in trackChores)
+        {
+            var track = chore.AssigneeTracks.FirstOrDefault(t => t.UserId == userId);
+            if (track is null) continue;
+            track.DueAt = ChoreService.StepForwardIfOverdue(chore, track.DueAt, now);
+            chore.DueAt = ChoreService.EarliestTrackDue(chore.AssigneeTracks);
+        }
+
+        await _db.SaveChangesAsync(ct);
+        return Result.Success(UserDto.FromEntity(user));
+    }
 }

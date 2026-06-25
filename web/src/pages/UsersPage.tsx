@@ -12,6 +12,7 @@ import { Input, Label, Select } from '@/components/ui/Field'
 import { Modal, Avatar } from '@/components/ui/Modal'
 import { ColorPicker } from '@/components/ui/ColorPicker'
 import { AVATAR_COLORS } from '@/lib/utils'
+import { FreezeUserModal } from '@/components/FreezeUserModal'
 
 export function UsersPage() {
   const currentUser = useAuthStore((s) => s.user)
@@ -22,6 +23,12 @@ export function UsersPage() {
   const [creating, setCreating] = useState(false)
   const [passwordFor, setPasswordFor] = useState<User | null>(null)
   const [adjustPointsFor, setAdjustPointsFor] = useState<User | null>(null)
+  const [freezingUser, setFreezingUser] = useState<User | null>(null)
+
+  const invalidateAll = () => {
+    queryClient.invalidateQueries({ queryKey: ['users'] })
+    queryClient.invalidateQueries({ queryKey: ['chores'] })
+  }
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ['users'] })
 
@@ -29,6 +36,12 @@ export function UsersPage() {
     mutationFn: (id: string) => usersApi.remove(id),
     onSuccess: invalidate,
     onError: (err) => toast.error(err instanceof ApiError ? err.message : 'Delete failed'),
+  })
+
+  const unfreezeMutation = useMutation({
+    mutationFn: (id: string) => usersApi.unfreeze(id),
+    onSuccess: invalidateAll,
+    onError: (err) => toast.error(err instanceof ApiError ? err.message : 'Unfreeze failed'),
   })
 
   return (
@@ -54,6 +67,7 @@ export function UsersPage() {
                 <div className="mt-0.5 flex items-center gap-2">
                   <span className="truncate text-sm text-muted-foreground">@{user.username}</span>
                   <Badge tone={user.role === 'Admin' ? 'violet' : 'neutral'}>{user.role}</Badge>
+                  {user.isFrozen && <Badge tone="amber">Away</Badge>}
                 </div>
               </div>
             </div>
@@ -61,6 +75,25 @@ export function UsersPage() {
               <Button size="sm" variant="ghost" onClick={() => setEditing(user)}>Edit</Button>
               <Button size="sm" variant="ghost" onClick={() => setPasswordFor(user)}>Password</Button>
               <Button size="sm" variant="ghost" onClick={() => setAdjustPointsFor(user)}>Points</Button>
+              {user.isFrozen ? (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  disabled={unfreezeMutation.isPending}
+                  onClick={() => unfreezeMutation.mutate(user.id)}
+                >
+                  Unfreeze
+                </Button>
+              ) : (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  disabled={user.id === currentUser?.id}
+                  onClick={() => setFreezingUser(user)}
+                >
+                  Freeze
+                </Button>
+              )}
               <Button
                 size="sm"
                 variant="ghost"
@@ -121,6 +154,17 @@ export function UsersPage() {
             queryClient.invalidateQueries({ queryKey: ['users'] })
             queryClient.invalidateQueries({ queryKey: ['leaderboard'] })
             queryClient.invalidateQueries({ queryKey: ['points-log', adjustPointsFor.id] })
+          }}
+        />
+      )}
+
+      {freezingUser && (
+        <FreezeUserModal
+          user={freezingUser}
+          onClose={() => setFreezingUser(null)}
+          onDone={() => {
+            setFreezingUser(null)
+            invalidateAll()
           }}
         />
       )}

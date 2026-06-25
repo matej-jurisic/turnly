@@ -3,6 +3,7 @@ import type { Chore } from '@/lib/types'
 import { isIndependent } from '@/lib/chore-format'
 import {
   DotsIcon, InfoIcon, SkipIcon, ReassignIcon, UndoIcon, CalendarIcon, EditIcon, CopyIcon, TrashIcon,
+  PauseIcon, PlayIcon,
 } from '@/components/chores/icons'
 
 export interface ChoreMenuProps {
@@ -11,6 +12,7 @@ export interface ChoreMenuProps {
   undoPending: boolean
   skipPending: boolean
   deletePending: boolean
+  freezePending?: boolean
   onDetails: () => void
   onUndo: () => void
   onSkip: () => void
@@ -19,9 +21,11 @@ export interface ChoreMenuProps {
   onEdit: () => void
   onCopy: () => void
   onDelete: () => void
+  onFreeze?: () => void
+  onUnfreeze?: () => void
 }
 
-export function ChoreMenu({ chore, isAdmin, undoPending, skipPending, deletePending, onDetails, onUndo, onSkip, onReassign, onReschedule, onEdit, onCopy, onDelete }: ChoreMenuProps) {
+export function ChoreMenu({ chore, isAdmin, undoPending, skipPending, deletePending, freezePending, onDetails, onUndo, onSkip, onReassign, onReschedule, onEdit, onCopy, onDelete, onFreeze, onUnfreeze }: ChoreMenuProps) {
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
 
@@ -108,6 +112,27 @@ export function ChoreMenu({ chore, isAdmin, undoPending, skipPending, deletePend
           )}
           {isAdmin && (
             <>
+              {chore.isFrozen ? (
+                <button
+                  type="button"
+                  disabled={freezePending}
+                  onClick={() => { setOpen(false); onUnfreeze?.() }}
+                  className="flex w-full items-center gap-2 px-3 py-2 text-sm text-foreground transition-colors hover:bg-accent disabled:opacity-50"
+                >
+                  <PlayIcon />
+                  Unpause
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  disabled={freezePending}
+                  onClick={() => { setOpen(false); onFreeze?.() }}
+                  className="flex w-full items-center gap-2 px-3 py-2 text-sm text-foreground transition-colors hover:bg-accent disabled:opacity-50"
+                >
+                  <PauseIcon />
+                  Pause
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => { setOpen(false); onEdit() }}

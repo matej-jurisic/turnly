@@ -94,6 +94,11 @@ public class Chore
 
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
 
+    /// <summary>When true the chore is suspended: completions and skips are blocked, the auto-advance
+    /// service skips it, and notifications are suppressed. Admin-only toggle. On unfreeze, overdue
+    /// recurring chores are stepped forward to the next future due date.</summary>
+    public bool IsFrozen { get; set; }
+
     /// <summary>Users eligible to be assigned this chore (at least one).</summary>
     public ICollection<User> Assignees { get; set; } = new List<User>();
     public ICollection<Tag> Tags { get; set; } = new List<Tag>();

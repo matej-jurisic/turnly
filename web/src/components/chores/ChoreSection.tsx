@@ -8,7 +8,7 @@ export function ChoreSection({
   children,
 }: {
   title: string
-  tone?: 'default' | 'destructive'
+  tone?: 'default' | 'destructive' | 'neutral'
   count?: number
   children: ReactNode
 }) {

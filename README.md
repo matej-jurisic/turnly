@@ -2,22 +2,26 @@
 
 Family chore management web app (PWA). Self-hosted, simple, actually works.
 
-This repository currently implements **Phases 1–9**: foundation (auth, users, roles, Docker),
-chore CRUD with recurrence and assignment strategies, a dashboard with today/overdue/upcoming
-views (list, compact, and calendar layouts), per-user point totals, filtering, and global search,
-a history/stats view, awards and point redemption (with next-goal progress), per-occurrence skip
-and one-off reassignment, Web Push notifications (per-chore reminder/due/follow-up schedule via
-self-hosted VAPID keys, with per-user quiet hours), and UX polish (swipe actions, completion
-confetti, admin complete-on-behalf and activity-entry deletion). **Shared chores** can also be set
-to "Everyone (independent)", giving each assignee their own schedule and per-person quota — one
-chore for "everyone does the dishes once a week" without anyone blocking anyone else. Chores can
-also fire **multiple times a day**, **auto-advance** past missed occurrences, track an **on-time
-streak**, and be **copied**; admins can **adjust points** manually, **delete a redemption of any
-status** (refunding its points), and set the instance's **family timezone**. Members also earn
-**achievements** — collectible, permanently-earned badges for milestones (completion counts, on-time
-streaks, points earned, redemptions, and variety), unlocked the moment they're earned and shown on a
-dedicated page where admins can view any user's badges and revoke them. See [`specs.md`](./specs.md) for the full
-product spec and roadmap.
+This repository currently implements **Phases 1–9** plus several post-phase additions: foundation
+(auth, users, roles, Docker), chore CRUD with recurrence and assignment strategies, a dashboard
+with today/overdue/upcoming views (list, compact, and calendar layouts), per-user point totals,
+filtering, and global search, a history/stats view, awards and point redemption (with next-goal
+progress), per-occurrence skip and one-off reassignment, Web Push notifications (per-chore
+reminder/due/follow-up schedule via self-hosted VAPID keys, with per-user quiet hours), and UX
+polish (swipe actions, completion confetti, admin complete-on-behalf and activity-entry deletion).
+**Shared chores** can also be set to "Everyone (independent)", giving each assignee their own
+schedule and per-person quota — one chore for "everyone does the dishes once a week" without anyone
+blocking anyone else. Chores can also fire **multiple times a day**, **auto-advance** past missed
+occurrences, track an **on-time streak**, and be **copied**; admins can **adjust points** manually,
+**delete a redemption of any status** (refunding its points), and set the instance's **family
+timezone**. Members also earn **achievements** — collectible, permanently-earned badges for
+milestones (completion counts, on-time streaks, points earned, redemptions, and variety), unlocked
+the moment they're earned and shown on a dedicated page where admins can view any user's badges and
+revoke them. Admins can also **pause individual chores** (blocks completions, hides from the active
+list, suppresses notifications — unpausing steps overdue chores forward to the next future
+occurrence) and **freeze users** (marks them as "Away": excluded from rotation, independent tracks
+paused, no notifications — with a preview of affected chores before confirming). See
+[`specs.md`](./specs.md) for the full product spec and roadmap.
 
 ## Stack
 

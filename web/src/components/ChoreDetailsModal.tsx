@@ -62,10 +62,18 @@ export function ChoreDetailsModal({ chore, onClose, onComplete }: ChoreDetailsMo
           <p className="text-sm text-muted-foreground">{chore.description}</p>
         )}
 
+        {chore.isFrozen && (
+          <div className="rounded-lg border border-border bg-accent/50 px-3 py-2 text-sm text-muted-foreground">
+            This chore is <strong className="text-foreground">paused</strong>. Completions and skips are
+            disabled until an admin unpauses it.
+          </div>
+        )}
+
         {/* Schedule + points */}
         <div className="flex flex-wrap gap-2">
           <Badge tone="blue">{repeatLabel(chore)}</Badge>
-          {chore.dueAt && (
+          {chore.isFrozen && <Badge tone="neutral">Paused</Badge>}
+          {!chore.isFrozen && chore.dueAt && (
             overdueDays > 0
               ? <Badge tone="red">Overdue by {overdueDays} {overdueDays === 1 ? 'day' : 'days'}</Badge>
               : <Badge tone="amber">Due {formatDate(chore.dueAt)}</Badge>
@@ -220,7 +228,7 @@ export function ChoreDetailsModal({ chore, onClose, onComplete }: ChoreDetailsMo
         <ActivityList choreId={chore.id} />
       </div>
 
-      {onComplete && (
+      {onComplete && !chore.isFrozen && (
         <div className="mt-4 flex justify-end border-t border-border pt-4">
           <button
             type="button"

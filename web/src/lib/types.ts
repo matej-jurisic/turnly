@@ -13,6 +13,8 @@ export interface User {
    * hours push notifications are suppressed (the in-app inbox still receives them). */
   quietHoursStart?: string | null
   quietHoursEnd?: string | null
+  /** When true the user is on leave: excluded from rotation, Independent tracks paused, no push. */
+  isFrozen: boolean
 }
 
 /** Self-service profile update (avatar color + optional quiet hours). */
@@ -224,6 +226,8 @@ export interface Chore extends RecurrenceFields {
   /** Achievements the completing user just unlocked, returned only on a self-completion response so
    * the client can show a celebration popup. Absent/empty otherwise. */
   unlockedAchievements?: Achievement[]
+  /** When true the chore is paused: completions/skips blocked, no auto-advance, no notifications. */
+  isFrozen: boolean
 }
 
 export interface ChoreRequest extends RecurrenceFields {
@@ -275,6 +279,26 @@ export interface RescheduleChoreRequest {
   dueTime?: string | null
   /** Track-mode only: whose schedule to reschedule. */
   userId?: string | null
+}
+
+export interface FreezeReassignment {
+  choreId: string
+  choreName: string
+  choreEmoji?: string | null
+  newAssigneeId: string
+  newAssigneeName: string
+  newAssigneeAvatarColor: string
+}
+
+export interface FreezeUnassignable {
+  choreId: string
+  choreName: string
+  choreEmoji?: string | null
+}
+
+export interface UserFreezePreview {
+  reassignments: FreezeReassignment[]
+  unassignable: FreezeUnassignable[]
 }
 
 export interface Tag {

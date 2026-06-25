@@ -16,6 +16,7 @@ export function ChoreListItem({
   undoPending,
   skipPending,
   deletePending,
+  freezePending,
   onComplete,
   onUndo,
   onSkip,
@@ -25,12 +26,15 @@ export function ChoreListItem({
   onCopy,
   onDelete,
   onDetails,
+  onFreeze,
+  onUnfreeze,
 }: {
   chore: Chore
   isAdmin: boolean
   undoPending: boolean
   skipPending: boolean
   deletePending: boolean
+  freezePending?: boolean
   onComplete: () => void
   onUndo: () => void
   onSkip: () => void
@@ -40,16 +44,20 @@ export function ChoreListItem({
   onCopy: () => void
   onDelete: () => void
   onDetails: () => void
+  onFreeze?: () => void
+  onUnfreeze?: () => void
 }) {
-  const canComplete = Boolean(chore.dueAt)
+  const canComplete = Boolean(chore.dueAt) && !chore.isFrozen
   return (
     <div className="relative">
       <div className="absolute left-4 top-0 z-10 flex -translate-y-1/2 items-center gap-2">
-        {chore.dueAt && (
+        {chore.isFrozen ? (
+          <Badge tone="neutral" className="border border-border bg-card">Paused</Badge>
+        ) : chore.dueAt ? (
           <Badge tone="amber" className="border border-warning bg-card">
             {formatDate(chore.dueAt)}{nextDueTimeLabel(chore) && ` · ${nextDueTimeLabel(chore)}`}
           </Badge>
-        )}
+        ) : null}
         {chore.completionsRequired > 1 ? (
           <Badge tone="violet" className="border border-primary bg-card">
             {completionProgressLabel(chore)}
@@ -86,6 +94,7 @@ export function ChoreListItem({
                   undoPending={undoPending}
                   skipPending={skipPending}
                   deletePending={deletePending}
+                  freezePending={freezePending}
                   onDetails={onDetails}
                   onUndo={onUndo}
                   onSkip={onSkip}
@@ -94,6 +103,8 @@ export function ChoreListItem({
                   onEdit={onEdit}
                   onCopy={onCopy}
                   onDelete={onDelete}
+                  onFreeze={onFreeze}
+                  onUnfreeze={onUnfreeze}
                 />
               </div>
             </div>

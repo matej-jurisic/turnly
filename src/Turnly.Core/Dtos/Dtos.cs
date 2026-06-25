@@ -15,9 +15,12 @@ public record UserDto(
     string? QuietHoursStart = null,
     string? QuietHoursEnd = null)
 {
+    public bool IsFrozen { get; init; }
+
     public static UserDto FromEntity(User u, int weeklyPoints = 0) =>
         new(u.Id, u.Username, u.DisplayName, u.AvatarColor, u.Role, u.Points, weeklyPoints, u.CreatedAt,
-            u.QuietHoursStart?.ToString("HH:mm"), u.QuietHoursEnd?.ToString("HH:mm"));
+            u.QuietHoursStart?.ToString("HH:mm"), u.QuietHoursEnd?.ToString("HH:mm"))
+            { IsFrozen = u.IsFrozen };
 }
 
 public record LeaderboardEntryDto(
@@ -53,6 +56,14 @@ public record ChangePasswordRequest(string CurrentPassword, string NewPassword);
 public record SetPasswordRequest(string NewPassword);
 
 public record AdjustPointsRequest(int Delta, string? Description);
+
+public record FreezeReassignmentDto(
+    Guid ChoreId, string ChoreName, string? ChoreEmoji,
+    Guid NewAssigneeId, string NewAssigneeName, string NewAssigneeAvatarColor);
+
+public record FreezeUnassignableDto(Guid ChoreId, string ChoreName, string? ChoreEmoji);
+
+public record UserFreezePreviewDto(FreezeReassignmentDto[] Reassignments, FreezeUnassignableDto[] Unassignable);
 
 /// <summary>App-wide settings. <see cref="TimeZone"/> is the configured family zone (null = unset);
 /// <see cref="ServerTimeZone"/> is the host's local zone, used as the fallback and shown in the UI.</summary>
@@ -114,7 +125,9 @@ public record ChoreDto(
             occurrenceProgress,
             currentStreak,
             tracks ?? [],
-            c.CreatedAt);
+            c.CreatedAt) { IsFrozen = c.IsFrozen };
+
+    public bool IsFrozen { get; init; }
 
     /// <summary>Achievements the credited user just unlocked with this completion — set only on the
     /// response to a self-completion so the client can show a celebration popup. Empty otherwise; not

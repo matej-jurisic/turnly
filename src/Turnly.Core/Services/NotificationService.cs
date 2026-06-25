@@ -223,7 +223,7 @@ public class NotificationService
             .Include(c => c.Notifications)
             .Include(c => c.Assignees)
             .Include(c => c.AssigneeTracks)
-            .Where(c => c.DueAt != null && c.Notifications.Any())
+            .Where(c => c.DueAt != null && c.Notifications.Any() && !c.IsFrozen)
             .AsSplitQuery()
             .ToListAsync(ct);
 
@@ -262,11 +262,19 @@ public class NotificationService
             .ToDictionary(g => g.Key, g => g.ToList());
 
         // Quiet-hours windows for everyone who could receive a push, so we can mute (but still inbox) it.
-        var quietByUser = (await _db.Users
-                .Where(u => recipientIds.Contains(u.Id) && u.QuietHoursStart != null)
-                .Select(u => new { u.Id, u.QuietHoursStart, u.QuietHoursEnd })
+        // Also load frozen status so we can skip notifications to frozen users entirely.
+        var userFlags = (await _db.Users
+                .Where(u => recipientIds.Contains(u.Id))
+                .Select(u => new { u.Id, u.QuietHoursStart, u.QuietHoursEnd, u.IsFrozen })
                 .ToListAsync(ct))
-            .ToDictionary(u => u.Id, u => (u.QuietHoursStart, u.QuietHoursEnd));
+            .ToDictionary(u => u.Id);
+        var quietByUser = userFlags
+            .Where(kvp => kvp.Value.QuietHoursStart != null)
+            .ToDictionary(kvp => kvp.Key, kvp => (kvp.Value.QuietHoursStart, kvp.Value.QuietHoursEnd));
+        var frozenUserIds = userFlags
+            .Where(kvp => kvp.Value.IsFrozen)
+            .Select(kvp => kvp.Key)
+            .ToHashSet();
 
         var fired = 0;
         foreach (var chore in chores)
@@ -276,9 +284,11 @@ public class NotificationService
                 if (chore.AssignmentStrategy == AssignmentStrategy.Independent)
                 {
                     // Fire per assignee track, off that track's own due date, to the track owner.
+                    // Skip frozen users — their tracks are paused.
                     foreach (var track in chore.AssigneeTracks)
                     {
                         if (track.DueAt is not { } trackDue) continue;
+                        if (frozenUserIds.Contains(track.UserId)) continue;
                         if (await TryFireAsync(chore, entry, trackDue, track.UserId, [track.UserId],
                                 delivered, subsByUser, quietByUser, localNow, now, ct))
                             fired++;
@@ -288,7 +298,7 @@ public class NotificationService
                 {
                     var dueAt = chore.DueAt!.Value;
                     var recipients = (entry.Recipients == NotificationRecipients.AllAssignees
-                            ? chore.Assignees.Select(a => a.Id)
+                            ? chore.Assignees.Select(a => a.Id).Where(id => !frozenUserIds.Contains(id))
                             : chore.CurrentAssigneeId is { } cur ? [cur] : Enumerable.Empty<Guid>())
                         .Distinct()
                         .ToList();

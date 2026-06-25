@@ -87,6 +87,18 @@ export function ChoresPage() {
     onError: (err) => toast.error(err instanceof ApiError ? err.message : 'Skip failed'),
   })
 
+  const freezeMutation = useMutation({
+    mutationFn: (id: string) => choresApi.freeze(id),
+    onSuccess: invalidate,
+    onError: (err) => toast.error(err instanceof ApiError ? err.message : 'Pause failed'),
+  })
+
+  const unfreezeMutation = useMutation({
+    mutationFn: (id: string) => choresApi.unfreeze(id),
+    onSuccess: invalidate,
+    onError: (err) => toast.error(err instanceof ApiError ? err.message : 'Unpause failed'),
+  })
+
   const allTags = useMemo(
     () => [...new Set((chores ?? []).flatMap((c) => c.tags))].sort(),
     [chores],
@@ -101,7 +113,7 @@ export function ChoresPage() {
     return [...map.values()].sort((a, b) => a.displayName.localeCompare(b.displayName))
   }, [chores])
 
-  const { overdue, today, upcoming, later, filtered } = useMemo(() => {
+  const { overdue, today, upcoming, later, paused, filtered } = useMemo(() => {
     const filtered = (chores ?? []).filter((c) => {
       // OR within each dimension, AND across dimensions.
       if (filters.tags.length && !filters.tags.some((t) => c.tags.includes(t))) return false
@@ -116,9 +128,11 @@ export function ChoresPage() {
       if (filters.due.length && !filters.due.includes(choreDueStatus(c))) return false
       return true
     })
+    const paused = filtered.filter((c) => c.isFrozen)
+    const active = filtered.filter((c) => !c.isFrozen)
     const buckets = { overdue: [] as Chore[], today: [] as Chore[], upcoming: [] as Chore[], later: [] as Chore[] }
-    for (const c of filtered) buckets[choreDueStatus(c)].push(c)
-    return { ...buckets, filtered }
+    for (const c of active) buckets[choreDueStatus(c)].push(c)
+    return { ...buckets, paused, filtered }
   }, [chores, filters])
 
   const itemProps = (chore: Chore) => ({
@@ -127,6 +141,7 @@ export function ChoresPage() {
     undoPending: undoMutation.isPending,
     skipPending: skipMutation.isPending,
     deletePending: deleteMutation.isPending,
+    freezePending: freezeMutation.isPending || unfreezeMutation.isPending,
     onComplete: () => setCompleting(chore),
     onUndo: async () => {
       const wasSkip = chore.lastCompletion?.isSkip
@@ -170,6 +185,8 @@ export function ChoresPage() {
       }
     },
     onDetails: () => setDetails(chore),
+    onFreeze: () => freezeMutation.mutate(chore.id),
+    onUnfreeze: () => unfreezeMutation.mutate(chore.id),
   })
 
   return (
@@ -207,6 +224,7 @@ export function ChoresPage() {
           { title: 'Today', tone: undefined, items: today },
           { title: 'This week', tone: undefined, items: upcoming },
           { title: 'Later', tone: undefined, items: later },
+          { title: 'Paused', tone: 'neutral' as const, items: paused },
         ])
           .filter((s) => s.items.length > 0)
           .map((s) => (

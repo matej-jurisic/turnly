@@ -27,6 +27,7 @@ import type {
   UpdateChoreRequest,
   UpdateUserRequest,
   User,
+  UserFreezePreview,
 } from '@/lib/types'
 
 const BASE = '/api'
@@ -133,6 +134,9 @@ export const usersApi = {
   pointsLog: (id: string) => request<PointsLogEntry[]>(`/users/${id}/points-log`),
   adjustPoints: (id: string, body: { delta: number; description?: string }) =>
     request<User>(`/users/${id}/points`, { method: 'POST', body: json(body) }),
+  freezePreview: (id: string) => request<UserFreezePreview>(`/users/${id}/freeze-preview`),
+  freeze: (id: string) => request<User>(`/users/${id}/freeze`, { method: 'POST', body: json({}) }),
+  unfreeze: (id: string) => request<User>(`/users/${id}/unfreeze`, { method: 'POST', body: json({}) }),
 }
 
 export const choresApi = {
@@ -156,6 +160,8 @@ export const choresApi = {
     request<void>(`/completions/${completionId}`, { method: 'DELETE' }),
   deleteActivity: (completionId: string) =>
     request<void>(`/completions/${completionId}/activity`, { method: 'DELETE' }),
+  freeze: (id: string) => request<Chore>(`/chores/${id}/freeze`, { method: 'POST', body: json({}) }),
+  unfreeze: (id: string) => request<Chore>(`/chores/${id}/unfreeze`, { method: 'POST', body: json({}) }),
 }
 
 export const tagsApi = {

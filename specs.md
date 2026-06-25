@@ -146,6 +146,25 @@ Per-chore notification schedule — a list of notification entries, each with:
 
 ---
 
+## Freeze / Away
+
+### Per-chore freeze (admin only)
+
+- Admin can **Pause** any chore from the chore menu or details modal
+- While paused, completions and skips are blocked (the server rejects them)
+- The chore appears in a **"Paused"** bucket on the chores page, separate from the normal overdue/today/upcoming/later sections
+- No auto-advance fires, no notifications are sent
+- On **Unpause**, recurring chores that are overdue have their due date stepped forward to the first future occurrence; one-time chores are left at their current due date
+
+### Per-user freeze (admin only)
+
+- Admin can **Freeze** a user (with an "Away" badge shown on their profile)
+- A **preview** is shown before confirming: lists rotating chores that will be reassigned and any chores with no other eligible assignee (which will become unassigned)
+- While frozen the user is excluded from rotation, their independent chore tracks receive no auto-advance or notifications, and they are removed from `AllAssignees` push notification recipients
+- On **Unfreeze**, stale independent track due dates (in the past) are stepped forward to the next future occurrence
+
+---
+
 ## Dashboard
 
 - Today's due chores, highlighted by assignee

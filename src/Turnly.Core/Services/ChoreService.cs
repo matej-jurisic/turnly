@@ -182,6 +182,8 @@ public class ChoreService
         var chore = await Query().FirstOrDefaultAsync(c => c.Id == id, ct);
         if (chore is null)
             return Result.Fail<ChoreDto>(Error.NotFound("Chore not found."));
+        if (chore.IsFrozen)
+            return Result.Fail<ChoreDto>(Error.Validation("This chore is paused and cannot be completed."));
 
         // Resolve who gets credited. Completing on behalf of someone else is admin-only.
         var userId = req.CompletedByUserId ?? actingUserId;
@@ -269,6 +271,8 @@ public class ChoreService
         var chore = await Query().FirstOrDefaultAsync(c => c.Id == id, ct);
         if (chore is null)
             return Result.Fail<ChoreDto>(Error.NotFound("Chore not found."));
+        if (chore.IsFrozen)
+            return Result.Fail<ChoreDto>(Error.Validation("This chore is paused and cannot be skipped."));
 
         if (chore.RepeatType == RepeatType.OneTime)
             return Result.Fail<ChoreDto>(Error.Validation("One-time chores cannot be skipped."));
@@ -567,7 +571,7 @@ public class ChoreService
     /// <summary>The earliest scheduled track due — used to keep <c>chore.DueAt</c> as a mirror so all
     /// the existing single-due checks (listing order, "nothing scheduled" guards, the notification
     /// chore-load filter) keep working for track-mode chores.</summary>
-    private static DateTimeOffset? EarliestTrackDue(IEnumerable<ChoreAssigneeTrack> tracks)
+    internal static DateTimeOffset? EarliestTrackDue(IEnumerable<ChoreAssigneeTrack> tracks)
     {
         DateTimeOffset? min = null;
         foreach (var t in tracks)
@@ -612,6 +616,7 @@ public class ChoreService
     private async Task RotateAssigneeAsync(Chore chore, DateTimeOffset now, Guid completedBy, Guid? completionId, CancellationToken ct)
     {
         var ordered = chore.Assignees
+            .Where(u => !u.IsFrozen)
             .OrderBy(u => u.CreatedAt).ThenBy(u => u.Id)
             .Select(u => u.Id)
             .ToList();
@@ -1042,6 +1047,7 @@ public class ChoreService
         // ── Rotating chores ──────────────────────────────────────────────────────────────────────
         var chores = await Query()
             .Where(c => c.AutoAdvanceIncomplete
+                     && !c.IsFrozen
                      && c.DueAt != null
                      && c.RepeatType != RepeatType.OneTime
                      && c.AssignmentStrategy != AssignmentStrategy.Independent)
@@ -1091,6 +1097,7 @@ public class ChoreService
         // ── Independent (per-assignee track) chores ─────────────────────────────────────────────
         var trackChores = await Query()
             .Where(c => c.AutoAdvanceIncomplete
+                     && !c.IsFrozen
                      && c.DueAt != null
                      && c.RepeatType != RepeatType.OneTime
                      && c.AssignmentStrategy == AssignmentStrategy.Independent)
@@ -1142,5 +1149,134 @@ public class ChoreService
             await _db.SaveChangesAsync(ct);
 
         return advanced;
+    }
+
+    public async Task<Result<ChoreDto>> FreezeAsync(Guid id, CancellationToken ct = default)
+    {
+        var chore = await _db.Chores
+            .Include(c => c.AssigneeTracks)
+            .FirstOrDefaultAsync(c => c.Id == id, ct);
+        if (chore is null)
+            return Result.Fail<ChoreDto>(Error.NotFound("Chore not found."));
+
+        chore.IsFrozen = true;
+        await _db.SaveChangesAsync(ct);
+        return await GetAsync(chore.Id, ct: ct);
+    }
+
+    public async Task<Result<ChoreDto>> UnfreezeAsync(Guid id, CancellationToken ct = default)
+    {
+        var chore = await Query().FirstOrDefaultAsync(c => c.Id == id, ct);
+        if (chore is null)
+            return Result.Fail<ChoreDto>(Error.NotFound("Chore not found."));
+
+        chore.IsFrozen = false;
+        var now = DateTimeOffset.UtcNow;
+
+        if (IsIndependent(chore))
+        {
+            foreach (var track in chore.AssigneeTracks)
+                track.DueAt = StepForwardIfOverdue(chore, track.DueAt, now);
+            chore.DueAt = EarliestTrackDue(chore.AssigneeTracks);
+        }
+        else if (chore.RepeatType != RepeatType.OneTime)
+        {
+            chore.DueAt = StepForwardIfOverdue(chore, chore.DueAt, now);
+        }
+
+        await _db.SaveChangesAsync(ct);
+        return await GetAsync(chore.Id, ct: ct);
+    }
+
+    /// <summary>Advances <paramref name="dueAt"/> to the first future occurrence when it is in the
+    /// past — used on unfreeze. Uses <see cref="SchedulingPreference.FromScheduledDate"/> so the
+    /// cadence is preserved.</summary>
+    internal static DateTimeOffset? StepForwardIfOverdue(Chore chore, DateTimeOffset? dueAt, DateTimeOffset now)
+    {
+        if (dueAt is not { } due || due >= now) return dueAt;
+        var rule = RecurrenceRule.FromChore(chore);
+        while (due < now)
+        {
+            var next = RecurrenceCalculator.NextDue(rule, SchedulingPreference.FromScheduledDate, due, now, now);
+            if (next is null) break;
+            due = next.Value;
+        }
+        return due;
+    }
+
+    /// <summary>Computes which rotating chores would be reassigned (and to whom) and which would be
+    /// left without an eligible assignee when <paramref name="freezingUserId"/> is frozen. Pure read —
+    /// does not save anything. Called by <see cref="Services.UserService"/> for the preview and freeze flow.</summary>
+    internal async Task<(List<(Chore Chore, User NewAssignee)> Reassignments, List<Chore> Unassignable)>
+        GetChoreReassignmentsForFreezeAsync(Guid freezingUserId, CancellationToken ct)
+    {
+        var affected = await Query()
+            .Where(c => c.CurrentAssigneeId == freezingUserId
+                     && c.AssignmentStrategy != AssignmentStrategy.Independent)
+            .ToListAsync(ct);
+
+        var reassignments = new List<(Chore, User)>();
+        var unassignable = new List<Chore>();
+        var now = DateTimeOffset.UtcNow;
+
+        foreach (var chore in affected)
+        {
+            var eligible = chore.Assignees
+                .Where(u => u.Id != freezingUserId && !u.IsFrozen)
+                .OrderBy(u => u.CreatedAt).ThenBy(u => u.Id)
+                .ToList();
+
+            if (eligible.Count == 0)
+            {
+                unassignable.Add(chore);
+                continue;
+            }
+
+            var assignments = (await _db.ChoreAssignments
+                .Where(a => a.ChoreId == chore.Id)
+                .Select(a => new { a.UserId, a.AssignedAt })
+                .ToListAsync(ct))
+                .Select(a => (a.UserId, a.AssignedAt))
+                .ToList();
+
+            var completions = (await _db.ChoreCompletions
+                .Where(x => x.ChoreId == chore.Id && !x.IsSkip && !x.IsExpired)
+                .Select(x => new { x.CompletedByUserId, x.CompletedAt })
+                .ToListAsync(ct))
+                .Where(x => x.CompletedByUserId.HasValue)
+                .Select(x => (x.CompletedByUserId!.Value, x.CompletedAt))
+                .ToList();
+
+            var nextId = PickNext(chore, eligible.Select(u => u.Id).ToList(), assignments, completions, freezingUserId, now);
+            var newAssignee = eligible.FirstOrDefault(u => u.Id == nextId) ?? eligible[0];
+            reassignments.Add((chore, newAssignee));
+        }
+
+        return (reassignments, unassignable);
+    }
+
+    /// <summary>Executes the chore reassignments computed by <see cref="GetChoreReassignmentsForFreezeAsync"/>:
+    /// sets <c>CurrentAssigneeId</c> and logs a <see cref="ChoreAssignment"/> for each affected chore.
+    /// Does <b>not</b> save — the caller batches this with the user freeze in one <c>SaveChanges</c>.</summary>
+    internal async Task ExecuteChoreReassignmentsForFreezeAsync(Guid freezingUserId, CancellationToken ct)
+    {
+        var (reassignments, unassignable) = await GetChoreReassignmentsForFreezeAsync(freezingUserId, ct);
+        var now = DateTimeOffset.UtcNow;
+
+        foreach (var (chore, newAssignee) in reassignments)
+        {
+            var previousAssigneeId = chore.CurrentAssigneeId;
+            chore.CurrentAssigneeId = newAssignee.Id;
+            _db.ChoreAssignments.Add(new ChoreAssignment
+            {
+                ChoreId = chore.Id,
+                UserId = newAssignee.Id,
+                AssignedAt = now,
+                PreviousAssigneeId = previousAssigneeId,
+            });
+        }
+
+        foreach (var chore in unassignable)
+            chore.CurrentAssigneeId = null;
     }
 }

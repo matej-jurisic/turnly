@@ -54,11 +54,11 @@ public sealed class TestContext : IDisposable
 
         Push = new FakePushSender();
         Achievements = new AchievementService(Db);
-        Users = new UserService(Db, Hasher, Achievements);
         Auth = new AuthService(Db, Hasher, Tokens);
         Setup = new SetupService(Db, Hasher, Auth);
         Tags = new TagService(Db);
         Chores = new ChoreService(Db, Tags, Achievements);
+        Users = new UserService(Db, Hasher, Achievements, Chores);
         Awards = new AwardService(Db);
         Redemptions = new RedemptionService(Db, Achievements);
         Notifications = new NotificationService(Db, Push, NullLogger<NotificationService>.Instance);
