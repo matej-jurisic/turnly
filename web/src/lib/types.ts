@@ -15,11 +15,14 @@ export interface User {
   quietHoursEnd?: string | null
   /** When true the user is on leave: excluded from rotation, Independent tracks paused, no push. */
   isFrozen: boolean
+  /** Equipped avatar frame cosmetic key (or null). Rendered wherever the user's avatar shows. */
+  equippedFrameKey?: string | null
+  /** Equipped app theme palette key (or null). Only recolors the owner's own view. */
+  equippedThemeKey?: string | null
 }
 
 /** Self-service profile update (avatar color + optional quiet hours). */
 export interface ProfileUpdate {
-  avatarColor: string
   quietHoursStart?: string | null
   quietHoursEnd?: string | null
 }
@@ -37,6 +40,48 @@ export interface LeaderboardEntry {
   avatarColor: string
   points: number
   weeklyPoints: number
+  equippedFrameKey?: string | null
+}
+
+export type CosmeticSlot = 'Frame' | 'Theme' | 'Color'
+export type CosmeticRarity = 'Common' | 'Rare' | 'Epic' | 'Legendary'
+
+export interface Cosmetic {
+  key: string
+  name: string
+  description: string
+  slot: CosmeticSlot
+  rarity: CosmeticRarity
+  owned: boolean
+  equipped: boolean
+  count: number
+  dustCraftCost: number
+  /** Concrete payload for Color cosmetics (the avatar hex). Null for Frame/Theme. */
+  value?: string | null
+}
+
+export interface RarityOdds {
+  rarity: CosmeticRarity
+  odds: number
+  dustAward: number
+  dustCraftCost: number
+}
+
+export interface GachaState {
+  points: number
+  dust: number
+  pullCost: number
+  tenPullCost: number
+  pullsSinceLegendary: number
+  pityThreshold: number
+  odds: RarityOdds[]
+  cosmetics: Cosmetic[]
+}
+
+export interface PullResult {
+  cosmetic: Cosmetic
+  isNew: boolean
+  dustAwarded: number
 }
 
 export interface AuthResponse {
@@ -57,12 +102,10 @@ export interface CreateUserRequest {
   displayName: string
   password: string
   role: UserRole
-  avatarColor?: string
 }
 
 export interface UpdateUserRequest {
   displayName: string
-  avatarColor: string
   role: UserRole
 }
 

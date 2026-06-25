@@ -5,16 +5,13 @@ import { useAuthStore } from '@/store/auth'
 import { Button } from '@/components/ui/Button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { Input, Label } from '@/components/ui/Field'
-import { ColorPicker } from '@/components/ui/ColorPicker'
 import { ThemeToggle } from '@/components/ThemeToggle'
-import { AVATAR_COLORS } from '@/lib/utils'
 
 export function SetupPage() {
   const setAuth = useAuthStore((s) => s.setAuth)
   const [username, setUsername] = useState('')
   const [displayName, setDisplayName] = useState('')
   const [password, setPassword] = useState('')
-  const [avatarColor, setAvatarColor] = useState(AVATAR_COLORS[0])
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
 
@@ -23,7 +20,7 @@ export function SetupPage() {
     setError(null)
     setSubmitting(true)
     try {
-      const auth = await authApi.setup({ username, displayName, password, avatarColor })
+      const auth = await authApi.setup({ username, displayName, password })
       setAuth(auth.accessToken, auth.user)
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Something went wrong')
@@ -54,10 +51,6 @@ export function SetupPage() {
             <div>
               <Label htmlFor="password">Password</Label>
               <Input id="password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="new-password" required />
-            </div>
-            <div>
-              <Label>Avatar color</Label>
-              <ColorPicker value={avatarColor} onChange={setAvatarColor} />
             </div>
             {error && <p className="text-sm text-destructive">{error}</p>}
             <Button type="submit" className="w-full" disabled={submitting}>

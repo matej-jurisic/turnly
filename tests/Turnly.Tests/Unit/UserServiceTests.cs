@@ -85,7 +85,7 @@ public class UserServiceTests
         using var ctx = new TestContext();
         var adminId = await SeedAdminAsync(ctx);
 
-        var result = await ctx.Users.UpdateAsync(adminId, new UpdateUserRequest("Admin", "#000000", UserRole.Member));
+        var result = await ctx.Users.UpdateAsync(adminId, new UpdateUserRequest("Admin", UserRole.Member));
 
         Assert.False(result.Succeeded);
         Assert.Equal(ErrorType.Conflict, result.Error!.Type);
@@ -98,7 +98,7 @@ public class UserServiceTests
         var firstAdminId = await SeedAdminAsync(ctx);
         await ctx.Users.CreateAsync(NewUser("admin2", UserRole.Admin));
 
-        var result = await ctx.Users.UpdateAsync(firstAdminId, new UpdateUserRequest("Admin", "#000000", UserRole.Member));
+        var result = await ctx.Users.UpdateAsync(firstAdminId, new UpdateUserRequest("Admin", UserRole.Member));
 
         Assert.True(result.Succeeded);
         Assert.Equal(UserRole.Member, result.Value!.Role);

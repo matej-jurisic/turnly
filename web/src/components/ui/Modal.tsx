@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import type { ReactNode } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { registerModal } from '@/lib/modalHistory'
+import { frameClasses } from '@/lib/cosmetics'
 
 interface ModalProps {
   title: ReactNode
@@ -56,14 +57,34 @@ export function Modal({ title, onClose, children }: ModalProps) {
   )
 }
 
-export function Avatar({ color, name, size = 36 }: { color: string; name: string; size?: number }) {
+export function Avatar({
+  color,
+  name,
+  size = 36,
+  frame,
+}: {
+  color: string
+  name: string
+  size?: number
+  /** Equipped frame cosmetic key (gacha). When set, a decorative ring wraps the avatar. */
+  frame?: string | null
+}) {
   const initials = name.trim().slice(0, 2).toUpperCase()
-  return (
+  const inner = (
     <span
-      className="inline-flex shrink-0 items-center justify-center rounded-full font-medium text-white"
+      className="gx-av inline-flex shrink-0 items-center justify-center rounded-full font-medium text-white"
       style={{ backgroundColor: color, width: size, height: size, fontSize: size * 0.4 }}
     >
       {initials}
+    </span>
+  )
+
+  if (!frame) return inner
+
+  const pad = Math.max(2, Math.round(size * 0.09))
+  return (
+    <span className={frameClasses(frame)} style={{ padding: pad }}>
+      {inner}
     </span>
   )
 }

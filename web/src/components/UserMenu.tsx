@@ -1,14 +1,13 @@
 import { useEffect, useRef, useState } from 'react'
 import { useAuthStore } from '@/store/auth'
-import { useThemeStore } from '@/lib/theme'
 import { Avatar } from '@/components/ui/Modal'
 import { Badge } from '@/components/ui/Badge'
+import { CustomizationModal } from '@/components/CustomizationModal'
 
 export function UserMenu({ onLogout }: { onLogout: () => void }) {
   const user = useAuthStore((s) => s.user)
-  const theme = useThemeStore((s) => s.theme)
-  const toggleTheme = useThemeStore((s) => s.toggle)
   const [open, setOpen] = useState(false)
+  const [customizeOpen, setCustomizeOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -37,7 +36,7 @@ export function UserMenu({ onLogout }: { onLogout: () => void }) {
         aria-expanded={open}
         className="rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-card"
       >
-        <Avatar color={user.avatarColor} name={user.displayName} size={32} />
+        <Avatar color={user.avatarColor} name={user.displayName} size={32} frame={user.equippedFrameKey} />
       </button>
 
       {open && (
@@ -56,11 +55,14 @@ export function UserMenu({ onLogout }: { onLogout: () => void }) {
           <button
             type="button"
             role="menuitem"
-            onClick={toggleTheme}
+            onClick={() => {
+              setOpen(false)
+              setCustomizeOpen(true)
+            }}
             className="flex w-full items-center gap-2 px-3 py-2.5 text-sm text-foreground hover:bg-accent"
           >
-            {theme === 'dark' ? <SunIcon /> : <MoonIcon />}
-            {theme === 'dark' ? 'Light mode' : 'Dark mode'}
+            <PaletteIcon />
+            Customization
           </button>
 
           <button
@@ -77,23 +79,20 @@ export function UserMenu({ onLogout }: { onLogout: () => void }) {
           </button>
         </div>
       )}
+
+      {customizeOpen && <CustomizationModal onClose={() => setCustomizeOpen(false)} />}
     </div>
   )
 }
 
-function SunIcon() {
+function PaletteIcon() {
   return (
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <circle cx="12" cy="12" r="4" />
-      <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41" />
-    </svg>
-  )
-}
-
-function MoonIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+      <circle cx="13.5" cy="6.5" r="1.5" />
+      <circle cx="17.5" cy="10.5" r="1.5" />
+      <circle cx="8.5" cy="7.5" r="1.5" />
+      <circle cx="6.5" cy="12.5" r="1.5" />
+      <path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125 0-.926.746-1.688 1.688-1.688H16.5c3.038 0 5.5-2.462 5.5-5.5C22 6.04 17.5 2 12 2z" />
     </svg>
   )
 }

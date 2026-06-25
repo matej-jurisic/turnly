@@ -1,74 +1,74 @@
 # CLAUDE.md
 
 Guidance for working in the Turnly repository. See `specs.md` for the full product spec
-and 9-phase roadmap, and `README.md` for user-facing setup.
+and feature list, and `README.md` for user-facing setup.
 
 > **Keep the docs in sync.** Whenever you add a feature or change how something works, check that
 > `CLAUDE.md`, `specs.md`, and `README.md` still describe the behavior accurately, and update any that
 > have drifted. `CLAUDE.md` is the implementation/architecture reference, `specs.md` is the product
-> spec + roadmap, and `README.md` is the user-facing overview — a behavior change usually touches more
+> spec + feature list, and `README.md` is the user-facing overview — a behavior change usually touches more
 > than one. Treat this as part of the change, not a follow-up.
 
 ## What this is
 
-Self-hosted family chore-management web app (PWA). **Phases 1–9 are complete.** Phase 1
-(Foundation): auth, user CRUD + roles, password management, DB schema, Docker. Phase 2
-(Chores – Core): chore CRUD (name, description, emoji, tags, assignees, points), basic
+Self-hosted family chore-management web app (PWA). The product is feature-complete; `specs.md` is
+the canonical feature list and `README.md` the user-facing overview. This file is the
+implementation/architecture reference for the shipped feature set, described below.
+
+**Foundation:** auth, user CRUD + roles, password management, DB schema, Docker. **Chores (core):**
+chore CRUD (name, description, emoji, tags, assignees, points), basic
 recurrence (one-time/daily/weekly/monthly/yearly + start date), mark complete + undo, and a
-per-user points log. Phase 3 (Chores – Advanced): custom recurrence (`Custom` repeat type with
-Interval / DaysOfWeek / DaysOfMonth modes — day granularity, hourly deferred to
-a later phase; DaysOfWeek can be further restricted by `Chore.WeeksOfMonth` to specific monthly
+per-user points log. **Chores (advanced):** custom recurrence (`Custom` repeat type with
+Interval / DaysOfWeek / DaysOfMonth modes — day granularity, hourly is out of scope;
+DaysOfWeek can be further restricted by `Chore.WeeksOfMonth` to specific monthly
 occurrences — 1–4 for the nth weekday, -1 for the last; empty = every week), six assignment strategies that rotate the current assignee on each new occurrence, and
 four scheduling preferences for the next due date (`FromScheduledDate`, `FromCompletionDate`,
 `ToFirstNextRepeat`, and `SmartScheduling` — the last holds the planned cadence but never schedules
 sooner than one interval after the actual completion, i.e. `max(FromScheduledDate, FromCompletionDate)`,
 with an optional `Chore.GraceMinutes` window that resets the cadence from completion when a chore is
 done more than the grace early; offered only for interval-style repeats, computed in
-`RecurrenceCalculator.NextDue`). **Post-Phase-3 refactor:** the old "N times per
-period" custom mode (`Frequency`) was generalised into an orthogonal per-occurrence completion count
-— `Chore.CompletionsRequired` (default 1, offered only on the non-custom repeat types
-OneTime/Daily/Weekly/Monthly/Yearly). An occurrence now closes after N completions/skips (counted by
+`RecurrenceCalculator.NextDue`). **Per-occurrence completion count:** an orthogonal
+`Chore.CompletionsRequired` (default 1, offered only on the non-custom repeat types
+OneTime/Daily/Weekly/Monthly/Yearly). An occurrence closes after N completions/skips (counted by
 `ChoreCompletion.OccurrenceDueAt == Chore.DueAt`), then advances via the normal
-`RecurrenceCalculator.NextDue` path and rotates — so the scheduling preferences apply uniformly. The
-`Frequency`/`FrequencyPeriod` enums and the `PeriodStart`/`PeriodEnd` calendar-window machinery are
-gone. Phase 4 (Dashboard): today / overdue /
+`RecurrenceCalculator.NextDue` path and rotates — so the scheduling preferences apply uniformly.
+(There is no "N times per period" `Frequency`/`FrequencyPeriod` or `PeriodStart`/`PeriodEnd`
+calendar-window machinery — that was superseded by this count.) **Dashboard:** today / overdue /
 upcoming chore views, per-user point totals, filtering by tag and assignee, and global search
-(chores by name/description/tags). Phase 5 (History & Stats): completion log with filters,
-per-user stats, completions-per-week bar chart. Phase 6 (Awards & Redemption): admin award CRUD
+(chores by name/description/tags). **History & stats:** completion log with filters,
+per-user stats, completions-per-week bar chart. **Awards & redemption:** admin award CRUD
 (name, description, emoji, point cost), member redemption that spends points and logs a
 `Redemption`, admin fulfill (mark delivered) + cancel-with-refund of a pending redemption (a
-redemption snapshots the award's name/emoji/cost so it survives award edits/deletion). Phase 7
-(Skip & Reassign): skip a recurring chore's current occurrence (advances the schedule without
+redemption snapshots the award's name/emoji/cost so it survives award edits/deletion).
+**Skip & reassign:** skip a recurring chore's current occurrence (advances the schedule without
 awarding points or rotating the assignee — logged as a points-less `ChoreCompletion` with `IsSkip`,
 undoable like a completion; one-time chores can't be skipped — **admin only**), and one-off
-reassignment of the current occurrence to another eligible assignee (open to any member). Phase 8
-(Notifications): Web Push via self-hosted VAPID keys — a per-chore notification schedule
+reassignment of the current occurrence to another eligible assignee (open to any member).
+**Notifications:** Web Push via self-hosted VAPID keys — a per-chore notification schedule
 (`ChoreNotification` entries: reminder/due/follow-up × before/at-due/after offset × current/all
 assignees), a minute-polling `BackgroundService` that fires due entries and prunes dead
 subscriptions, "stop on completion" achieved by keying a `NotificationDelivery` dedup row to the
 occurrence's `DueAt` (completing advances `DueAt`, so pending entries for the old occurrence are
 never reached), and a service worker (`web/public/sw.js`) that receives pushes (showing them with
-the app's own `icon-192.png`) and deep-links the chore on click. **Post-Phase-8 addition:** an
-in-app notification **inbox** — every fired entry (and each test send) also writes a per-recipient
+the app's own `icon-192.png`) and deep-links the chore on click. **Notification inbox:** an
+in-app inbox — every fired entry (and each test send) also writes a per-recipient
 `UserNotification` row (independent of whether a push device was reachable), surfaced by a bell
 dropdown in the top bar; both push-click and inbox-click open the chore via `/chores?chore=<id>`.
-The completion-by-others opt-out from the original spec was dropped. Basic PWA install
-(`manifest.webmanifest` + icons + the push service worker) shipped as part of Phase 8; full
-offline (offline read, completion queue, app shell, asset caching) — originally the Phase 9 PWA
-work — was dropped to **Out of Scope (v1)**. Phase 9 (**UX Polish**) is **complete**: touch swipe
+Basic PWA install (`manifest.webmanifest` + icons + the push service worker) ships alongside
+notifications; full offline (offline read, completion queue, app shell, asset caching) is **out of
+scope**. **UX polish:** touch swipe
 actions on chore cards (swipe right → complete, left → details, via `components/chores/SwipeRow.tsx`;
 mouse unaffected), completion **confetti** (`canvas-confetti` wrapped in `web/src/lib/confetti.ts`,
 reduced-motion aware, fired from `CompleteModal`), admin **complete-on-behalf** of any user
 (`CompleteChoreRequest.CompletedByUserId`; service requires admin when crediting someone else;
-`CompleteModal` shows a "Completed by" picker for admins), admin **deletion of activity entries**
+`CompleteModal` shows a "Completed by" picker for admins), and admin **deletion of activity entries**
 (completions/skips) from a chore's details — points-only reversal, **no reschedule**
 (`ChoreService.DeleteActivityAsync`, admin-only `DELETE /api/completions/{id}/activity`, distinct
 from the member undo at `DELETE /api/completions/{id}`; surfaced as an Activity list in
-`ChoreDetailsModal`), and a **chores-page refactor** (the 1k-line `ChoresPage.tsx` split into
-`web/src/components/chores/*` + shared helpers in `web/src/lib/chore-format.ts`). The originally
-planned **mobile bottom tab bar was dropped**.
+`ChoreDetailsModal`). The chores page is split into
+`web/src/components/chores/*` + shared helpers in `web/src/lib/chore-format.ts`.
 
-**Post-Phase-9 addition — per-assignee independent tracks ("Everyone independently").** A seventh
+**Per-assignee independent tracks ("Everyone independently").** A seventh
 `AssignmentStrategy.Independent` makes a *shared* chore give **each assignee their own schedule and
 per-person quota** instead of one rotating assignee — so "everyone does the dishes once a week"
 (all quotas 1) or an uneven "Alice 3× / Bob 2×" is **one chore**, and a slow person never blocks a
@@ -89,8 +89,7 @@ per-person quota, never rotates); `SkipChoreRequest`/`RescheduleChoreRequest` ga
 `NotificationDelivery.UserId` below). Recurring-only in v1 — `OneTime`-shared, "all assignees"
 notification recipients in track mode, and history migration on strategy switch are out of scope.
 
-**Post-Phase-9 — scheduling, points & UX extensions.** A batch of smaller features shipped after the
-independent-tracks work (no strict phase order):
+**Scheduling, points & UX extensions.** A batch of smaller features:
 - **Multiple times of day** (`Chore.TimesOfDay`, `List<TimeOnly>` via CSV converter) — a day-resolution
   chore (Daily, or custom DaysOfWeek/DaysOfMonth) can list several fixed times, each a distinct
   occurrence; `DueTime` mirrors the earliest. The validator restricts it to day-resolution modes;
@@ -125,7 +124,7 @@ independent-tracks work (no strict phase order):
   `chores/ChoreCompactItem.tsx`, a view switcher in `ChoreFilters`, persisted to `localStorage`).
 - **Inbox delete/clear** (`NotificationService.DeleteInboxAsync`/`ClearInboxAsync`) round out the inbox.
 
-**Post-Phase-9 — Achievements.** Cosmetic, collectible badges (no points). The catalog is **defined in
+**Achievements.** Cosmetic, collectible badges (no points). The catalog is **defined in
 code** (`Core/Achievements/AchievementCatalog.cs`: `AchievementDefinition` records with a stable `Key`,
 presentation, `Category`, `Threshold`, and a pure `Progress` selector over an `AchievementStats` record)
 — completion milestones, on-time-streak milestones, lifetime-points milestones, redemption count, and
@@ -159,7 +158,7 @@ chore-/track-wide behavior when null. Endpoints: `GET /api/achievements` (caller
 `pages/AchievementsPage.tsx` (grouped-by-category grid, earned vs. locked-with-progress-bar; for admins a
 user picker + a per-badge Revoke action), `achievementsApi` in `lib/api.ts`, `/achievements` route + nav tab.
 
-**Post-Phase-9 — Freeze (per-chore & per-user).** Two admin-only "pause" toggles:
+**Freeze (per-chore & per-user).** Two admin-only "pause" toggles:
 - **Per-chore freeze** (`Chore.IsFrozen bool`) — blocks `CompleteAsync`/`SkipAsync` (returns Validation error),
   skips the chore in `AutoAdvanceAsync` and `NotificationService.ProcessDueAsync`, and places it in a
   "Paused" bucket visible to all users. On unfreeze (`ChoreService.UnfreezeAsync`), recurring chores whose
@@ -182,6 +181,52 @@ user picker + a per-badge Revoke action), `achievementsApi` in `lib/api.ts`, `/a
   `POST /api/users/{id}/freeze`, `POST /api/users/{id}/unfreeze`. Frontend: "Away" amber badge on frozen
   users in `UsersPage`, Freeze/Unfreeze action buttons, `FreezeUserModal.tsx` shows the preview before
   confirming. Both `UserDto.IsFrozen` and `ChoreDto.IsFrozen` are `init` properties (not positional).
+
+**Gacha (cosmetics).** A points-funded gacha for **cosmetic** rewards (no real money — pulls spend the
+same points as awards). v1 ships three slots: **avatar frames** (visible on every avatar), **app theme
+palettes** (recolor only the owner's view), and **avatar colors** (the avatar fill, visible to everyone).
+Modeled closely on Achievements: the catalog is **code-defined**
+(`Core/Cosmetics/CosmeticCatalog.cs`: `CosmeticDefinition(Key, Name, Description, Slot, Rarity, Value?,
+Default)` records + per-rarity `RarityConfig` for odds/dust + the `PullCost`/`TenPullCost`/`PityThreshold`
+constants); the **visual** lives in the frontend keyed by the same stable `Key` (the contract), except for
+**Color** cosmetics whose `Value` is the hex (the backend resolves it). `Default = true` marks a cosmetic
+everyone owns for free and that pulls never roll — the **default purple `color-indigo` (#6366f1)** is the
+one default, so every user always has a free color and new users start there. Adding a cosmetic is one
+catalog entry (+ a frontend visual entry for frames/themes), no migration.
+**Avatar color is no longer set on the profile or the admin user form** — `UpdateUserRequest` and
+`UpdateProfileRequest` dropped `AvatarColor` (and `UserService.UpdateAsync`/`UpdateProfileAsync` no longer
+touch it; the Setup/admin-create paths just default it), so color is changed only by equipping a Color
+cosmetic. Equipping a Color writes `User.AvatarColor = def.Value` (which then threads everywhere via
+`UserDto.FromEntity`, same as frames). The old `ColorPicker` component + `AVATAR_COLORS` list were removed. `UserCosmetic { UserId, CosmeticKey, Count }`
+(unique on `(UserId, CosmeticKey)`) is the per-user ownership marker (a near-clone of `UserAchievement`).
+Four columns on `User` hold the rest: `EquippedFrameKey`/`EquippedThemeKey` (one equipped per slot), `Dust`
+(dupe currency), `PullsSinceLegendary` (pity counter). **Putting the equipped frame on `User` is the trick:
+every avatar is projected via `UserDto.FromEntity`, so the frame threads to all assignee/completed-by/etc.
+render sites for free** (only `LeaderboardEntryDto` needs the field added explicitly, as it isn't a
+`UserDto`). `GachaService` (ctor-injects `TurnlyDbContext` + an optional `Random` so pulls are seed-testable)
+owns `GetStateAsync` (read-only catalog projection), `PullAsync` (validates points, deducts via a negative
+`PointsLogEntry { Type = PointsLogType.GachaPull }` mirroring `RedemptionService.RedeemAsync`, then per roll
+picks a rarity by odds — forced Legendary at the pity threshold — and either unlocks a `UserCosmetic` or
+awards dust on a dupe; resets pity on a Legendary; saves once), `CraftAsync` (spend dust → grant a specific
+unowned cosmetic) and `EquipAsync` (set/clear the slot column, validating ownership + slot). Endpoints:
+member-open `GET /api/gacha` + `POST /api/gacha/pull|craft|equip` (`GachaEndpoints`). Frontend: a visual
+registry (`web/src/lib/cosmetics.ts`: frame key -> CSS class, rarity -> Badge tone), global CSS in `index.css`
+(the `.gx-frame`/`.frame-*`/`.gx-spin` ring classes + `[data-palette="theme-*"]` token-override scopes that
+compose with `.dark`), the `Avatar` component's new `frame?` prop (`components/ui/Modal.tsx`), palette
+application (`web/src/lib/palette.ts` sets `data-palette` from the user's `equippedThemeKey`, cached in
+`localStorage` and pre-applied by the inline script in `index.html`; `App.tsx` re-applies on the auth user
+changing), and `pages/GachaPage.tsx` (`/gacha` route + nav tab) — pull x1/x10 with a confetti reveal popup,
+a pity bar, the odds disclosure, and a collection grid grouped by slot + rarity (view owned / craft locked).
+`gachaApi` in `lib/api.ts`. **Equipping is not on the gacha page** — it lives in
+`components/CustomizationModal.tsx`, opened from the account menu (`UserMenu`, which replaced its dark/light
+toggle with a "Customization" entry). The modal unifies appearance into one picker: base **Light/Dark**
+modes + owned **theme palettes** (mutually exclusive — choosing a palette supersedes light/dark since the
+palette overrides all tokens; choosing Light/Dark clears the equipped palette), plus owned **avatar frames**
+(+ None). It reuses the `['gacha']` query for the owned lists and the shared
+`web/src/lib/appearance.ts` `syncAppearanceFromServer(queryClient)` helper (refetch `me` -> `setUser` ->
+`applyPalette` -> invalidate `gacha`/`me`/`leaderboard`), which the gacha page's pull/craft also call. The
+pre-auth `ThemeToggle` (Login/Setup screens) is unchanged. (The earlier dev-only `/gacha-showcase` page was
+removed once this shipped; the brainstorm doc `gacha.md` is kept.)
 
 ## Stack & layout
 
@@ -228,9 +273,9 @@ copy the nearest existing example. Paths are under `src/` / `web/src/` / `tests/
   `PointsLogEntry` carries both a `ChoreCompletionId` and a `RedemptionId` link so undo/cancel can
   reverse the matching deduction the same way.
 - `Enums/` — `UserRole, RepeatType, PointsLogType` (`Completion`/`Redemption`/`Adjustment`),
-  `RedemptionStatus` + Phase 3's `CustomRecurrenceMode,
-  RecurrenceUnit, AssignmentStrategy` (which now also has the post-Phase-9 `Independent` value),
-  `SchedulingPreference` + Phase 8's
+  `RedemptionStatus`, `CustomRecurrenceMode,
+  RecurrenceUnit, AssignmentStrategy` (which also has the `Independent` value),
+  `SchedulingPreference`,
   `NotificationType, NotificationTiming, NotificationOffsetUnit, NotificationRecipients`; **stored as
   strings** (`HasConversion<string>`) and serialized as strings in JSON.
 - `Data/TurnlyDbContext.cs` — DbSets + fluent config in `OnModelCreating`. Many-to-many via
@@ -346,7 +391,7 @@ copy the nearest existing example. Paths are under `src/` / `web/src/` / `tests/
   of the single current→next assignee, the details modal exposing an admin per-track Skip; `ChoreMenu`
   hides Reassign; `CompleteModal` limits the admin "Completed by" picker to the chore's assignees.
   Helpers (`isIndependent`, `dueStatus`, `trackIsDone`, `trackStatusText`) live in `lib/chore-format.ts`.
-- **Post-Phase-9 frontend bits:** `ChoreFormModal` also exposes the multiple-times-of-day editor and the
+- **Scheduling/UX frontend bits:** `ChoreFormModal` also exposes the multiple-times-of-day editor and the
   auto-advance toggle + window; `chores/CopyChoreModal.tsx` is the copy-under-new-name dialog (from
   `ChoreMenu`). `ChoreFilters` carries the **view switcher** (`ChoreView = 'list' | 'compact' | 'calendar'`,
   persisted to `localStorage`), rendered by `chores/ChoreCompactItem.tsx` and `chores/ChoreCalendar.tsx`.
@@ -354,7 +399,7 @@ copy the nearest existing example. Paths are under `src/` / `web/src/` / `tests/
   admin point-adjust action. `SettingsPage` holds the user **quiet hours** editor and the admin **family
   timezone** setting (`settingsApi` in `lib/api.ts`). Streaks come through on `ChoreDto.currentStreak` /
   per-track `streak`.
-- **Notifications (Phase 8):** `lib/push.ts` wraps the browser Push API
+- **Notifications:** `lib/push.ts` wraps the browser Push API
   (`enablePush`/`disablePush`/`isPushEnabled`, VAPID key decode); `web/public/sw.js` is the service
   worker (push + `notificationclick` opens `/chores?chore=<id>`, shows the app's `icon-192.png` +
   a no-op `fetch` for installability), registered in `main.tsx`.
@@ -464,11 +509,11 @@ load. New UI should match this; don't introduce one-off styles.
 - **Icons:** minimalist **outline/stroke** (Feather-style), uniform 2px stroke, `currentColor`.
 - **Whitespace:** generous padding inside cards, clear separation between sections.
 - **Avatars:** circular, initials on the user's `avatarColor`. Overlapping avatar stacks are the
-  intended pattern for collaborator/assignee lists (Phase 2+).
+  intended pattern for collaborator/assignee lists.
 
 ## Gotchas
 
-- **Postgres is wired but Phase 1 ships SQLite migrations only.** Switching
+- **Postgres is wired but the app ships SQLite migrations only.** Switching
   `Database:Provider=postgres` requires generating a Postgres migration set first, or
   migrate-on-startup fails. SQLite is the default and the tested path.
 - **`Jwt:Secret` must be set** (env var `Jwt__Secret`, or `.env` `JWT_SECRET`) and be ≥32
@@ -485,7 +530,7 @@ load. New UI should match this; don't introduce one-off styles.
   behavior is **still a deferred extension point** in `UserService.DeleteAsync`. ⚠️ Now that
   chores exist, deleting a user who is a chore's `CurrentAssignee` or has any `ChoreCompletion`
   will fail at the DB level (FK `Restrict`) rather than returning a clean error — the
-  reassign/wipe flow (a future phase) must land before user deletion is robust again.
+  reassign/wipe flow (a future extension) must land before user deletion is robust again.
 
 ## Verify changes
 

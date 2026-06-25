@@ -126,7 +126,7 @@ function LeaderboardSection({
               <span className="w-5 text-center text-sm font-medium text-muted-foreground">
                 {index + 1}
               </span>
-              <Avatar color={entry.avatarColor} name={entry.displayName} size={32} />
+              <Avatar color={entry.avatarColor} name={entry.displayName} size={32} frame={entry.equippedFrameKey} />
               <span className="flex-1 text-sm font-medium text-foreground">{entry.displayName}</span>
               <Badge tone="violet">
                 {showWeekly ? entry.weeklyPoints : entry.points} pts

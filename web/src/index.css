@@ -167,3 +167,106 @@ body {
     color: var(--success);
   }
 }
+
+/*
+ * Gacha avatar frames. `.gx-frame` is the ring wrapper (padding set inline, scaled to avatar size);
+ * each `.frame-*` class paints the ring; `.gx-spin` rotates an animated copy. The inner avatar
+ * (`.gx-av`) sits above the ring. Keys match Core/Cosmetics/CosmeticCatalog.cs.
+ */
+.gx-frame {
+  position: relative;
+  display: inline-flex;
+  border-radius: 9999px;
+}
+.gx-av {
+  position: relative;
+  z-index: 1;
+}
+.gx-spin::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 9999px;
+  background: inherit;
+  animation: gx-spin-kf 3.5s linear infinite;
+  z-index: 0;
+}
+@keyframes gx-spin-kf {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.frame-gold-thin   { background: linear-gradient(135deg, #fde68a, #f59e0b, #b45309); }
+.frame-silver      { background: linear-gradient(135deg, #f1f5f9, #cbd5e1, #94a3b8); }
+.frame-bronze      { background: linear-gradient(135deg, #fcd9b6, #d2792f, #8a4b1d); }
+.frame-slate       { background: linear-gradient(135deg, #cbd5e1, #64748b, #334155); }
+.frame-dashed      { background: repeating-conic-gradient(#8b5cf6 0deg 18deg, transparent 18deg 36deg); }
+.frame-double      { background: radial-gradient(circle, #6366f1 0 58%, #ffffff 60% 70%, #6366f1 72% 100%); }
+.frame-beaded      { background: repeating-conic-gradient(#f472b6 0deg 22deg, #fbcfe8 22deg 30deg); }
+.frame-holo        { background: conic-gradient(from 0deg, #ff5edf, #5b8cff, #5bffd1, #fff15b, #ff5edf); }
+.frame-liquid-gold { background: conic-gradient(from 0deg, #fff7cc, #f59e0b, #92400e, #fde68a, #f59e0b, #fff7cc); }
+@media (prefers-reduced-motion: reduce) {
+  .gx-spin::before { animation: none !important; }
+}
+
+/*
+ * Gacha app theme palettes. Each scope overrides the semantic tokens wholesale, so an equipped
+ * palette defines the whole look (it intentionally overrides light/dark). Placed after `.dark` so it
+ * wins when both apply. Keys match the theme cosmetics in CosmeticCatalog.cs.
+ */
+[data-palette='theme-peach'] {
+  --background: #fdf6f0; --foreground: #3a2e28; --card: #fffaf6; --card-foreground: #3a2e28;
+  --popover: #fffaf6; --popover-foreground: #3a2e28; --sidebar: #fffaf6;
+  --primary: #e07a5f; --primary-foreground: #ffffff; --secondary: #f5e8df; --secondary-foreground: #3a2e28;
+  --muted: #f5e8df; --muted-foreground: #8a7166; --accent: #f1ddd0; --accent-foreground: #3a2e28;
+  --border: #efddd0; --input: #e7d2c4; --ring: #e07a5f;
+}
+[data-palette='theme-sky'] {
+  --background: #eff6ff; --foreground: #14233b; --card: #ffffff; --card-foreground: #14233b;
+  --popover: #ffffff; --popover-foreground: #14233b; --sidebar: #ffffff;
+  --primary: #2f6fed; --primary-foreground: #ffffff; --secondary: #e2edfb; --secondary-foreground: #14233b;
+  --muted: #e2edfb; --muted-foreground: #5b7088; --accent: #dbe8fa; --accent-foreground: #14233b;
+  --border: #d4e4f7; --input: #c7dbf3; --ring: #2f6fed;
+}
+[data-palette='theme-sakura'] {
+  --background: #fdf2f8; --foreground: #3d2733; --card: #fffafd; --card-foreground: #3d2733;
+  --popover: #fffafd; --popover-foreground: #3d2733; --sidebar: #fffafd;
+  --primary: #ec4899; --primary-foreground: #ffffff; --secondary: #fce7f3; --secondary-foreground: #3d2733;
+  --muted: #fce7f3; --muted-foreground: #8a6678; --accent: #f9d9e9; --accent-foreground: #3d2733;
+  --border: #f6d6e6; --input: #f0c2da; --ring: #ec4899;
+}
+[data-palette='theme-sepia'] {
+  --background: #f4ecd8; --foreground: #433422; --card: #fbf5e6; --card-foreground: #433422;
+  --popover: #fbf5e6; --popover-foreground: #433422; --sidebar: #fbf5e6;
+  --primary: #a9743a; --primary-foreground: #ffffff; --secondary: #ebddc1; --secondary-foreground: #433422;
+  --muted: #ebddc1; --muted-foreground: #7a6a4f; --accent: #e4d3b2; --accent-foreground: #433422;
+  --border: #ddcaa6; --input: #d3bd94; --ring: #a9743a;
+}
+[data-palette='theme-midnight'] {
+  --background: #0b1020; --foreground: #e8ecff; --card: #141b33; --card-foreground: #e8ecff;
+  --popover: #141b33; --popover-foreground: #e8ecff; --sidebar: #0e1428;
+  --primary: #6d8bff; --primary-foreground: #ffffff; --secondary: #1c2542; --secondary-foreground: #e8ecff;
+  --muted: #1c2542; --muted-foreground: #8c97c4; --accent: #232c4d; --accent-foreground: #e8ecff;
+  --border: rgba(255, 255, 255, 0.08); --input: rgba(255, 255, 255, 0.12); --ring: #6d8bff;
+}
+[data-palette='theme-matrix'] {
+  --background: #050a05; --foreground: #b9ffb9; --card: #0b160b; --card-foreground: #b9ffb9;
+  --popover: #0b160b; --popover-foreground: #b9ffb9; --sidebar: #081008;
+  --primary: #22c55e; --primary-foreground: #052e16; --secondary: #102810; --secondary-foreground: #b9ffb9;
+  --muted: #102810; --muted-foreground: #6fae6f; --accent: #133313; --accent-foreground: #b9ffb9;
+  --border: rgba(120, 255, 120, 0.14); --input: rgba(120, 255, 120, 0.2); --ring: #22c55e;
+}
+[data-palette='theme-galaxy'] {
+  --background: #0a0418; --foreground: #ece8ff; --card: #160a2e; --card-foreground: #ece8ff;
+  --popover: #160a2e; --popover-foreground: #ece8ff; --sidebar: #0d0620;
+  --primary: #a855f7; --primary-foreground: #ffffff; --secondary: #211141; --secondary-foreground: #ece8ff;
+  --muted: #211141; --muted-foreground: #9b8bc4; --accent: #2a1750; --accent-foreground: #ece8ff;
+  --border: rgba(255, 255, 255, 0.08); --input: rgba(255, 255, 255, 0.12); --ring: #a855f7;
+}
+[data-palette='theme-aurora'] {
+  --background: #04140f; --foreground: #d9fff0; --card: #0a2018; --card-foreground: #d9fff0;
+  --popover: #0a2018; --popover-foreground: #d9fff0; --sidebar: #07180f;
+  --primary: #2dd4bf; --primary-foreground: #04140f; --secondary: #0f2c22; --secondary-foreground: #d9fff0;
+  --muted: #0f2c22; --muted-foreground: #6fae9b; --accent: #123a2c; --accent-foreground: #d9fff0;
+  --border: rgba(255, 255, 255, 0.08); --input: rgba(255, 255, 255, 0.12); --ring: #2dd4bf;
+}

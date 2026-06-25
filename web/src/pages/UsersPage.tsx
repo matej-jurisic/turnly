@@ -10,8 +10,6 @@ import { Badge } from '@/components/ui/Badge'
 import { Card } from '@/components/ui/Card'
 import { Input, Label, Select } from '@/components/ui/Field'
 import { Modal, Avatar } from '@/components/ui/Modal'
-import { ColorPicker } from '@/components/ui/ColorPicker'
-import { AVATAR_COLORS } from '@/lib/utils'
 import { FreezeUserModal } from '@/components/FreezeUserModal'
 import { UserMenu } from '@/components/users/UserMenu'
 
@@ -59,7 +57,7 @@ export function UsersPage() {
         {users?.map((user) => (
           <div key={user.id} className="flex items-center gap-3 px-4 py-3 sm:gap-4">
             <div className="flex min-w-0 flex-1 items-center gap-3">
-              <Avatar color={user.avatarColor} name={user.displayName} />
+              <Avatar color={user.avatarColor} name={user.displayName} frame={user.equippedFrameKey} />
               <div className="min-w-0">
                 <p className="truncate text-foreground">
                   {user.displayName}
@@ -167,16 +165,15 @@ function UserFormModal({ title, user, onClose, onSaved }: UserFormModalProps) {
   const [displayName, setDisplayName] = useState(user?.displayName ?? '')
   const [password, setPassword] = useState('')
   const [role, setRole] = useState<UserRole>(user?.role ?? 'Member')
-  const [avatarColor, setAvatarColor] = useState(user?.avatarColor ?? AVATAR_COLORS[0])
   const [error, setError] = useState<string | null>(null)
 
   const mutation = useMutation({
     mutationFn: () => {
       if (isEdit && user) {
-        const body: UpdateUserRequest = { displayName, avatarColor, role }
+        const body: UpdateUserRequest = { displayName, role }
         return usersApi.update(user.id, body)
       }
-      const body: CreateUserRequest = { username, displayName, password, role, avatarColor }
+      const body: CreateUserRequest = { username, displayName, password, role }
       return usersApi.create(body)
     },
     onSuccess: onSaved,
@@ -215,10 +212,6 @@ function UserFormModal({ title, user, onClose, onSaved }: UserFormModalProps) {
             <option value="Member">Member</option>
             <option value="Admin">Admin</option>
           </Select>
-        </div>
-        <div>
-          <Label>Avatar color</Label>
-          <ColorPicker value={avatarColor} onChange={setAvatarColor} />
         </div>
         {error && <p className="text-sm text-destructive">{error}</p>}
         <div className="flex justify-end gap-2">

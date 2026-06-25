@@ -20,6 +20,9 @@
             t = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
           }
           if (t === 'dark') document.documentElement.classList.add('dark')
+          // Apply the cached gacha theme palette (if any) before paint, same as dark mode.
+          var p = localStorage.getItem('turnly-palette')
+          if (p) document.documentElement.setAttribute('data-palette', p)
         } catch (e) {}
       })()
     </script>

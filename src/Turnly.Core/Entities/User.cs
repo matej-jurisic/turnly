@@ -27,6 +27,23 @@ public class User
     /// freeze. Admin-only toggle. On unfreeze, stale Independent tracks are stepped forward.</summary>
     public bool IsFrozen { get; set; }
 
+    /// <summary>Key of the avatar frame the user has equipped (a <c>CosmeticDefinition.Key</c> in the
+    /// <see cref="Turnly.Core.Cosmetics.CosmeticCatalog"/>), or null for none. Lives on the user so it
+    /// threads through <c>UserDto.FromEntity</c> to every avatar render site. Frames are visible to
+    /// everyone.</summary>
+    public string? EquippedFrameKey { get; set; }
+
+    /// <summary>Key of the app theme palette the user has equipped, or null for the default. Only
+    /// recolors the owner's own view.</summary>
+    public string? EquippedThemeKey { get; set; }
+
+    /// <summary>Gacha dust balance — earned from duplicate pulls, spent to craft a specific cosmetic.</summary>
+    public int Dust { get; set; }
+
+    /// <summary>Pity counter: pulls made since the last Legendary. When it reaches the catalog's pity
+    /// threshold the next pull is forced to a Legendary, then this resets to zero.</summary>
+    public int PullsSinceLegendary { get; set; }
+
     public ICollection<RefreshToken> RefreshTokens { get; set; } = new List<RefreshToken>();
     public ICollection<PointsLogEntry> PointsLog { get; set; } = new List<PointsLogEntry>();
 }

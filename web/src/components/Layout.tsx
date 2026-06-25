@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
 import { authApi, choresApi } from '@/lib/api'
+import { confirm } from '@/lib/confirm'
 import { useAuthStore } from '@/store/auth'
 import { UserMenu } from '@/components/UserMenu'
 import { NotificationsBell } from '@/components/NotificationsBell'
@@ -24,6 +25,15 @@ export function Layout() {
   const [detailUser, setDetailUser] = useState<LeaderboardEntry | null>(null)
 
   async function logout() {
+    if (
+      !(await confirm({
+        title: 'Sign out',
+        message: 'Are you sure you want to sign out?',
+        confirmLabel: 'Sign out',
+        variant: 'primary',
+      }))
+    )
+      return
     setMenuOpen(false)
     try {
       await authApi.logout()
@@ -77,6 +87,7 @@ export function Layout() {
     { to: '/points', label: 'Points', Icon: PointsIcon },
     { to: '/awards', label: 'Awards', Icon: AwardsIcon },
     { to: '/achievements', label: 'Achievements', Icon: AchievementsIcon },
+    { to: '/gacha', label: 'Gacha', Icon: GachaIcon },
     { to: '/history', label: 'History', Icon: HistoryIcon },
     { to: '/settings', label: 'Settings', Icon: SettingsIcon },
   ]
@@ -306,6 +317,17 @@ function HistoryIcon() {
     <svg className="shrink-0" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       <circle cx="12" cy="12" r="10" />
       <polyline points="12 6 12 12 16 14" />
+    </svg>
+  )
+}
+
+function GachaIcon() {
+  return (
+    <svg className="shrink-0" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M20 12v9H4v-9" />
+      <rect x="2" y="7" width="20" height="5" rx="1" />
+      <path d="M12 22V7" />
+      <path d="M12 7S10.5 2 7.5 2a2.5 2.5 0 0 0 0 5M12 7s1.5-5 4.5-5a2.5 2.5 0 0 1 0 5" />
     </svg>
   )
 }

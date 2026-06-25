@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Navigate, Route, Routes } from 'react-router-dom'
 import { authApi, tryRefresh } from '@/lib/api'
 import { useAuthStore } from '@/store/auth'
+import { applyPalette } from '@/lib/palette'
 import { Layout } from '@/components/Layout'
 import { Toaster } from '@/components/ui/Toaster'
 import { ConfirmHost } from '@/components/ui/ConfirmHost'
@@ -15,6 +16,7 @@ import { PointsPage } from '@/pages/PointsPage'
 import { HistoryPage } from '@/pages/HistoryPage'
 import { AwardsPage } from '@/pages/AwardsPage'
 import { AchievementsPage } from '@/pages/AchievementsPage'
+import { GachaPage } from '@/pages/GachaPage'
 
 export default function App() {
   return (
@@ -32,6 +34,12 @@ function AppRoutes() {
   const user = useAuthStore((s) => s.user)
   const setStatus = useAuthStore((s) => s.setStatus)
   const [needsSetup, setNeedsSetup] = useState(false)
+
+  // Keep the equipped app theme palette in sync with the signed-in user (gacha cosmetic).
+  const equippedThemeKey = user?.equippedThemeKey
+  useEffect(() => {
+    applyPalette(equippedThemeKey)
+  }, [equippedThemeKey])
 
   useEffect(() => {
     let cancelled = false
@@ -79,6 +87,7 @@ function AppRoutes() {
           <Route path="/points" element={<PointsPage />} />
           <Route path="/awards" element={<AwardsPage />} />
           <Route path="/achievements" element={<AchievementsPage />} />
+          <Route path="/gacha" element={<GachaPage />} />
           <Route path="/history" element={<HistoryPage />} />
           <Route path="/settings" element={<SettingsPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />

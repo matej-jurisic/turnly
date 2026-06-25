@@ -2,7 +2,7 @@
 
 Family chore management web app (PWA). Self-hosted, simple, actually works.
 
-This repository currently implements **Phases 1–9** plus several post-phase additions: foundation
+Turnly is feature-complete. It provides foundation
 (auth, users, roles, Docker), chore CRUD with recurrence and assignment strategies, a dashboard
 with today/overdue/upcoming views (list, compact, and calendar layouts), per-user point totals,
 filtering, and global search, a history/stats view, awards and point redemption (with next-goal
@@ -20,8 +20,12 @@ the moment they're earned and shown on a dedicated page where admins can view an
 revoke them. Admins can also **pause individual chores** (blocks completions, hides from the active
 list, suppresses notifications — unpausing steps overdue chores forward to the next future
 occurrence) and **freeze users** (marks them as "Away": excluded from rotation, independent tracks
-paused, no notifications — with a preview of affected chores before confirming). See
-[`specs.md`](./specs.md) for the full product spec and roadmap.
+paused, no notifications — with a preview of affected chores before confirming). There's also a
+points-funded **gacha** for cosmetics (no real money): spend points on pulls to collect rarity-tiered
+**avatar frames** (shown on every avatar) and **app theme palettes** (recolor your own app), with a
+pity counter that guarantees a Legendary, a dust economy that turns duplicates into a specific
+crafted item, published drop rates, and one-per-slot equipping. See
+[`specs.md`](./specs.md) for the full product spec and feature list.
 
 ## Stack
 

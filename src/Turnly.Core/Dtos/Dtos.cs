@@ -17,10 +17,17 @@ public record UserDto(
 {
     public bool IsFrozen { get; init; }
 
+    /// <summary>Equipped avatar frame cosmetic key (or null). Carried on every user projection so the
+    /// frame renders wherever an avatar shows.</summary>
+    public string? EquippedFrameKey { get; init; }
+
+    /// <summary>Equipped app theme palette key (or null). Only meaningful for the owner's own view.</summary>
+    public string? EquippedThemeKey { get; init; }
+
     public static UserDto FromEntity(User u, int weeklyPoints = 0) =>
         new(u.Id, u.Username, u.DisplayName, u.AvatarColor, u.Role, u.Points, weeklyPoints, u.CreatedAt,
             u.QuietHoursStart?.ToString("HH:mm"), u.QuietHoursEnd?.ToString("HH:mm"))
-            { IsFrozen = u.IsFrozen };
+            { IsFrozen = u.IsFrozen, EquippedFrameKey = u.EquippedFrameKey, EquippedThemeKey = u.EquippedThemeKey };
 }
 
 public record LeaderboardEntryDto(
@@ -28,7 +35,8 @@ public record LeaderboardEntryDto(
     string DisplayName,
     string AvatarColor,
     int Points,
-    int WeeklyPoints);
+    int WeeklyPoints,
+    string? EquippedFrameKey = null);
 
 /// <summary>
 /// Result of a successful authentication. The raw <see cref="RefreshToken"/> is set by
@@ -47,9 +55,9 @@ public record SetupRequest(string Username, string DisplayName, string Password,
 
 public record CreateUserRequest(string Username, string DisplayName, string Password, UserRole Role, string? AvatarColor);
 
-public record UpdateUserRequest(string DisplayName, string AvatarColor, UserRole Role);
+public record UpdateUserRequest(string DisplayName, UserRole Role);
 
-public record UpdateProfileRequest(string AvatarColor, string? QuietHoursStart = null, string? QuietHoursEnd = null);
+public record UpdateProfileRequest(string? QuietHoursStart = null, string? QuietHoursEnd = null);
 
 public record ChangePasswordRequest(string CurrentPassword, string NewPassword);
 
@@ -457,3 +465,49 @@ public record AchievementDto(
     int Progress,
     bool Earned,
     DateTimeOffset? EarnedAt);
+
+/// <summary>A gacha cosmetic projected for one user: catalog definition + ownership/equip state +
+/// the dust price to craft it if unowned.</summary>
+public record CosmeticDto(
+    string Key,
+    string Name,
+    string Description,
+    CosmeticSlot Slot,
+    CosmeticRarity Rarity,
+    bool Owned,
+    bool Equipped,
+    int Count,
+    int DustCraftCost,
+    string? Value = null);
+
+/// <summary>One rarity tier's published economy: pull odds + dust values. Shown to the user.</summary>
+public record RarityOddsDto(
+    CosmeticRarity Rarity,
+    double Odds,
+    int DustAward,
+    int DustCraftCost);
+
+/// <summary>Everything the gacha page needs: balances, pull pricing, pity progress, the published
+/// odds, and the full catalog with per-user ownership.</summary>
+public record GachaStateDto(
+    int Points,
+    int Dust,
+    int PullCost,
+    int TenPullCost,
+    int PullsSinceLegendary,
+    int PityThreshold,
+    RarityOddsDto[] Odds,
+    CosmeticDto[] Cosmetics);
+
+/// <summary>Outcome of a single roll within a pull: the cosmetic, whether it was newly unlocked, and
+/// the dust awarded when it was a duplicate.</summary>
+public record PullResultDto(
+    CosmeticDto Cosmetic,
+    bool IsNew,
+    int DustAwarded);
+
+public record PullRequest(int Count = 1);
+
+public record CraftRequest(string Key);
+
+public record EquipRequest(CosmeticSlot Slot, string? Key);

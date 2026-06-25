@@ -26,30 +26,30 @@
 - **Current assignee** — the specific user currently assigned to this chore instance; must be selected from the assignees list on creation
 - **Reassign occurrence** — the current assignee for a single occurrence can be manually overridden (e.g. "you take today's") without changing the chore's assignment strategy; the override applies only to the current occurrence and the strategy resumes on the next recurrence
 - **Assignment strategy** — determines how the next assignee is picked on each recurrence:
-  - `Random` — pick any assignee at random
-  - `Least Assigned` — pick the assignee who has been assigned this chore fewest times
-  - `Least Completed` — pick the assignee who has completed this chore fewest times
-  - `Keep Last Assigned` — reassign to the same person as the previous occurrence
-  - `Random Except Last Assigned` — random, but exclude whoever did it last
-  - `Round Robin` — cycle through assignees in order
-  - `Everyone (independent)` — no rotation: **every assignee gets their own independent schedule**
-    with its own due date and per-person quota. Lets one chore model "everyone does the dishes once a
-    week" (all quotas 1) or an uneven split ("Alice 3× / Bob 2×"); each person advances on their own,
-    so a late assignee never blocks the others. (Recurring chores only.)
+    - `Random` — pick any assignee at random
+    - `Least Assigned` — pick the assignee who has been assigned this chore fewest times
+    - `Least Completed` — pick the assignee who has completed this chore fewest times
+    - `Keep Last Assigned` — reassign to the same person as the previous occurrence
+    - `Random Except Last Assigned` — random, but exclude whoever did it last
+    - `Round Robin` — cycle through assignees in order
+    - `Everyone (independent)` — no rotation: **every assignee gets their own independent schedule**
+      with its own due date and per-person quota. Lets one chore model "everyone does the dishes once a
+      week" (all quotas 1) or an uneven split ("Alice 3× / Bob 2×"); each person advances on their own,
+      so a late assignee never blocks the others. (Recurring chores only.)
 - Chores are visible to all household members
 
 ### Recurrence
 
 - **Repeat types:**
-  - One-time
-  - Daily
-  - Weekly
-  - Monthly
-  - Yearly
-  - Custom — one of three modes:
-    - **Interval** — every `{x}` `{days / weeks / months / years}` (day granularity; hourly out of scope)
-    - **Days of the week** — repeats on selected weekdays (e.g. Mon, Wed, Fri); optionally restricted to specific occurrences within the month (any combination of 1st / 2nd / 3rd / 4th / last, e.g. "1st and 3rd Monday"), or every week by default
-    - **Days of the month** — repeats on selected days (e.g. 1, 15) within selected months (e.g. Jan, Jun); any combination of one or more days and one or more months
+    - One-time
+    - Daily
+    - Weekly
+    - Monthly
+    - Yearly
+    - Custom — one of three modes:
+        - **Interval** — every `{x}` `{days / weeks / months / years}` (day granularity; hourly out of scope)
+        - **Days of the week** — repeats on selected weekdays (e.g. Mon, Wed, Fri); optionally restricted to specific occurrences within the month (any combination of 1st / 2nd / 3rd / 4th / last, e.g. "1st and 3rd Monday"), or every week by default
+        - **Days of the month** — repeats on selected days (e.g. 1, 15) within selected months (e.g. Jan, Jun); any combination of one or more days and one or more months
 - **Completion count** — for the non-custom repeat types, a chore can require being completed `{x}`
   times before the occurrence advances (e.g. "3× per week"); each completion **or skip** counts toward
   closing the occurrence. (For `Everyone (independent)` chores this count is set **per assignee**.)
@@ -118,15 +118,39 @@ Per-chore notification schedule — a list of notification entries, each with:
 
 - **Collectible badges**, separate from spendable points — purely cosmetic, no point value
 - **Built-in catalog** — a predefined set defined by the app (not admin-configurable), grouped into:
-  - **Completion milestones** — first chore, then 10 / 50 / 100 / 500 lifetime completions
-  - **On-time streak milestones** — reaching a 7 / 30 / 100-occurrence on-time streak (reuses the streak)
-  - **Points milestones** — 100 / 1,000 / 10,000 lifetime points *earned* (gross positive inflow; spends and deductions don't lower it)
-  - **Redemption** — first redemption, then 10 awards redeemed
-  - **Variety** — completing 10 different chores, or chores across 5 different tags
-- **Permanently earned** — once unlocked, a badge is never revoked automatically; undoing a completion, cancelling a redemption, or an admin deducting points lowers the *live* progress of still-locked achievements but never takes back one already earned. An **admin can manually revoke** an earned badge from a user (it can be re-earned later if the threshold is met again)
+    - **Completion milestones** — first chore, then 10 / 50 / 100 / 500 lifetime completions
+    - **On-time streak milestones** — reaching a 7 / 30 / 100-occurrence on-time streak (reuses the streak)
+    - **Points milestones** — 100 / 1,000 / 10,000 lifetime points _earned_ (gross positive inflow; spends and deductions don't lower it)
+    - **Redemption** — first redemption, then 10 awards redeemed
+    - **Variety** — completing 10 different chores, or chores across 5 different tags
+- **Permanently earned** — once unlocked, a badge is never revoked automatically; undoing a completion, cancelling a redemption, or an admin deducting points lowers the _live_ progress of still-locked achievements but never takes back one already earned. An **admin can manually revoke** an earned badge from a user (it can be re-earned later if the threshold is met again)
 - **Admin view** — an admin can view any user's achievements (their own by default) from the achievements page, and revoke earned ones from there
 - **Unlock celebration** — earning a badge shows a one-time celebration popup (with confetti) the moment the earning activity is logged. The unlocked badge rides back on the completion/redemption response, so it pops for the person who earned it (a member completing their own chore or redeeming an award); an admin acting on someone else's behalf doesn't see another user's popup. No inbox item or push is sent for an unlock
 - **Achievements page** — a dedicated page listing earned and still-locked achievements (locked ones show a progress bar toward their threshold), grouped by category
+
+---
+
+## Gacha (Cosmetics)
+
+A points-funded gacha for **cosmetic** rewards. No real money: pulls are paid for with the same
+chore-earned points used for awards, so it is a reward sink, not gambling.
+
+- **Three cosmetic slots (v1):**
+    - **Avatar frames** — a decorative ring around your avatar, visible to everyone on every avatar
+      (leaderboard, chore assignees, account menu, user list)
+    - **App theme palettes** — recolor your own app (e.g. Midnight, Sakura, Galaxy); only you see your palette
+    - **Avatar colors** — the fill color of your avatar, visible to everyone. The default purple is free
+      and owned by everyone; other colors are collectible. (Avatar color is no longer set from the profile
+      or the admin user form - it is chosen by equipping a color, and new users start on the default purple.)
+- **Built-in catalog** — a predefined set defined by the app (not admin-configurable), each item tagged with a **rarity**: Common / Rare / Epic / Legendary
+- **Pulls** — spend points on a single pull or a discounted **10-pull**; each roll picks a rarity by published **drop rates**, then a random cosmetic of that rarity
+- **Pity** — a counter guarantees a Legendary within a fixed number of pulls; it resets whenever a Legendary is obtained
+- **Dust** — a duplicate pull pays out **dust** (scaled by rarity) instead of a second copy; dust is spent to **craft** a specific cosmetic directly (craft cost is higher than the dupe payout)
+- **Published odds** — the drop rates are shown openly on the gacha page
+- **Equip** — handled from a **Customization** option in the account menu (not the gacha page). It is one appearance picker: the base **Light** / **Dark** modes plus any owned **theme palettes** (mutually exclusive: choosing a palette supersedes light/dark, choosing a base mode clears the palette), any owned **avatar frame** (or None), and any owned **avatar color**. Equipping a theme recolors the app immediately and persists across devices and reloads (no flash)
+- **Reveal** — a pull shows a celebration popup (with confetti) listing what dropped, with new unlocks and dust gained
+- **Gacha page** — balances (points + dust), pull buttons, a pity progress bar, the odds disclosure, and a collection grid grouped by slot and rarity (shows owned vs. locked, with craft on locked items); equipping is done from the account menu Customization picker
+- **Reversal-safe** — owned cosmetics are permanent; there is no admin revoke in v1
 
 ---
 
@@ -134,9 +158,9 @@ Per-chore notification schedule — a list of notification entries, each with:
 
 - Delivered via Web Push (PWA)
 - Each chore has a configurable notification schedule — a list of entries, each defining:
-  - **Type:** `reminder` (upcoming), `due` (at due time), `follow-up` (after due time passes without completion)
-  - **When:** `before` | `at due` | `after` — with an offset in minutes / hours / days
-  - **Who:** `current assignee` | `all assignees`
+    - **Type:** `reminder` (upcoming), `due` (at due time), `follow-up` (after due time passes without completion)
+    - **When:** `before` | `at due` | `after` — with an offset in minutes / hours / days
+    - **Who:** `current assignee` | `all assignees`
 - All notifications for a chore instance stop firing once it is marked complete (for
   `Everyone (independent)` chores, reminders fire **per assignee** and stop once that person completes
   their own share)
@@ -170,7 +194,6 @@ Per-chore notification schedule — a list of notification entries, each with:
 - Today's due chores, highlighted by assignee
 - Overdue chores clearly flagged
 - Upcoming chores (next 7 days)
-- Per-user point totals (current week / all time)
 - Filterable by tag and assignee
 - **Chore views** — list, compact, and calendar layouts (the chosen view persists per browser)
 
@@ -218,6 +241,7 @@ Per-chore notification schedule — a list of notification entries, each with:
 ## Technical Requirements
 
 ### Backend
+
 - **Framework:** ASP.NET Core (C#)
 - **ORM:** Entity Framework Core
 - **Auth:** JWT access tokens + long-lived refresh tokens (6 months)
@@ -225,13 +249,16 @@ Per-chore notification schedule — a list of notification entries, each with:
 - **Testing:** xUnit — unit tests for business logic (recurrence, points, assignment strategies), integration tests for API endpoints
 
 ### Frontend
+
 - **Framework:** React with Vite + TypeScript
 - **Server state:** TanStack Query (fetching, caching, invalidation)
 - **Styling:** Tailwind CSS + shadcn/ui
 - **Communication:** REST API (JSON)
 
 ### Design Language
+
 Modern clean B2B SaaS dashboard aesthetic — readable, organized, low cognitive load.
+
 - **Layout:** three-pane — left sidebar (global nav), top bar (search + account), central workspace; collapses to a drawer on mobile
 - **Color:** high-key cool-neutral (light-gray canvas, white cards/nav); violet-blue accent used sparingly for primary actions, logo, and active state (rendered as a soft tint, not a solid block)
 - **Status:** pastel semantic pills — soft tinted background with saturated same-hue text
@@ -243,75 +270,22 @@ Modern clean B2B SaaS dashboard aesthetic — readable, organized, low cognitive
 - **Theming:** semantic CSS-variable tokens; light + dark out of the box. Implementation detail (tokens, components, paths) lives in `CLAUDE.md`.
 
 ### Database
+
 - **Default:** SQLite
 - **Optional:** PostgreSQL (switchable via connection string config)
 - Migrations managed via EF Core
 
 ### Deployment
+
 - Single Docker Compose file (backend + frontend served as static files)
 - Configuration via a `.env` file loaded by Docker Compose
 
 ---
 
-## Development Phases
+## Out of Scope / not planned (ever)
 
-### Phase 1 — Foundation
-Auth, user CRUD, password management, roles, DB schema, Docker setup. Everything else depends on this.
-
-### Phase 2 — Chores (Core)
-Chore CRUD (name, description, emoji, tags, assignees, points), basic recurrence (one-time, daily, weekly, monthly, yearly), start date, mark complete, undo, points log.
-
-### Phase 3 — Chores (Advanced)
-Custom recurrence (all 4 modes), assignment strategies, scheduling preferences on completion.
-
-### Phase 4 — Dashboard
-Today / overdue / upcoming views, per-user point totals, filtering by tag and assignee, global search.
-
-### Phase 5 — History & Stats
-Completion log with filters, per-user stats, bar chart.
-
-### Phase 6 — Awards & Redemption
-Award CRUD (admin), redemption flow, fulfillment tracking, points deduction.
-
-### Phase 7 — Skip & Reassign
-Skip an occurrence (advance recurrence without awarding points - with logs), one-off reassignment of the current assignee for a single occurrence.
-
-### Phase 8 — Notifications
-Web Push / VAPID setup, per-chore notification schedule, stop-on-completion logic, push service worker,
-per-user device management, in-app notification inbox, and basic PWA install (manifest + icons).
-
-### Phase 9 — UX Polish
-Swipe actions on chores, completion delight, admin deletion of activity entries
-(completions and skips) from chore details, admin completing a chore on behalf of any user, and
-refactoring the chores page into multiple components.
-
-### Phase 10 — Independent assignment tracks
-The `Everyone (independent)` assignment strategy (per-assignee schedule + quota, no rotation), admin manual reschedule of the current occurrence, and per-assignee notification fan-out.
-
-### Phase 11 — Scheduling, points & UX extensions
-Multiple times of day per chore, auto-advance of incomplete occurrences, on-time streaks, chore copying, manual admin point adjustments, per-user quiet hours, admin-configured family timezone, awards next-goal progress, and list / compact / calendar chore views.
-
-### Phase 12 — Achievements
-Cosmetic, permanently-earned badges from a built-in catalog (completion, on-time-streak, lifetime-points, redemption, and variety milestones). Granted **inline** on the activity that earns them — completing a chore, redeeming an award, or receiving a point adjustment — with a one-time **celebration popup** (confetti) on unlock for the earner, and a dedicated achievements page showing earned and still-locked badges (with progress bars) grouped by category.
-
----
-
-## On wait
-
-- Vacation / availability — per-user date ranges that exclude unavailable users from assignment and skip them as notification recipients
-- Daily digest — opt-in per-user morning summary (one push instead of N), reusing the dashboard's today/overdue grouping
-
-## Out of Scope (v1)
-
-- Full offline support — offline read, completion queue, app shell, and asset caching (basic
-  install via manifest + service worker already shipped in Phase 8)
+- Offline support
 - Photo proof of completion
-- Chore archiving / pausing
 - Multiple households per instance
 - Third-party OAuth
 - Native iOS/Android apps
-- Chore sub-tasks
-
-## Ideas - also out of scope
-
-- Capacitor app (let user set server url)

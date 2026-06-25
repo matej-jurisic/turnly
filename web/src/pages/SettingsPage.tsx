@@ -8,7 +8,6 @@ import { useAuthStore } from '@/store/auth'
 import { Button } from '@/components/ui/Button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { Input, Label, Select } from '@/components/ui/Field'
-import { ColorPicker } from '@/components/ui/ColorPicker'
 
 // The browser's full IANA zone list (and the device's own zone), resolved once. Empty when the
 // browser is too old to support `Intl.supportedValuesOf`, in which case we fall back to a text input.
@@ -97,29 +96,6 @@ export function SettingsPage() {
 
 function AccountCard() {
   const user = useAuthStore((s) => s.user)
-  const setUser = useAuthStore((s) => s.setUser)
-  const queryClient = useQueryClient()
-  const [color, setColor] = useState(user?.avatarColor ?? '')
-
-  const mutation = useMutation({
-    mutationFn: (avatarColor: string) =>
-      authApi.updateProfile({
-        avatarColor,
-        quietHoursStart: user?.quietHoursStart ?? null,
-        quietHoursEnd: user?.quietHoursEnd ?? null,
-      }),
-    onSuccess: (updated) => {
-      setUser(updated)
-      queryClient.invalidateQueries({ queryKey: ['leaderboard'] })
-      queryClient.invalidateQueries({ queryKey: ['users'] })
-      toast.success('Profile color updated.')
-    },
-    onError: (err) => {
-      toast.error(err instanceof ApiError ? err.message : 'Something went wrong')
-    },
-  })
-
-  const changed = !!user && color.toLowerCase() !== user.avatarColor.toLowerCase()
 
   return (
     <Card>
@@ -131,13 +107,10 @@ function AccountCard() {
           <p><span className="text-foreground">{user?.displayName}</span> (@{user?.username})</p>
           <p>Role: {user?.role}</p>
         </div>
-        <div className="space-y-2">
-          <Label>Profile color</Label>
-          <ColorPicker value={color} onChange={setColor} />
-        </div>
-        <Button onClick={() => mutation.mutate(color)} disabled={!changed || mutation.isPending}>
-          {mutation.isPending ? 'Saving…' : 'Save color'}
-        </Button>
+        <p>
+          Choose your avatar color, frame, and app theme from the account menu (Customization). Unlock
+          more in the Gacha.
+        </p>
       </CardContent>
     </Card>
   )
@@ -304,7 +277,6 @@ function QuietHoursCard() {
   const mutation = useMutation({
     mutationFn: () =>
       authApi.updateProfile({
-        avatarColor: user!.avatarColor,
         quietHoursStart: enabled ? start : null,
         quietHoursEnd: enabled ? end : null,
       }),

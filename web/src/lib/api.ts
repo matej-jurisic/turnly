@@ -9,6 +9,9 @@ import type {
   CreateAwardRequest,
   CreateChoreRequest,
   CreateUserRequest,
+  CosmeticSlot,
+  GachaState,
+  PullResult,
   LeaderboardEntry,
   Achievement,
   NotificationInboxItem,
@@ -215,6 +218,16 @@ export const achievementsApi = {
     request<Achievement[]>(`/achievements${userId ? `?userId=${userId}` : ''}`),
   revoke: (userId: string, key: string) =>
     request<void>(`/achievements/${userId}/${encodeURIComponent(key)}`, { method: 'DELETE' }),
+}
+
+export const gachaApi = {
+  state: () => request<GachaState>('/gacha'),
+  pull: (count: number) =>
+    request<PullResult[]>('/gacha/pull', { method: 'POST', body: json({ count }) }),
+  craft: (key: string) =>
+    request<void>('/gacha/craft', { method: 'POST', body: json({ key }) }),
+  equip: (slot: CosmeticSlot, key: string | null) =>
+    request<void>('/gacha/equip', { method: 'POST', body: json({ slot, key }) }),
 }
 
 export const historyApi = {

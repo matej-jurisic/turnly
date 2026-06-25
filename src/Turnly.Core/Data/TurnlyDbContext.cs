@@ -27,6 +27,7 @@ public class TurnlyDbContext : DbContext
     public DbSet<UserNotification> UserNotifications => Set<UserNotification>();
     public DbSet<AppSetting> AppSettings => Set<AppSetting>();
     public DbSet<UserAchievement> UserAchievements => Set<UserAchievement>();
+    public DbSet<UserCosmetic> UserCosmetics => Set<UserCosmetic>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
@@ -257,6 +258,19 @@ public class TurnlyDbContext : DbContext
             e.Property(x => x.AchievementKey).IsRequired().HasMaxLength(64);
             // Each achievement is earned at most once per user.
             e.HasIndex(x => new { x.UserId, x.AchievementKey }).IsUnique();
+
+            e.HasOne(x => x.User)
+                .WithMany()
+                .HasForeignKey(x => x.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        b.Entity<UserCosmetic>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.CosmeticKey).IsRequired().HasMaxLength(64);
+            // Each cosmetic is owned at most once per user (duplicates pay out dust, not a new row).
+            e.HasIndex(x => new { x.UserId, x.CosmeticKey }).IsUnique();
 
             e.HasOne(x => x.User)
                 .WithMany()

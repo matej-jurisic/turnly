@@ -40,7 +40,7 @@ public class UserService
             .OrderByDescending(u => u.Points)
             .Select(u => new LeaderboardEntryDto(
                 u.Id, u.DisplayName, u.AvatarColor, u.Points,
-                weeklyByUser.GetValueOrDefault(u.Id)))
+                weeklyByUser.GetValueOrDefault(u.Id), u.EquippedFrameKey))
             .ToList();
     }
 
@@ -176,19 +176,16 @@ public class UserService
             return Result.Fail<UserDto>(Error.Conflict("Cannot demote the last admin."));
 
         user.DisplayName = req.DisplayName.Trim();
-        if (!string.IsNullOrWhiteSpace(req.AvatarColor))
-            user.AvatarColor = req.AvatarColor;
         user.Role = req.Role;
 
         await _db.SaveChangesAsync(ct);
         return Result.Success(UserDto.FromEntity(user));
     }
 
-    // Self-service: a member may change their own avatar color (but not role or display name).
+    // Self-service: a member may set their own quiet hours. Avatar color is chosen through the gacha
+    // (equip a Color cosmetic), not here.
     public async Task<Result<UserDto>> UpdateProfileAsync(Guid id, UpdateProfileRequest req, CancellationToken ct = default)
     {
-        if (string.IsNullOrWhiteSpace(req.AvatarColor))
-            return Result.Fail<UserDto>(Error.Validation("Avatar color is required."));
         if (Validators.QuietHours(req.QuietHoursStart, req.QuietHoursEnd, out var quietStart, out var quietEnd) is { } quietError)
             return Result.Fail<UserDto>(quietError);
 
@@ -196,7 +193,6 @@ public class UserService
         if (user is null)
             return Result.Fail<UserDto>(Error.NotFound("User not found."));
 
-        user.AvatarColor = req.AvatarColor.Trim();
         user.QuietHoursStart = quietStart;
         user.QuietHoursEnd = quietEnd;
         await _db.SaveChangesAsync(ct);

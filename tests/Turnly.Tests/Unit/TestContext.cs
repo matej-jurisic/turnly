@@ -31,6 +31,7 @@ public sealed class TestContext : IDisposable
     public NotificationService Notifications { get; }
     public AppSettingsService Settings { get; }
     public AchievementService Achievements { get; }
+    public GachaService Gacha { get; }
 
     public TestContext()
     {
@@ -63,6 +64,8 @@ public sealed class TestContext : IDisposable
         Redemptions = new RedemptionService(Db, Achievements);
         Notifications = new NotificationService(Db, Push, NullLogger<NotificationService>.Instance);
         Settings = new AppSettingsService(Db);
+        // Seeded RNG so gacha pulls are deterministic in tests.
+        Gacha = new GachaService(Db, new Random(12345));
     }
 
     public void Dispose()

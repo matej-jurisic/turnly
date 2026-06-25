@@ -120,7 +120,7 @@ export function ChoreListItem({
                 ))}
               </div>
               {isIndependent(chore) ? (
-                <div className="flex shrink-0 items-center -space-x-1.5">
+                <div className="flex shrink-0 items-center gap-1.5">
                   {chore.tracks.map((t) => {
                     const done = trackIsDone(chore, t)
                     const overdue = dueStatus(t.dueAt, choreHasDueTime(chore)) === 'overdue'
@@ -134,7 +134,7 @@ export function ChoreListItem({
                         }
                       >
                         <span className={'flex ' + (done ? 'grayscale' : '')}>
-                          <Avatar color={t.user.avatarColor} name={t.user.displayName} size={24} />
+                          <Avatar color={t.user.avatarColor} name={t.user.displayName} size={24} frame={t.user.equippedFrameKey} />
                         </span>
                         {done && (
                           <span className="absolute -bottom-0.5 -right-0.5 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-success text-success-foreground">
@@ -148,14 +148,14 @@ export function ChoreListItem({
               ) : chore.currentAssignee && (
                 <div className="flex shrink-0 items-center gap-2">
                   <span className="text-sm text-muted-foreground">{chore.currentAssignee.displayName}</span>
-                  <Avatar color={chore.currentAssignee.avatarColor} name={chore.currentAssignee.displayName} size={24} />
+                  <Avatar color={chore.currentAssignee.avatarColor} name={chore.currentAssignee.displayName} size={24} frame={chore.currentAssignee.equippedFrameKey} />
                   {chore.nextAssignee && (
                     <span
                       className="flex items-center gap-1 text-muted-foreground"
                       title={`Next: ${chore.nextAssignee.displayName}`}
                     >
                       <span aria-hidden="true">→</span>
-                      <Avatar color={chore.nextAssignee.avatarColor} name={chore.nextAssignee.displayName} size={20} />
+                      <Avatar color={chore.nextAssignee.avatarColor} name={chore.nextAssignee.displayName} size={20} frame={chore.nextAssignee.equippedFrameKey} />
                       <span className="sr-only">Next: {chore.nextAssignee.displayName}</span>
                     </span>
                   )}
