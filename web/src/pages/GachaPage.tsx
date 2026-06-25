@@ -69,19 +69,21 @@ export function GachaPage() {
         <CardContent className="space-y-4">
           <div className="flex gap-3">
             <Button
-              className="flex-1 text-sm sm:text-base"
+              className="h-auto flex-1 flex-col py-1.5 leading-tight"
               onClick={() => pull.mutate(1)}
               disabled={busy || state.points < state.pullCost}
             >
-              Pull x1 ({state.pullCost} pts)
+              <span>Pull x1</span>
+              <span className="text-xs opacity-90">({state.pullCost} pts)</span>
             </Button>
             <Button
-              className="flex-1 text-sm sm:text-base"
+              className="h-auto flex-1 flex-col py-1.5 leading-tight"
               variant="secondary"
               onClick={() => pull.mutate(10)}
               disabled={busy || state.points < state.tenPullCost}
             >
-              Pull x10 ({state.tenPullCost} pts)
+              <span>Pull x10</span>
+              <span className="text-xs opacity-90">({state.tenPullCost} pts)</span>
             </Button>
           </div>
 
