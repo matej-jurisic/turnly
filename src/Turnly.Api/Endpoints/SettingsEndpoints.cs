@@ -23,7 +23,7 @@ public static class SettingsEndpoints
         group.MapPost("/fresh-start", async (ResetService reset, CancellationToken ct) =>
         {
             var result = await reset.FreshStartAsync(ct);
-            return result.Succeeded ? Results.Ok() : result.Error!.ToProblem();
+            return result.Succeeded ? Results.NoContent() : result.Error!.ToProblem();
         }).RequireAuthorization("Admin");
     }
 }

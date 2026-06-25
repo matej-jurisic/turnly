@@ -67,8 +67,6 @@ export function SettingsPage() {
 
       {isAdmin && <TagsCard />}
 
-      {isAdmin && <DangerZoneCard />}
-
       <Card>
         <CardHeader>
           <CardTitle>Change password</CardTitle>
@@ -94,6 +92,8 @@ export function SettingsPage() {
           </form>
         </CardContent>
       </Card>
+
+      {isAdmin && <DangerZoneCard />}
     </div>
   )
 }
