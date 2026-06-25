@@ -12,4 +12,10 @@ export const AVATAR_COLORS = [
   '#ec4899', // pink
   '#8b5cf6', // violet
   '#64748b', // slate
+  '#f97316', // orange
+  '#14b8a6', // teal
+  '#84cc16', // lime
+  '#3b82f6', // blue
+  '#a855f7', // purple
+  '#e11d48', // rose
 ]
