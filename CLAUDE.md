@@ -408,6 +408,10 @@ cp .env.example .env && docker compose up --build   # http://localhost:8080
   `Result` / `Result<T>` with an `Error(ErrorType, message)` (see `Common/Result.cs`).
   Endpoints map errors to HTTP via `error.ToProblem()` in `Endpoints/ApiResults.cs`
   (Validation→400, NotFound→404, Conflict→409, Unauthorized→401, Forbidden→403).
+- **No em dashes in client-facing text.** Never use em dashes (`—`) in any user-facing frontend
+  text (JSX copy, labels, placeholders, button/aria text, toast/confirm messages, page titles,
+  etc.). Use a regular hyphen, comma, colon, or reword instead. This applies only to text the user
+  sees; code comments are exempt.
 - **Shared validation** lives in `Common/Validators.cs` — reuse it across services.
 - **DTOs** are in `Core/Dtos/Dtos.cs`; map entities with `UserDto.FromEntity`. Don't leak
   entities out of services.

@@ -13,6 +13,7 @@ import { Modal, Avatar } from '@/components/ui/Modal'
 import { ColorPicker } from '@/components/ui/ColorPicker'
 import { AVATAR_COLORS } from '@/lib/utils'
 import { FreezeUserModal } from '@/components/FreezeUserModal'
+import { UserMenu } from '@/components/users/UserMenu'
 
 export function UsersPage() {
   const currentUser = useAuthStore((s) => s.user)
@@ -56,7 +57,7 @@ export function UsersPage() {
 
       <Card className="divide-y divide-border">
         {users?.map((user) => (
-          <div key={user.id} className="flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:gap-4">
+          <div key={user.id} className="flex items-center gap-3 px-4 py-3 sm:gap-4">
             <div className="flex min-w-0 flex-1 items-center gap-3">
               <Avatar color={user.avatarColor} name={user.displayName} />
               <div className="min-w-0">
@@ -71,35 +72,18 @@ export function UsersPage() {
                 </div>
               </div>
             </div>
-            <div className="flex gap-1 sm:shrink-0">
-              <Button size="sm" variant="ghost" onClick={() => setEditing(user)}>Edit</Button>
-              <Button size="sm" variant="ghost" onClick={() => setPasswordFor(user)}>Password</Button>
-              <Button size="sm" variant="ghost" onClick={() => setAdjustPointsFor(user)}>Points</Button>
-              {user.isFrozen ? (
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  disabled={unfreezeMutation.isPending}
-                  onClick={() => unfreezeMutation.mutate(user.id)}
-                >
-                  Unfreeze
-                </Button>
-              ) : (
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  disabled={user.id === currentUser?.id}
-                  onClick={() => setFreezingUser(user)}
-                >
-                  Freeze
-                </Button>
-              )}
-              <Button
-                size="sm"
-                variant="ghost"
-                className="text-destructive hover:bg-destructive/10"
-                disabled={user.id === currentUser?.id || deleteMutation.isPending}
-                onClick={async () => {
+            <div className="flex justify-end sm:shrink-0">
+              <UserMenu
+                user={user}
+                isSelf={user.id === currentUser?.id}
+                unfreezePending={unfreezeMutation.isPending}
+                deletePending={deleteMutation.isPending}
+                onEdit={() => setEditing(user)}
+                onPassword={() => setPasswordFor(user)}
+                onPoints={() => setAdjustPointsFor(user)}
+                onFreeze={() => setFreezingUser(user)}
+                onUnfreeze={() => unfreezeMutation.mutate(user.id)}
+                onDelete={async () => {
                   if (
                     await confirm({
                       title: 'Delete user',
@@ -110,9 +94,7 @@ export function UsersPage() {
                     deleteMutation.mutate(user.id)
                   }
                 }}
-              >
-                Delete
-              </Button>
+              />
             </div>
           </div>
         ))}
