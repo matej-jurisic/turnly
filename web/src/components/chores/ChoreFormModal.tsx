@@ -19,7 +19,7 @@ import { RecurrenceEditor } from '@/components/RecurrenceEditor'
 import { NotificationsEditor } from '@/components/NotificationsEditor'
 import {
   REPEAT_OPTIONS, STRATEGY_OPTIONS, SCHEDULING_OPTIONS, GRACE_UNITS,
-  isIntervalStyle, splitGrace, toLocalDueInstant,
+  isIntervalStyle, splitGrace, toLocalDueInstant, toLocalDateInput,
 } from '@/lib/chore-format'
 
 interface ChoreFormModalProps {
@@ -71,7 +71,7 @@ export function ChoreFormModal({ title, chore, onClose, onSaved }: ChoreFormModa
   const [windowValue, setWindowValue] = useState(initialWindow.value)
   const [windowUnit, setWindowUnit] = useState(initialWindow.unit)
   const [startDate, setStartDate] = useState(
-    (chore?.startDate ?? new Date().toISOString()).slice(0, 10),
+    toLocalDateInput(chore?.startDate ? new Date(chore.startDate) : new Date()),
   )
   // Times-of-day list; index 0 doubles as the single "due time" when only one slot is set. Always at
   // least one row (an empty row = "no specific time" / end of day, matching the old single field).

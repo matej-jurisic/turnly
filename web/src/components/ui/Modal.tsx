@@ -37,10 +37,10 @@ export function Modal({ title, onClose, children }: ModalProps) {
       onClick={onClose}
     >
       <Card
-        className="w-full max-w-md"
+        className="flex max-h-[calc(100dvh-2rem)] w-full max-w-md flex-col"
         onClick={(e) => e.stopPropagation()}
       >
-        <CardHeader className="flex items-center justify-between">
+        <CardHeader className="flex shrink-0 items-center justify-between">
           <CardTitle>{title}</CardTitle>
           <button
             onClick={onClose}
@@ -50,7 +50,7 @@ export function Modal({ title, onClose, children }: ModalProps) {
             ✕
           </button>
         </CardHeader>
-        <CardContent>{children}</CardContent>
+        <CardContent className="overflow-y-auto">{children}</CardContent>
       </Card>
     </div>,
     document.body,

@@ -242,6 +242,12 @@ export function toLocalDueInstant(dateStr: string, timeStr: string): string {
   )
 }
 
+/** Formats a Date as a local `YYYY-MM-DD` string for a `<input type="date">` (not UTC). */
+export function toLocalDateInput(d: Date): string {
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+}
+
 function startOfDay(d: Date): Date {
   return new Date(d.getFullYear(), d.getMonth(), d.getDate())
 }
