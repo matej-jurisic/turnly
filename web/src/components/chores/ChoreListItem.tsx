@@ -3,7 +3,7 @@ import { Badge } from '@/components/ui/Badge'
 import { Card } from '@/components/ui/Card'
 import { Avatar } from '@/components/ui/Modal'
 import {
-  choreHasDueTime, completionProgressLabel, dueStatus, formatDate, isIndependent,
+  completionProgressLabel, formatDate, isIndependent,
   nextDueTimeLabel, repeatLabel, showStreak, trackIsDone, trackStatusText,
 } from '@/lib/chore-format'
 import { CheckIcon } from '@/components/chores/icons'
@@ -123,15 +123,11 @@ export function ChoreListItem({
                 <div className="flex shrink-0 items-center gap-1.5">
                   {chore.tracks.map((t) => {
                     const done = trackIsDone(chore, t)
-                    const overdue = dueStatus(t.dueAt, choreHasDueTime(chore)) === 'overdue'
                     return (
                       <span
                         key={t.user.id}
                         title={`${t.user.displayName}: ${trackStatusText(chore, t)}`}
-                        className={
-                          'relative inline-flex rounded-full ring-2 ring-card ' +
-                          (overdue ? 'ring-warning' : '')
-                        }
+                        className="relative inline-flex rounded-full"
                       >
                         <span className={'flex ' + (done ? 'grayscale' : '')}>
                           <Avatar color={t.user.avatarColor} name={t.user.displayName} size={24} frame={t.user.equippedFrameKey} />

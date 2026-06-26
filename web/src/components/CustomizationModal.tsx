@@ -4,7 +4,8 @@ import { useAuthStore } from '@/store/auth'
 import { useThemeStore } from '@/lib/theme'
 import { applyPalette } from '@/lib/palette'
 import { syncAppearanceFromServer } from '@/lib/appearance'
-import { frameClasses } from '@/lib/cosmetics'
+import { frameClasses, RARITY_COLOR } from '@/lib/cosmetics'
+import type { CosmeticRarity } from '@/lib/types'
 import { toast } from '@/lib/toast'
 import { Modal } from '@/components/ui/Modal'
 
@@ -85,6 +86,7 @@ export function CustomizationModal({ onClose }: { onClose: () => void }) {
               <SwatchTile
                 key={c.key}
                 label={c.name}
+                rarity={c.rarity}
                 selected={activePalette === c.key}
                 disabled={busy}
                 onClick={() => choosePalette(c.key)}
@@ -97,22 +99,24 @@ export function CustomizationModal({ onClose }: { onClose: () => void }) {
         {/* Avatar color */}
         <section className="space-y-2">
           <h3 className="text-sm font-semibold text-foreground">Avatar color</h3>
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap gap-3">
             {ownedColors.map((c) => {
               const selected = (c.value ?? '').toLowerCase() === activeColor
               return (
-                <button
-                  key={c.key}
-                  type="button"
-                  onClick={() => chooseColor(c.key)}
-                  disabled={busy}
-                  aria-pressed={selected}
-                  title={c.name}
-                  className={`h-9 w-9 rounded-full transition disabled:opacity-60 ${
-                    selected ? 'ring-2 ring-ring ring-offset-2 ring-offset-card' : ''
-                  }`}
-                  style={{ backgroundColor: c.value ?? undefined }}
-                />
+                <div key={c.key} className="flex flex-col items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() => chooseColor(c.key)}
+                    disabled={busy}
+                    aria-pressed={selected}
+                    title={c.name}
+                    className={`h-9 w-9 rounded-full transition disabled:opacity-60 ${
+                      selected ? 'ring-2 ring-ring ring-offset-2 ring-offset-card' : ''
+                    }`}
+                    style={{ backgroundColor: c.value ?? undefined }}
+                  />
+                  <RarityTag rarity={c.rarity} />
+                </div>
               )
             })}
           </div>
@@ -133,6 +137,7 @@ export function CustomizationModal({ onClose }: { onClose: () => void }) {
               <SwatchTile
                 key={c.key}
                 label={c.name}
+                rarity={c.rarity}
                 selected={activeFrame === c.key}
                 disabled={busy}
                 onClick={() => chooseFrame(c.key)}
@@ -148,12 +153,14 @@ export function CustomizationModal({ onClose }: { onClose: () => void }) {
 
 function SwatchTile({
   label,
+  rarity,
   selected,
   disabled,
   onClick,
   preview,
 }: {
   label: string
+  rarity?: CosmeticRarity
   selected: boolean
   disabled: boolean
   onClick: () => void
@@ -171,7 +178,22 @@ function SwatchTile({
     >
       <span className="flex h-12 w-full items-center justify-center">{preview}</span>
       <span className="w-full truncate text-xs text-foreground">{label}</span>
+      {rarity && <RarityTag rarity={rarity} />}
     </button>
+  )
+}
+
+/** A compact rarity pill in fixed rarity colors (not theme tokens) so tiers stay distinct under any
+ * palette. Mirrors the gacha page's RarityBadge at a smaller size. */
+function RarityTag({ rarity }: { rarity: CosmeticRarity }) {
+  const color = RARITY_COLOR[rarity]
+  return (
+    <span
+      className="rounded-full px-1.5 py-0.5 text-[10px] font-medium leading-none"
+      style={{ background: `color-mix(in srgb, ${color} 16%, transparent)`, color }}
+    >
+      {rarity}
+    </span>
   )
 }
 

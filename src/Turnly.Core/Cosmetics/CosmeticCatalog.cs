@@ -57,36 +57,40 @@ public static class CosmeticCatalog
         new("frame-silver",      "Silver Ring",    "A thin silver ring around your avatar.",  CosmeticSlot.Frame, CosmeticRarity.Common),
         new("frame-bronze",      "Bronze Ring",    "A thin bronze ring around your avatar.",  CosmeticSlot.Frame, CosmeticRarity.Common),
         new("frame-slate",       "Slate Ring",     "A cool slate ring around your avatar.",   CosmeticSlot.Frame, CosmeticRarity.Common),
-        // Rare: fancier static rings.
-        new("frame-dashed",      "Achiever",       "A dashed violet ring.",                   CosmeticSlot.Frame, CosmeticRarity.Rare),
-        new("frame-double",      "Double Ring",    "A crisp double ring.",                    CosmeticSlot.Frame, CosmeticRarity.Rare),
-        new("frame-beaded",      "Beaded Ring",    "A playful beaded ring.",                  CosmeticSlot.Frame, CosmeticRarity.Rare),
-        // Epic: animated rings.
-        new("frame-holo",        "Holographic",    "A shifting holographic ring.",            CosmeticSlot.Frame, CosmeticRarity.Epic),
-        new("frame-frostfire",   "Frostfire",      "A spinning ice-and-flame ring.",          CosmeticSlot.Frame, CosmeticRarity.Epic),
+        // Rare: refined brand-aligned rings.
+        new("frame-dashed",      "Achiever",       "A polished violet ring.",                 CosmeticSlot.Frame, CosmeticRarity.Rare),
+        new("frame-double",      "Double Ring",    "A crisp double violet ring.",             CosmeticSlot.Frame, CosmeticRarity.Rare),
+        new("frame-beaded",      "Aqua Ring",      "A smooth aqua ring.",                     CosmeticSlot.Frame, CosmeticRarity.Rare),
+        // Epic: soft iridescent animated rings.
+        new("frame-holo",        "Iridescent",     "A soft, shifting iridescent ring.",       CosmeticSlot.Frame, CosmeticRarity.Epic),
+        new("frame-frostfire",   "Frostfire",      "A spinning ice-and-amber ring.",          CosmeticSlot.Frame, CosmeticRarity.Epic),
         // Legendary: showpiece animated ring.
-        new("frame-liquid-gold", "Liquid Gold",    "A molten, rotating gold ring.",           CosmeticSlot.Frame, CosmeticRarity.Legendary),
+        new("frame-liquid-gold", "Liquid Gold",    "A molten, rotating champagne-gold ring.", CosmeticSlot.Frame, CosmeticRarity.Legendary),
 
         // ---- App theme palettes -----------------------------------------------------------
         // Rare: light recolors.
         new("theme-peach",       "Peach",          "A warm peach palette.",                   CosmeticSlot.Theme, CosmeticRarity.Rare),
         new("theme-sky",         "Sky",            "A breezy sky-blue palette.",              CosmeticSlot.Theme, CosmeticRarity.Rare),
-        new("theme-mint",        "Mint",           "A fresh light mint palette.",             CosmeticSlot.Theme, CosmeticRarity.Rare),
         new("theme-lavender",    "Lavender",       "A soft lavender palette.",                CosmeticSlot.Theme, CosmeticRarity.Rare),
-        new("theme-rosewater",   "Rosewater",      "A delicate blush palette.",               CosmeticSlot.Theme, CosmeticRarity.Rare),
+        new("theme-savanna",     "Savanna",        "A warm olive-and-cream palette.",         CosmeticSlot.Theme, CosmeticRarity.Rare),
+        new("theme-cove",        "Cove",           "A breezy coastal palette.",               CosmeticSlot.Theme, CosmeticRarity.Rare),
         // Epic: distinctive palettes.
         new("theme-midnight",    "Midnight",       "A deep navy palette.",                    CosmeticSlot.Theme, CosmeticRarity.Epic),
         new("theme-sakura",      "Sakura",         "A soft pink blossom palette.",            CosmeticSlot.Theme, CosmeticRarity.Epic),
-        new("theme-matrix",      "Matrix",         "Green-on-black terminal vibes.",          CosmeticSlot.Theme, CosmeticRarity.Epic),
         new("theme-sepia",       "Sepia",          "A warm newsprint palette.",               CosmeticSlot.Theme, CosmeticRarity.Epic),
-        new("theme-crimson",     "Crimson",        "A dark blood-red palette.",               CosmeticSlot.Theme, CosmeticRarity.Epic),
         new("theme-ocean",       "Ocean",          "A deep ocean-blue palette.",              CosmeticSlot.Theme, CosmeticRarity.Epic),
         new("theme-graphite",    "Graphite",       "A sleek monochrome palette.",             CosmeticSlot.Theme, CosmeticRarity.Epic),
+        new("theme-heritage",    "Heritage",       "A classic cream, navy and red palette.",  CosmeticSlot.Theme, CosmeticRarity.Epic),
+        new("theme-beacon",      "Beacon",         "A navy palette lit by warm amber.",       CosmeticSlot.Theme, CosmeticRarity.Epic),
+        new("theme-ember",       "Ember",          "A charcoal palette with a glowing ember.",CosmeticSlot.Theme, CosmeticRarity.Epic),
+        new("theme-scarlet",     "Scarlet",        "A crisp slate palette with scarlet pop.", CosmeticSlot.Theme, CosmeticRarity.Epic),
+        new("theme-abyss",       "Abyss",          "A deep nautical-blue palette.",           CosmeticSlot.Theme, CosmeticRarity.Epic),
         // Legendary: premium palettes.
         new("theme-galaxy",      "Galaxy",         "A cosmic purple starfield palette.",      CosmeticSlot.Theme, CosmeticRarity.Legendary),
         new("theme-aurora",      "Aurora",         "Shifting northern-lights palette.",       CosmeticSlot.Theme, CosmeticRarity.Legendary),
-        new("theme-sunset",      "Sunset",         "A glowing dusk-orange palette.",          CosmeticSlot.Theme, CosmeticRarity.Legendary),
         new("theme-nebula",      "Nebula",         "A radiant cosmic-magenta palette.",       CosmeticSlot.Theme, CosmeticRarity.Legendary),
+        new("theme-eclipse",     "Eclipse",        "A jet-black palette ringed with amber.",  CosmeticSlot.Theme, CosmeticRarity.Legendary),
+        new("theme-twilight",    "Twilight",       "A plum-and-coral sunset gradient.",       CosmeticSlot.Theme, CosmeticRarity.Legendary),
 
         // ---- Avatar colors ----------------------------------------------------------------
         // The default purple is free (owned by everyone, never rolled). The rest are collectible.
