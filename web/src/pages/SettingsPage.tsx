@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { authApi, notificationsApi, settingsApi, tagsApi, ApiError } from '@/lib/api'
 import { toast } from '@/lib/toast'
@@ -9,7 +10,7 @@ import { disablePush, enablePush, getCurrentEndpoint, isPushEnabled, pushPermiss
 import { isNative } from '@/lib/native'
 import { clearServerOrigin, getServerOrigin } from '@/lib/server-config'
 import { setRefreshToken } from '@/lib/native-auth'
-import { unregisterNativePush } from '@/lib/native-push'
+import { getNativePushToken, nativePushPermission, registerNativePush, unregisterNativePush } from '@/lib/native-push'
 import { useAuthStore } from '@/store/auth'
 import { Button } from '@/components/ui/Button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
@@ -65,7 +66,7 @@ export function SettingsPage() {
 
       {isNative() && <ServerCard />}
 
-      <NotificationsCard />
+      {isNative() ? <NativeNotificationsCard /> : <NotificationsCard />}
 
       <QuietHoursCard />
 
@@ -299,6 +300,113 @@ function NotificationsCard() {
               Removing a device stops notifications there. To re-enable, open Turnly on that device and turn notifications on.
             </p>
           </div>
+        )}
+
+        {isAdmin && enabled && (
+          <div className="border-t border-border pt-3">
+            <Button type="button" variant="secondary" disabled={testing} onClick={sendTest}>
+              {testing ? 'Sending…' : 'Send test notification'}
+            </Button>
+            <p className="mt-1 text-xs text-muted-foreground">Dev: pushes an immediate notification to your devices.</p>
+          </div>
+        )}
+        {message && (
+          <p className={message.kind === 'ok' ? 'text-sm text-success' : 'text-sm text-destructive'}>
+            {message.text}
+          </p>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
+function NativeNotificationsCard() {
+  const isAdmin = useAuthStore((s) => s.user?.role === 'Admin')
+  const navigate = useNavigate()
+  const [permission, setPermission] = useState<'granted' | 'denied' | 'prompt' | 'unsupported' | null>(null)
+  const [enabled, setEnabled] = useState(getNativePushToken() != null)
+  const [busy, setBusy] = useState(false)
+  const [testing, setTesting] = useState(false)
+  const [message, setMessage] = useState<{ kind: 'ok' | 'error'; text: string } | null>(null)
+
+  useEffect(() => {
+    void nativePushPermission().then(setPermission)
+  }, [])
+
+  async function enable() {
+    setBusy(true)
+    setMessage(null)
+    try {
+      const granted = await registerNativePush((url) => navigate(url))
+      const perm = await nativePushPermission()
+      setPermission(perm)
+      if (granted) {
+        setEnabled(true)
+        setMessage({ kind: 'ok', text: 'Notifications enabled on this device.' })
+      } else {
+        setMessage({ kind: 'error', text: 'Notification permission was not granted.' })
+      }
+    } catch (err) {
+      setMessage({ kind: 'error', text: err instanceof Error ? err.message : 'Something went wrong' })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function disable() {
+    setBusy(true)
+    setMessage(null)
+    try {
+      await unregisterNativePush()
+      setEnabled(false)
+      setMessage({ kind: 'ok', text: 'Notifications disabled on this device.' })
+    } catch (err) {
+      setMessage({ kind: 'error', text: err instanceof Error ? err.message : 'Something went wrong' })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function sendTest() {
+    setTesting(true)
+    setMessage(null)
+    try {
+      const { sent } = await notificationsApi.test()
+      setMessage(
+        sent > 0
+          ? { kind: 'ok', text: `Test notification sent to ${sent} device${sent === 1 ? '' : 's'}.` }
+          : { kind: 'error', text: 'No device accepted the push. Make sure notifications are enabled on this device.' },
+      )
+    } catch (err) {
+      setMessage({ kind: 'error', text: err instanceof ApiError ? err.message : 'Failed to send test' })
+    } finally {
+      setTesting(false)
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Notifications</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <p className="text-sm text-muted-foreground">
+          Get push reminders for your chores on this device. Notifications stop once a chore is marked complete.
+        </p>
+        {permission === null ? (
+          <p className="text-sm text-muted-foreground">Checking…</p>
+        ) : permission === 'denied' ? (
+          <p className="text-sm text-destructive">
+            Notifications are blocked. Enable them for Turnly in your device settings, then reopen the app.
+          </p>
+        ) : enabled ? (
+          <Button type="button" variant="secondary" disabled={busy} onClick={disable}>
+            {busy ? 'Working…' : 'Disable on this device'}
+          </Button>
+        ) : (
+          <Button type="button" disabled={busy} onClick={enable}>
+            {busy ? 'Working…' : 'Enable on this device'}
+          </Button>
         )}
 
         {isAdmin && enabled && (

@@ -53,16 +53,7 @@ function AppRoutes() {
   // Native app: once signed in, register for FCM push and deep-link notification taps.
   useEffect(() => {
     if (!isNative() || status !== 'authenticated') return
-    let cleanup = () => {}
-    let active = true
-    void registerNativePush((url) => navigate(url)).then((c) => {
-      if (active) cleanup = c
-      else c()
-    })
-    return () => {
-      active = false
-      cleanup()
-    }
+    void registerNativePush((url) => navigate(url))
   }, [status, navigate])
 
   useEffect(() => {

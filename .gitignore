@@ -18,6 +18,11 @@ web/.vite/
 .env
 *.local
 
+# Local build helper + signing keystores (never commit these)
+/turnly-build.ps1
+*.jks
+*.keystore
+
 # Local dev config — holds dev-only secrets (JWT signing key, VAPID keys); not committed.
 # Copy appsettings.Development.json.example to appsettings.Development.json to set up.
 src/Turnly.Api/appsettings.Development.json
