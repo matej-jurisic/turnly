@@ -400,6 +400,9 @@ public record RedemptionDto(
 
 public record PushSubscribeRequest(string Endpoint, string P256dh, string Auth);
 
+/// <summary>Register (or refresh) the native app's FCM token. <see cref="Token"/> on unsubscribe too.</summary>
+public record FcmSubscribeRequest(string Token);
+
 public record PushDeviceDto(Guid Id, string Label, string Endpoint, DateTimeOffset CreatedAt)
 {
     public static PushDeviceDto FromEntity(Turnly.Core.Entities.PushSubscription s) =>

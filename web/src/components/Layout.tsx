@@ -3,6 +3,7 @@ import { NavLink, Outlet, useNavigate } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
 import { authApi, choresApi } from '@/lib/api'
 import { confirm } from '@/lib/confirm'
+import { unregisterNativePush } from '@/lib/native-push'
 import { useAuthStore } from '@/store/auth'
 import { UserMenu } from '@/components/UserMenu'
 import { NotificationsBell } from '@/components/NotificationsBell'
@@ -36,6 +37,7 @@ export function Layout() {
       return
     setMenuOpen(false)
     try {
+      await unregisterNativePush()
       await authApi.logout()
     } finally {
       clear()

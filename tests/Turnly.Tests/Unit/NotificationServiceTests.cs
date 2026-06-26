@@ -463,6 +463,105 @@ public class NotificationServiceTests
         Assert.Contains("member", ctx.Push.Sent[0].Endpoint);
     }
 
+    // ── Native (FCM) push ───────────────────────────────────────────────────────────────────────
+
+    private static Task SubscribeFcmAsync(TestContext ctx, Guid userId, string token = "fcm-token-1") =>
+        ctx.Notifications.SubscribeFcmAsync(userId, token);
+
+    [Fact]
+    public async Task ProcessDueAsync_fires_to_fcm_devices()
+    {
+        using var ctx = new TestContext();
+        var (_, member) = await SeedUsersAsync(ctx);
+        var choreId = await SeedChoreAsync(ctx, member, [member], AtDue(), Due);
+        await SubscribeFcmAsync(ctx, member);
+
+        var fired = await ctx.Notifications.ProcessDueAsync(Due);
+
+        Assert.Equal(1, fired);
+        var sent = Assert.Single(ctx.Fcm.Sent);
+        Assert.Equal("fcm-token-1", sent.Token);
+        Assert.Equal(choreId, sent.ChoreId);
+        Assert.Contains($"chore={choreId}", sent.Url);
+    }
+
+    [Fact]
+    public async Task ProcessDueAsync_fires_to_both_web_and_fcm()
+    {
+        using var ctx = new TestContext();
+        var (_, member) = await SeedUsersAsync(ctx);
+        await SeedChoreAsync(ctx, member, [member], AtDue(), Due);
+        await SubscribeAsync(ctx, member);
+        await SubscribeFcmAsync(ctx, member);
+
+        var fired = await ctx.Notifications.ProcessDueAsync(Due);
+
+        Assert.Equal(1, fired);
+        Assert.Single(ctx.Push.Sent);
+        Assert.Single(ctx.Fcm.Sent);
+    }
+
+    [Fact]
+    public async Task ProcessDueAsync_prunes_dead_fcm_tokens()
+    {
+        using var ctx = new TestContext();
+        var (_, member) = await SeedUsersAsync(ctx);
+        await SeedChoreAsync(ctx, member, [member], AtDue(), Due);
+        await SubscribeFcmAsync(ctx, member, "fcm-dead");
+        ctx.Fcm.GoneTokens.Add("fcm-dead");
+
+        await ctx.Notifications.ProcessDueAsync(Due);
+
+        Assert.Empty(await ctx.Db.FcmDevices.ToListAsync());
+    }
+
+    [Fact]
+    public async Task ProcessDueAsync_suppresses_fcm_during_quiet_hours_but_keeps_inbox()
+    {
+        using var ctx = new TestContext();
+        var (_, member) = await SeedUsersAsync(ctx);
+        await SeedChoreAsync(ctx, member, [member], AtDue(), Due);
+        await SubscribeFcmAsync(ctx, member);
+
+        var localNow = TimeOnly.FromTimeSpan(Due.ToLocalTime().TimeOfDay);
+        var user = await ctx.Db.Users.FirstAsync(u => u.Id == member);
+        user.QuietHoursStart = localNow;
+        user.QuietHoursEnd = localNow.AddHours(1);
+        await ctx.Db.SaveChangesAsync();
+
+        var fired = await ctx.Notifications.ProcessDueAsync(Due);
+
+        Assert.Equal(1, fired);
+        Assert.Empty(ctx.Fcm.Sent);
+        Assert.Single(await ctx.Notifications.ListInboxAsync(member));
+    }
+
+    [Fact]
+    public async Task SubscribeFcmAsync_upserts_by_token_and_rebinds_user()
+    {
+        using var ctx = new TestContext();
+        var (admin, member) = await SeedUsersAsync(ctx);
+
+        await SubscribeFcmAsync(ctx, member, "shared-token");
+        await SubscribeFcmAsync(ctx, admin, "shared-token");
+
+        var devices = await ctx.Db.FcmDevices.ToListAsync();
+        Assert.Single(devices);
+        Assert.Equal(admin, devices[0].UserId);
+    }
+
+    [Fact]
+    public async Task UnsubscribeFcmAsync_removes_the_token()
+    {
+        using var ctx = new TestContext();
+        var (_, member) = await SeedUsersAsync(ctx);
+        await SubscribeFcmAsync(ctx, member, "to-remove");
+
+        await ctx.Notifications.UnsubscribeFcmAsync("to-remove");
+
+        Assert.Empty(await ctx.Db.FcmDevices.ToListAsync());
+    }
+
     [Fact]
     public async Task ProcessDueAsync_excludes_frozen_user_from_all_assignees_recipients()
     {

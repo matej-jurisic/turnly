@@ -52,6 +52,26 @@ public static class NotificationEndpoints
             return result.Succeeded ? Results.NoContent() : result.Error!.ToProblem();
         });
 
+        // Native app: register / drop an FCM token (the native equivalent of subscribe/unsubscribe).
+        group.MapPost("/fcm-subscribe", async (
+            FcmSubscribeRequest req, ClaimsPrincipal principal, HttpContext http, NotificationService notifications, CancellationToken ct) =>
+        {
+            if (principal.GetUserId() is not { } userId)
+                return Results.Unauthorized();
+            var userAgent = http.Request.Headers.UserAgent.ToString();
+            var result = await notifications.SubscribeFcmAsync(userId, req.Token, userAgent, ct);
+            return result.Succeeded ? Results.NoContent() : result.Error!.ToProblem();
+        });
+
+        group.MapPost("/fcm-unsubscribe", async (
+            FcmSubscribeRequest req, ClaimsPrincipal principal, NotificationService notifications, CancellationToken ct) =>
+        {
+            if (principal.GetUserId() is null)
+                return Results.Unauthorized();
+            var result = await notifications.UnsubscribeFcmAsync(req.Token, ct);
+            return result.Succeeded ? Results.NoContent() : result.Error!.ToProblem();
+        });
+
         // The user's in-app notification inbox.
         group.MapGet("/inbox", async (ClaimsPrincipal principal, NotificationService notifications, CancellationToken ct) =>
         {

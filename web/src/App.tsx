@@ -1,8 +1,13 @@
 import { useEffect, useState } from 'react'
-import { Navigate, Route, Routes } from 'react-router-dom'
+import { Navigate, Route, Routes, useNavigate } from 'react-router-dom'
 import { authApi, tryRefresh } from '@/lib/api'
 import { useAuthStore } from '@/store/auth'
 import { applyPalette } from '@/lib/palette'
+import { isNative } from '@/lib/native'
+import { loadServerOrigin } from '@/lib/server-config'
+import { loadRefreshToken } from '@/lib/native-auth'
+import { registerNativePush } from '@/lib/native-push'
+import { ServerSetupPage } from '@/pages/ServerSetupPage'
 import { Layout } from '@/components/Layout'
 import { Toaster } from '@/components/ui/Toaster'
 import { ConfirmHost } from '@/components/ui/ConfirmHost'
@@ -33,7 +38,11 @@ function AppRoutes() {
   const status = useAuthStore((s) => s.status)
   const user = useAuthStore((s) => s.user)
   const setStatus = useAuthStore((s) => s.setStatus)
+  const navigate = useNavigate()
   const [needsSetup, setNeedsSetup] = useState(false)
+  const [needsServer, setNeedsServer] = useState(false)
+  // Bumped after the native server picker connects, to re-run the bootstrap below.
+  const [bootKey, setBootKey] = useState(0)
 
   // Keep the equipped app theme palette in sync with the signed-in user (gacha cosmetic).
   const equippedThemeKey = user?.equippedThemeKey
@@ -41,9 +50,38 @@ function AppRoutes() {
     applyPalette(equippedThemeKey)
   }, [equippedThemeKey])
 
+  // Native app: once signed in, register for FCM push and deep-link notification taps.
+  useEffect(() => {
+    if (!isNative() || status !== 'authenticated') return
+    let cleanup = () => {}
+    let active = true
+    void registerNativePush((url) => navigate(url)).then((c) => {
+      if (active) cleanup = c
+      else c()
+    })
+    return () => {
+      active = false
+      cleanup()
+    }
+  }, [status, navigate])
+
   useEffect(() => {
     let cancelled = false
     void (async () => {
+      setStatus('loading')
+      // Native: hydrate the persisted server + refresh token before anything calls the API.
+      if (isNative()) {
+        const origin = await loadServerOrigin()
+        if (cancelled) return
+        if (!origin) {
+          setNeedsServer(true)
+          setStatus('unauthenticated')
+          return
+        }
+        setNeedsServer(false)
+        await loadRefreshToken()
+        if (cancelled) return
+      }
       try {
         const { needsSetup } = await authApi.status()
         if (cancelled) return
@@ -52,7 +90,7 @@ function AppRoutes() {
           setStatus('unauthenticated')
           return
         }
-        // Exchange the httpOnly refresh cookie for a session, if one exists.
+        // Restore a session: web exchanges the httpOnly cookie, native its stored refresh token.
         const restored = await tryRefresh()
         if (!cancelled && !restored) setStatus('unauthenticated')
       } catch {
@@ -65,12 +103,17 @@ function AppRoutes() {
     return () => {
       cancelled = true
     }
-  }, [setStatus])
+  }, [setStatus, bootKey])
 
   if (status === 'loading') {
     return (
       <div className="flex min-h-screen items-center justify-center text-muted-foreground">Loading…</div>
     )
+  }
+
+  // Native app with no server chosen yet: gate everything behind the server picker.
+  if (needsServer) {
+    return <ServerSetupPage onConnected={() => setBootKey((k) => k + 1)} />
   }
 
   if (status === 'authenticated') {

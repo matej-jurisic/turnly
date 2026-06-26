@@ -21,12 +21,14 @@ public class NotificationService
 
     private readonly TurnlyDbContext _db;
     private readonly IPushSender _push;
+    private readonly IFcmSender _fcm;
     private readonly ILogger<NotificationService> _logger;
 
-    public NotificationService(TurnlyDbContext db, IPushSender push, ILogger<NotificationService> logger)
+    public NotificationService(TurnlyDbContext db, IPushSender push, IFcmSender fcm, ILogger<NotificationService> logger)
     {
         _db = db;
         _push = push;
+        _fcm = fcm;
         _logger = logger;
     }
 
@@ -70,6 +72,41 @@ public class NotificationService
         if (sub is not null)
         {
             _db.PushSubscriptions.Remove(sub);
+            await _db.SaveChangesAsync(ct);
+        }
+        return Result.Success();
+    }
+
+    /// <summary>Registers (or refreshes) an FCM registration token for the native app. Keyed by
+    /// token, so re-registering the same install updates rather than duplicates.</summary>
+    public async Task<Result> SubscribeFcmAsync(Guid userId, string token, string? userAgent = null, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(token))
+            return Result.Fail(Error.Validation("An FCM subscription requires a token."));
+
+        var label = DeviceLabelFromUserAgent(userAgent);
+        var existing = await _db.FcmDevices.FirstOrDefaultAsync(d => d.Token == token, ct);
+        if (existing is null)
+            _db.FcmDevices.Add(new FcmDevice { UserId = userId, Token = token, DeviceLabel = label });
+        else
+        {
+            // A device can change hands (different user signs in); rebind it to the current user.
+            existing.UserId = userId;
+            if (label is not null)
+                existing.DeviceLabel = label;
+        }
+
+        await _db.SaveChangesAsync(ct);
+        return Result.Success();
+    }
+
+    /// <summary>Removes an FCM token (e.g. on sign-out), so the device stops receiving pushes.</summary>
+    public async Task<Result> UnsubscribeFcmAsync(string token, CancellationToken ct = default)
+    {
+        var device = await _db.FcmDevices.FirstOrDefaultAsync(d => d.Token == token, ct);
+        if (device is not null)
+        {
+            _db.FcmDevices.Remove(device);
             await _db.SaveChangesAsync(ct);
         }
         return Result.Success();
@@ -136,7 +173,8 @@ public class NotificationService
 
         const string title = "Turnly";
         const string body = "Test notification — push is working. 🎉";
-        var payload = JsonSerializer.Serialize(new { title, body, url = "/chores" });
+        const string url = "/chores";
+        var payload = JsonSerializer.Serialize(new { title, body, url });
 
         _db.UserNotifications.Add(new UserNotification { UserId = userId, Title = title, Body = body });
 
@@ -157,6 +195,26 @@ public class NotificationService
                 sent++;
             else if (result == PushSendResult.Gone)
                 _db.PushSubscriptions.Remove(sub);
+        }
+
+        // Also fire to the user's native (FCM) devices.
+        var fcmDevices = await _db.FcmDevices.Where(d => d.UserId == userId).ToListAsync(ct);
+        foreach (var device in fcmDevices)
+        {
+            PushSendResult result;
+            try
+            {
+                result = await _fcm.SendAsync(device.Token, title, body, url, choreId: null, ct);
+            }
+            catch
+            {
+                continue;
+            }
+
+            if (result == PushSendResult.Ok)
+                sent++;
+            else if (result == PushSendResult.Gone)
+                _db.FcmDevices.Remove(device);
         }
 
         await _db.SaveChangesAsync(ct);
@@ -261,6 +319,13 @@ public class NotificationService
             .GroupBy(s => s.UserId)
             .ToDictionary(g => g.Key, g => g.ToList());
 
+        // Native (FCM) devices for the same recipients - fired alongside Web Push.
+        var fcmByUser = (await _db.FcmDevices
+                .Where(d => recipientIds.Contains(d.UserId))
+                .ToListAsync(ct))
+            .GroupBy(d => d.UserId)
+            .ToDictionary(g => g.Key, g => g.ToList());
+
         // Quiet-hours windows for everyone who could receive a push, so we can mute (but still inbox) it.
         // Also load frozen status so we can skip notifications to frozen users entirely.
         var userFlags = (await _db.Users
@@ -290,7 +355,7 @@ public class NotificationService
                         if (track.DueAt is not { } trackDue) continue;
                         if (frozenUserIds.Contains(track.UserId)) continue;
                         if (await TryFireAsync(chore, entry, trackDue, track.UserId, [track.UserId],
-                                delivered, subsByUser, quietByUser, localNow, now, ct))
+                                delivered, subsByUser, fcmByUser, quietByUser, localNow, now, ct))
                             fired++;
                     }
                 }
@@ -303,7 +368,7 @@ public class NotificationService
                         .Distinct()
                         .ToList();
                     if (await TryFireAsync(chore, entry, dueAt, dedupUserId: null, recipients,
-                            delivered, subsByUser, quietByUser, localNow, now, ct))
+                            delivered, subsByUser, fcmByUser, quietByUser, localNow, now, ct))
                         fired++;
                 }
             }
@@ -321,6 +386,7 @@ public class NotificationService
         Chore chore, ChoreNotification entry, DateTimeOffset occurrenceDueAt, Guid? dedupUserId,
         IReadOnlyList<Guid> recipientIds, HashSet<(Guid, long, Guid?)> delivered,
         Dictionary<Guid, List<PushSubscription>> subsByUser,
+        Dictionary<Guid, List<FcmDevice>> fcmByUser,
         Dictionary<Guid, (TimeOnly? Start, TimeOnly? End)> quietByUser, TimeOnly localNow, DateTimeOffset now, CancellationToken ct)
     {
         var fireAt = NotificationPlanner.FireTime(entry, occurrenceDueAt);
@@ -333,7 +399,7 @@ public class NotificationService
 
         // In track mode the message names the track owner; otherwise the chore's current assignee.
         await SendEntryAsync(chore, entry, occurrenceDueAt, recipientIds,
-            dedupUserId ?? chore.CurrentAssigneeId, subsByUser, quietByUser, localNow, now, ct);
+            dedupUserId ?? chore.CurrentAssigneeId, subsByUser, fcmByUser, quietByUser, localNow, now, ct);
 
         _db.NotificationDeliveries.Add(new NotificationDelivery
         {
@@ -349,16 +415,12 @@ public class NotificationService
     private async Task SendEntryAsync(
         Chore chore, ChoreNotification entry, DateTimeOffset occurrenceDueAt, IReadOnlyList<Guid> recipientIds,
         Guid? messageAssigneeId, Dictionary<Guid, List<PushSubscription>> subsByUser,
+        Dictionary<Guid, List<FcmDevice>> fcmByUser,
         Dictionary<Guid, (TimeOnly? Start, TimeOnly? End)> quietByUser, TimeOnly localNow, DateTimeOffset now, CancellationToken ct)
     {
         var (title, body) = BuildMessage(chore, entry, occurrenceDueAt, messageAssigneeId, now);
-        var payload = JsonSerializer.Serialize(new
-        {
-            title,
-            body,
-            url = $"/chores?chore={chore.Id}",
-            choreId = chore.Id
-        });
+        var url = $"/chores?chore={chore.Id}";
+        var payload = JsonSerializer.Serialize(new { title, body, url, choreId = chore.Id });
 
         var attempted = 0;
         foreach (var userId in recipientIds)
@@ -372,30 +434,53 @@ public class NotificationService
                 ChoreId = chore.Id
             });
 
-            if (!subsByUser.TryGetValue(userId, out var subs))
-                continue;
-
             // Suppress the push (but not the inbox row) while this recipient is in their quiet hours.
+            // Applies to both Web Push and native FCM.
             if (quietByUser.TryGetValue(userId, out var quiet) &&
                 QuietHours.Contains(quiet.Start, quiet.End, localNow))
                 continue;
 
-            foreach (var sub in subs)
+            // Web Push devices.
+            if (subsByUser.TryGetValue(userId, out var subs))
             {
-                attempted++;
-                PushSendResult result;
-                try
+                foreach (var sub in subs)
                 {
-                    result = await _push.SendAsync(sub, payload, ct);
-                }
-                catch
-                {
-                    // Never let a single bad send abort the scan.
-                    continue;
-                }
+                    attempted++;
+                    PushSendResult result;
+                    try
+                    {
+                        result = await _push.SendAsync(sub, payload, ct);
+                    }
+                    catch
+                    {
+                        // Never let a single bad send abort the scan.
+                        continue;
+                    }
 
-                if (result == PushSendResult.Gone)
-                    _db.PushSubscriptions.Remove(sub);
+                    if (result == PushSendResult.Gone)
+                        _db.PushSubscriptions.Remove(sub);
+                }
+            }
+
+            // Native (FCM) devices.
+            if (fcmByUser.TryGetValue(userId, out var devices))
+            {
+                foreach (var device in devices)
+                {
+                    attempted++;
+                    PushSendResult result;
+                    try
+                    {
+                        result = await _fcm.SendAsync(device.Token, title, body, url, chore.Id, ct);
+                    }
+                    catch
+                    {
+                        continue;
+                    }
+
+                    if (result == PushSendResult.Gone)
+                        _db.FcmDevices.Remove(device);
+                }
             }
         }
 

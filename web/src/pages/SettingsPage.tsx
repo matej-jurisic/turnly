@@ -6,6 +6,10 @@ import { toast } from '@/lib/toast'
 import { confirm } from '@/lib/confirm'
 import { syncAppearanceFromServer } from '@/lib/appearance'
 import { disablePush, enablePush, getCurrentEndpoint, isPushEnabled, pushPermission } from '@/lib/push'
+import { isNative } from '@/lib/native'
+import { clearServerOrigin, getServerOrigin } from '@/lib/server-config'
+import { setRefreshToken } from '@/lib/native-auth'
+import { unregisterNativePush } from '@/lib/native-push'
 import { useAuthStore } from '@/store/auth'
 import { Button } from '@/components/ui/Button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
@@ -58,6 +62,8 @@ export function SettingsPage() {
       <h1 className="text-2xl font-semibold text-foreground">Settings</h1>
 
       <AccountCard />
+
+      {isNative() && <ServerCard />}
 
       <NotificationsCard />
 
@@ -115,6 +121,48 @@ function AccountCard() {
           Choose your avatar color, frame, and app theme from the account menu (Customization). Unlock
           more in the Gacha.
         </p>
+      </CardContent>
+    </Card>
+  )
+}
+
+function ServerCard() {
+  const [busy, setBusy] = useState(false)
+  const origin = getServerOrigin()
+
+  async function onChange() {
+    const ok = await confirm({
+      title: 'Change server',
+      message: 'This signs you out of this server and returns to the server picker. Continue?',
+      confirmLabel: 'Change server',
+    })
+    if (!ok) return
+    setBusy(true)
+    try {
+      await unregisterNativePush()
+      await authApi.logout()
+    } catch {
+      // Switching servers regardless; a failed logout call shouldn't block it.
+    }
+    await setRefreshToken(null)
+    await clearServerOrigin()
+    useAuthStore.getState().clear()
+    // Reload re-runs the bootstrap, which now finds no saved server and shows the picker.
+    window.location.reload()
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Server</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <p className="text-sm text-muted-foreground">
+          Connected to <span className="text-foreground">{origin}</span>.
+        </p>
+        <Button type="button" variant="secondary" disabled={busy} onClick={onChange}>
+          {busy ? 'Switching…' : 'Change server'}
+        </Button>
       </CardContent>
     </Card>
   )

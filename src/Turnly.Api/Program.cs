@@ -55,13 +55,18 @@ builder.Services
 builder.Services.AddAuthorization(options =>
     options.AddPolicy("Admin", policy => policy.RequireRole(nameof(UserRole.Admin))));
 
-// Dev-only CORS: the Vite dev server is expected to proxy /api (same-origin), but allow
-// direct cross-origin calls with credentials as a fallback when origins are configured.
-var devOrigins = builder.Configuration.GetSection("Cors:Origins").Get<string[]>() ?? [];
-if (devOrigins.Length > 0)
+// Cross-origin clients that aren't served same-origin from this host. Two cases:
+//   - the Vite dev server (when it isn't proxying /api), e.g. http://localhost:5173;
+//   - the native Android app (Capacitor), whose WebView origin is https://localhost.
+// Self-hosters opt in by listing the origins in Cors:Origins. AllowAnyHeader covers the
+// X-Turnly-Client marker the app sends; AllowCredentials is required for the auth flows.
+var corsOrigins = (builder.Configuration.GetSection("Cors:Origins").Get<string[]>() ?? [])
+    .Where(o => !string.IsNullOrWhiteSpace(o))
+    .ToArray();
+if (corsOrigins.Length > 0)
 {
-    builder.Services.AddCors(options => options.AddPolicy("dev", policy =>
-        policy.WithOrigins(devOrigins).AllowAnyHeader().AllowAnyMethod().AllowCredentials()));
+    builder.Services.AddCors(options => options.AddPolicy("app", policy =>
+        policy.WithOrigins(corsOrigins).AllowAnyHeader().AllowAnyMethod().AllowCredentials()));
 }
 
 var app = builder.Build();
@@ -75,8 +80,8 @@ if (app.Configuration.GetValue("Database:MigrateOnStartup", true))
 app.UseDefaultFiles();
 app.UseStaticFiles();
 
-if (devOrigins.Length > 0)
-    app.UseCors("dev");
+if (corsOrigins.Length > 0)
+    app.UseCors("app");
 
 app.UseAuthentication();
 app.UseAuthorization();

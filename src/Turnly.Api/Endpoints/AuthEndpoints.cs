@@ -21,7 +21,9 @@ public static class AuthEndpoints
 
         group.MapPost("/refresh", async (AuthService auth, RefreshCookieManager cookies, HttpContext http, CancellationToken ct) =>
         {
-            var result = await auth.RefreshAsync(cookies.Read(http), ct);
+            // Web presents the token via the httpOnly cookie; native presents it via header.
+            var token = cookies.Read(http) ?? http.ReadRefreshHeader();
+            var result = await auth.RefreshAsync(token, ct);
             if (!result.Succeeded)
             {
                 cookies.Clear(http);
@@ -32,7 +34,8 @@ public static class AuthEndpoints
 
         group.MapPost("/logout", async (AuthService auth, RefreshCookieManager cookies, HttpContext http, CancellationToken ct) =>
         {
-            await auth.LogoutAsync(cookies.Read(http), ct);
+            var token = cookies.Read(http) ?? http.ReadRefreshHeader();
+            await auth.LogoutAsync(token, ct);
             cookies.Clear(http);
             return Results.NoContent();
         });

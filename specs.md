@@ -232,6 +232,20 @@ chore-earned points used for awards, so it is a reward sink, not gambling.
 - Works offline (read-only, queues completions for sync)
 - App-like experience: no browser chrome, splash screen, home screen icon
 
+## Standalone Android app
+
+- A native Android APK (Capacitor) that bundles the web UI and connects to a self-hosted Turnly
+  server chosen by the user
+- **First-run server picker** — the user enters their server address (e.g. `https://turnly.myhome.net`),
+  validated against the server before saving; changeable later under Settings. One APK works for any
+  self-hosted instance
+- **Native sign-in** — because the app has no same-origin server, the refresh token is stored in
+  secure device storage rather than an httpOnly cookie (the web build is unchanged)
+- The server must allow the app's origin (`https://localhost`) via `Cors:Origins`
+- **Native push** via Firebase Cloud Messaging - reminders arrive as system notifications and deep-link
+  the chore on tap (the same schedule as Web Push). Optional: the app and server run fine without
+  Firebase (push disabled, in-app inbox still works)
+
 ---
 
 ## Self-Hosting

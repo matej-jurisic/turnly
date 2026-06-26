@@ -1,4 +1,7 @@
 import { useAuthStore } from '@/store/auth'
+import { isNative } from '@/lib/native'
+import { getServerOrigin } from '@/lib/server-config'
+import { getRefreshToken, setRefreshToken } from '@/lib/native-auth'
 import type {
   AppSettings,
   AuthResponse,
@@ -33,7 +36,19 @@ import type {
   UserFreezePreview,
 } from '@/lib/types'
 
-const BASE = '/api'
+/**
+ * Resolve the API base. On the web the app is served same-origin, so a relative `/api` is used
+ * (and the httpOnly refresh cookie "just works"). In the native shell there is no same-origin
+ * server, so we prefix the user-chosen backend origin. Resolved per request because the native
+ * server can be set/changed at runtime via the server picker.
+ */
+function apiBase(): string {
+  if (isNative()) {
+    const origin = getServerOrigin()
+    if (origin) return `${origin}/api`
+  }
+  return '/api'
+}
 
 export class ApiError extends Error {
   status: number
@@ -47,9 +62,19 @@ export class ApiError extends Error {
 let refreshPromise: Promise<boolean> | null = null
 
 async function performRefresh(): Promise<boolean> {
-  const res = await fetch(`${BASE}/auth/refresh`, { method: 'POST', credentials: 'include' })
+  const headers = new Headers()
+  // Native presents its stored refresh token via header (no cookie); bail early if there's none.
+  if (isNative()) {
+    const stored = getRefreshToken()
+    if (!stored) return false
+    headers.set('X-Turnly-Client', 'android')
+    headers.set('X-Refresh-Token', stored)
+  }
+  const res = await fetch(`${apiBase()}/auth/refresh`, { method: 'POST', credentials: 'include', headers })
   if (!res.ok) return false
   const data = (await res.json()) as AuthResponse
+  // The refresh token is rotated on every refresh; persist the new one on native.
+  if (isNative()) await setRefreshToken(data.refreshToken ?? null)
   useAuthStore.getState().setAuth(data.accessToken, data.user)
   return true
 }
@@ -75,8 +100,9 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
   const token = useAuthStore.getState().accessToken
   if (token) headers.set('Authorization', `Bearer ${token}`)
   if (init.body && !headers.has('Content-Type')) headers.set('Content-Type', 'application/json')
+  if (isNative()) headers.set('X-Turnly-Client', 'android')
 
-  const res = await fetch(`${BASE}${path}`, { ...init, headers, credentials: 'include' })
+  const res = await fetch(`${apiBase()}${path}`, { ...init, headers, credentials: 'include' })
 
   if (res.status === 401 && retry) {
     const refreshed = await tryRefresh()
@@ -106,15 +132,29 @@ const json = (body: unknown) => JSON.stringify(body)
 
 export const authApi = {
   status: () => request<{ needsSetup: boolean }>('/setup/status', { retry: false }),
-  setup: (body: SetupRequest) =>
-    request<AuthResponse>('/setup', { method: 'POST', body: json(body), retry: false }),
-  login: (username: string, password: string) =>
-    request<AuthResponse>('/auth/login', {
+  setup: async (body: SetupRequest) => {
+    const data = await request<AuthResponse>('/setup', { method: 'POST', body: json(body), retry: false })
+    if (isNative()) await setRefreshToken(data.refreshToken ?? null)
+    return data
+  },
+  login: async (username: string, password: string) => {
+    const data = await request<AuthResponse>('/auth/login', {
       method: 'POST',
       body: json({ username, password }),
       retry: false,
-    }),
-  logout: () => request<void>('/auth/logout', { method: 'POST', retry: false }),
+    })
+    if (isNative()) await setRefreshToken(data.refreshToken ?? null)
+    return data
+  },
+  logout: async () => {
+    // Native must hand its stored token to the server so it can be revoked, then forget it.
+    const headers = isNative() ? { 'X-Refresh-Token': getRefreshToken() ?? '' } : undefined
+    try {
+      await request<void>('/auth/logout', { method: 'POST', retry: false, headers })
+    } finally {
+      if (isNative()) await setRefreshToken(null)
+    }
+  },
   me: () => request<User>('/auth/me'),
   changePassword: (currentPassword: string, newPassword: string) =>
     request<void>('/auth/change-password', {
@@ -202,6 +242,10 @@ export const notificationsApi = {
     request<void>('/notifications/subscribe', { method: 'POST', body: json(body) }),
   unsubscribe: (endpoint: string) =>
     request<void>('/notifications/unsubscribe', { method: 'POST', body: json({ endpoint }) }),
+  fcmSubscribe: (token: string) =>
+    request<void>('/notifications/fcm-subscribe', { method: 'POST', body: json({ token }) }),
+  fcmUnsubscribe: (token: string) =>
+    request<void>('/notifications/fcm-unsubscribe', { method: 'POST', body: json({ token }) }),
   test: () => request<{ sent: number }>('/notifications/test', { method: 'POST', body: json({}) }),
   devices: () => request<PushDevice[]>('/notifications/devices'),
   removeDevice: (id: string) => request<void>(`/notifications/devices/${id}`, { method: 'DELETE' }),

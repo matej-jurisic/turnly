@@ -15,6 +15,11 @@ services:
       Vapid__PublicKey: ${VAPID_PUBLIC_KEY:-}
       Vapid__PrivateKey: ${VAPID_PRIVATE_KEY:-}
       Vapid__Subject: ${VAPID_SUBJECT:-mailto:admin@example.com}
+      # Native (Android) push via Firebase Cloud Messaging. Mount the service-account JSON and
+      # point this at it; leave blank to disable native push.
+      Fcm__CredentialsPath: ${FCM_CREDENTIALS_PATH:-}
+      # Allow the native app's WebView origin (https://localhost). Blank values are ignored.
+      Cors__Origins__0: ${CORS_ORIGIN_ANDROID:-}
     volumes:
       - turnly-data:/data
     restart: unless-stopped

@@ -18,6 +18,7 @@ public static class ServiceCollectionExtensions
     {
         services.Configure<JwtOptions>(config.GetSection(JwtOptions.SectionName));
         services.Configure<VapidOptions>(config.GetSection(VapidOptions.SectionName));
+        services.Configure<FcmOptions>(config.GetSection(FcmOptions.SectionName));
 
         var provider = (config["Database:Provider"] ?? "sqlite").Trim().ToLowerInvariant();
         var connectionString = config.GetConnectionString("Default");
@@ -45,6 +46,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<GachaService>();
         services.AddScoped<ResetService>();
         services.AddSingleton<IPushSender, WebPushSender>();
+        services.AddSingleton<IFcmSender, FcmSender>();
 
         return services;
     }

@@ -88,6 +88,8 @@ export interface AuthResponse {
   accessToken: string
   accessTokenExpiresAt: string
   user: User
+  /** Native clients only: the refresh token to store on-device (web uses the httpOnly cookie). */
+  refreshToken?: string
 }
 
 export interface SetupRequest {

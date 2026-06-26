@@ -353,6 +353,37 @@ namespace Turnly.Core.Migrations
                     b.ToTable("ChoreNotifications");
                 });
 
+            modelBuilder.Entity("Turnly.Core.Entities.FcmDevice", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("DeviceLabel")
+                        .HasMaxLength(128)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Token")
+                        .IsRequired()
+                        .HasMaxLength(512)
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Token")
+                        .IsUnique();
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("FcmDevices");
+                });
+
             modelBuilder.Entity("Turnly.Core.Entities.NotificationDelivery", b =>
                 {
                     b.Property<Guid>("Id")
@@ -833,6 +864,17 @@ namespace Turnly.Core.Migrations
                         .IsRequired();
 
                     b.Navigation("Chore");
+                });
+
+            modelBuilder.Entity("Turnly.Core.Entities.FcmDevice", b =>
+                {
+                    b.HasOne("Turnly.Core.Entities.User", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("User");
                 });
 
             modelBuilder.Entity("Turnly.Core.Entities.NotificationDelivery", b =>

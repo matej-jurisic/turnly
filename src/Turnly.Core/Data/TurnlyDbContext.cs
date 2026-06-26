@@ -23,6 +23,7 @@ public class TurnlyDbContext : DbContext
     public DbSet<Redemption> Redemptions => Set<Redemption>();
     public DbSet<ChoreNotification> ChoreNotifications => Set<ChoreNotification>();
     public DbSet<PushSubscription> PushSubscriptions => Set<PushSubscription>();
+    public DbSet<FcmDevice> FcmDevices => Set<FcmDevice>();
     public DbSet<NotificationDelivery> NotificationDeliveries => Set<NotificationDelivery>();
     public DbSet<UserNotification> UserNotifications => Set<UserNotification>();
     public DbSet<AppSetting> AppSettings => Set<AppSetting>();
@@ -212,6 +213,19 @@ public class TurnlyDbContext : DbContext
             e.Property(x => x.Endpoint).IsRequired().HasMaxLength(2048);
             e.Property(x => x.P256dh).IsRequired().HasMaxLength(256);
             e.Property(x => x.Auth).IsRequired().HasMaxLength(256);
+            e.Property(x => x.DeviceLabel).HasMaxLength(128);
+
+            e.HasOne(x => x.User)
+                .WithMany()
+                .HasForeignKey(x => x.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        b.Entity<FcmDevice>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.HasIndex(x => x.Token).IsUnique();
+            e.Property(x => x.Token).IsRequired().HasMaxLength(512);
             e.Property(x => x.DeviceLabel).HasMaxLength(128);
 
             e.HasOne(x => x.User)

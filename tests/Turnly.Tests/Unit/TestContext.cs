@@ -28,6 +28,7 @@ public sealed class TestContext : IDisposable
     public AwardService Awards { get; }
     public RedemptionService Redemptions { get; }
     public FakePushSender Push { get; }
+    public FakeFcmSender Fcm { get; }
     public NotificationService Notifications { get; }
     public AppSettingsService Settings { get; }
     public AchievementService Achievements { get; }
@@ -55,6 +56,7 @@ public sealed class TestContext : IDisposable
         }));
 
         Push = new FakePushSender();
+        Fcm = new FakeFcmSender();
         Achievements = new AchievementService(Db);
         Auth = new AuthService(Db, Hasher, Tokens);
         Setup = new SetupService(Db, Hasher, Auth);
@@ -63,7 +65,7 @@ public sealed class TestContext : IDisposable
         Users = new UserService(Db, Hasher, Achievements, Chores);
         Awards = new AwardService(Db);
         Redemptions = new RedemptionService(Db, Achievements);
-        Notifications = new NotificationService(Db, Push, NullLogger<NotificationService>.Instance);
+        Notifications = new NotificationService(Db, Push, Fcm, NullLogger<NotificationService>.Instance);
         Settings = new AppSettingsService(Db);
         // Seeded RNG so gacha pulls are deterministic in tests.
         Gacha = new GachaService(Db, new Random(12345));
@@ -89,6 +91,21 @@ public sealed class FakePushSender : IPushSender
         if (GoneEndpoints.Contains(subscription.Endpoint))
             return Task.FromResult(PushSendResult.Gone);
         Sent.Add((subscription.Endpoint, payloadJson));
+        return Task.FromResult(PushSendResult.Ok);
+    }
+}
+
+/// <summary>Records every FCM send and lets a test mark certain tokens as dead (Gone).</summary>
+public sealed class FakeFcmSender : IFcmSender
+{
+    public List<(string Token, string Title, string Body, string Url, Guid? ChoreId)> Sent { get; } = new();
+    public HashSet<string> GoneTokens { get; } = new();
+
+    public Task<PushSendResult> SendAsync(string token, string title, string body, string url, Guid? choreId, CancellationToken ct = default)
+    {
+        if (GoneTokens.Contains(token))
+            return Task.FromResult(PushSendResult.Gone);
+        Sent.Add((token, title, body, url, choreId));
         return Task.FromResult(PushSendResult.Ok);
     }
 }
