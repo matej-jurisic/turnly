@@ -169,10 +169,10 @@ public class NotificationService
         var subs = await _db.PushSubscriptions.Where(s => s.UserId == userId).ToListAsync(ct);
         if (subs.Count == 0)
             return Result.Fail<int>(Error.Validation(
-                "No push subscription on this account — enable notifications on this device first."));
+                "No push subscription on this account. Enable notifications on this device first."));
 
         const string title = "Turnly";
-        const string body = "Test notification — push is working. 🎉";
+        const string body = "Test notification: push is working. 🎉";
         const string url = "/chores";
         var payload = JsonSerializer.Serialize(new { title, body, url });
 
