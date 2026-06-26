@@ -41,16 +41,8 @@ public class FcmSender : IFcmSender
                     ? GoogleCredential.FromJson(_options.CredentialsJson)
                     : GoogleCredential.FromFile(_options.CredentialsPath);
 
-                FirebaseApp app;
-                try
-                {
-                    // GetInstance throws if the named app doesn't exist yet; create it on first use.
-                    app = FirebaseApp.GetInstance(AppName);
-                }
-                catch
-                {
-                    app = FirebaseApp.Create(new AppOptions { Credential = credential }, AppName);
-                }
+                var app = FirebaseApp.GetInstance(AppName)
+                    ?? FirebaseApp.Create(new AppOptions { Credential = credential }, AppName);
 
                 _messaging = FirebaseMessaging.GetMessaging(app);
                 return _messaging;
