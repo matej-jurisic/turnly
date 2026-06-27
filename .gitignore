@@ -23,6 +23,11 @@ web/.vite/
 *.jks
 *.keystore
 
+# Android build artifacts (distribute via GitHub Releases, not the repo)
+/release/
+*.apk
+*.aab
+
 # Local dev config — holds dev-only secrets (JWT signing key, VAPID keys); not committed.
 # Copy appsettings.Development.json.example to appsettings.Development.json to set up.
 src/Turnly.Api/appsettings.Development.json
