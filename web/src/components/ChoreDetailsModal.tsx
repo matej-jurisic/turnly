@@ -104,7 +104,7 @@ export function ChoreDetailsModal({ chore, onClose, onComplete }: ChoreDetailsMo
                     className="flex items-center justify-between gap-2 rounded-lg border border-border bg-accent/50 px-3 py-2"
                   >
                     <div className="flex min-w-0 items-center gap-2">
-                      <Avatar color={t.user.avatarColor} name={t.user.displayName} size={20} frame={t.user.equippedFrameKey} />
+                      <Avatar color={t.user.avatarColor} name={t.user.displayName} size={20} frame={t.user.equippedFrameKey} emoji={t.user.avatarEmoji} />
                       <div className="min-w-0">
                         <span className="flex items-center gap-1.5 truncate text-sm text-foreground">
                           {t.user.displayName}
@@ -152,7 +152,7 @@ export function ChoreDetailsModal({ chore, onClose, onComplete }: ChoreDetailsMo
                         : 'bg-accent text-muted-foreground')
                   }
                 >
-                  <Avatar color={u.avatarColor} name={u.displayName} size={16} frame={u.equippedFrameKey} />
+                  <Avatar color={u.avatarColor} name={u.displayName} size={16} frame={u.equippedFrameKey} emoji={u.avatarEmoji} />
                   {u.displayName}
                   {u.id === chore.currentAssignee?.id && (
                     <span className="ml-0.5 opacity-70">· current</span>

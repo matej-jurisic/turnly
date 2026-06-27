@@ -5,10 +5,12 @@ import { choresApi, ApiError } from '@/lib/api'
 import { toast } from '@/lib/toast'
 import { confirm } from '@/lib/confirm'
 import { useAuthStore } from '@/store/auth'
-import type { Chore, User } from '@/lib/types'
+import type { Chore, LeaderboardEntry, User } from '@/lib/types'
 import { PlusIcon } from '@/components/chores/icons'
 import { CompleteModal } from '@/components/CompleteModal'
 import { ChoreDetailsModal } from '@/components/ChoreDetailsModal'
+import { ChoreRail } from '@/components/chores/ChoreRail'
+import { UserDetailsModal } from '@/components/UserDetailsModal'
 import { ChoreSection } from '@/components/chores/ChoreSection'
 import { ChoreListItem } from '@/components/chores/ChoreListItem'
 import { ChoreCompactItem } from '@/components/chores/ChoreCompactItem'
@@ -42,6 +44,7 @@ export function ChoresPage() {
   const [rescheduling, setRescheduling] = useState<Chore | null>(null)
   const [copying, setCopying] = useState<Chore | null>(null)
   const [details, setDetails] = useState<Chore | null>(null)
+  const [railUser, setRailUser] = useState<LeaderboardEntry | null>(null)
   const [filters, setFilters] = useState<ChoreFilterState>(emptyFilters)
   const [view, setView] = useState<ChoreView>(
     () => (localStorage.getItem(VIEW_KEY) as ChoreView | null) ?? 'list',
@@ -190,56 +193,76 @@ export function ChoresPage() {
   })
 
   return (
-    <div className="space-y-4 pb-24 md:space-y-6">
-      {/* Quick views + view switcher + filters (round icon toolbar) */}
-      {(chores ?? []).length > 0 && (
-        <ChoreFilters
-          value={filters}
-          onChange={setFilters}
-          tags={allTags}
-          assignees={allAssignees}
-          currentUserId={currentUser?.id}
-          view={view}
-          onViewChange={changeView}
-        />
-      )}
+    <div className="pb-24">
+      {/* Below xl: a centered max-w-5xl column (the rail is hidden), matching every other page.
+          At xl: the page goes full-width so the rail anchors to the right edge and the chore column
+          centers in the space left of it. */}
+      <div className="mx-auto w-full max-w-5xl xl:max-w-none xl:flex xl:items-start xl:gap-6">
+        {/* Main column grows to fill the space left of the rail; its content is centered within
+            that space (capped width + side gutters) so it doesn't hug the left edge. */}
+        <div className="min-w-0 flex-1">
+          <div className="w-full space-y-4 md:space-y-6 xl:mx-auto xl:max-w-2xl">
+            {/* Quick views + view switcher + filters (round icon toolbar) */}
+            {(chores ?? []).length > 0 && (
+              <ChoreFilters
+                value={filters}
+                onChange={setFilters}
+                tags={allTags}
+                assignees={allAssignees}
+                currentUserId={currentUser?.id}
+                view={view}
+                onViewChange={changeView}
+              />
+            )}
 
-      {isLoading && <p className="text-muted-foreground">Loading…</p>}
-      {error && <p className="text-destructive">{(error as ApiError).message}</p>}
+            {isLoading && <p className="text-muted-foreground">Loading…</p>}
+            {error && <p className="text-destructive">{(error as ApiError).message}</p>}
 
-      {!isLoading && (chores ?? []).length === 0 && (
-        <p className="text-muted-foreground">No chores yet{isAdmin ? ', add one to get started.' : '.'}</p>
-      )}
-      {!isLoading && (chores ?? []).length > 0 && view !== 'calendar' && filtered.length === 0 && (
-        <p className="text-muted-foreground">No chores match the current filters.</p>
-      )}
+            {!isLoading && (chores ?? []).length === 0 && (
+              <p className="text-muted-foreground">No chores yet{isAdmin ? ', add one to get started.' : '.'}</p>
+            )}
+            {!isLoading && (chores ?? []).length > 0 && view !== 'calendar' && filtered.length === 0 && (
+              <p className="text-muted-foreground">No chores match the current filters.</p>
+            )}
 
-      {view === 'calendar' && (chores ?? []).length > 0 && (
-        <ChoreCalendar chores={filtered} itemProps={itemProps} />
-      )}
+            {view === 'calendar' && (chores ?? []).length > 0 && (
+              <ChoreCalendar chores={filtered} itemProps={itemProps} />
+            )}
 
-      {view !== 'calendar' &&
-        ([
-          { title: 'Overdue', tone: 'destructive' as const, items: overdue },
-          { title: 'Today', tone: undefined, items: today },
-          { title: 'This week', tone: undefined, items: upcoming },
-          { title: 'Later', tone: undefined, items: later },
-          { title: 'Paused', tone: 'neutral' as const, items: paused },
-        ])
-          .filter((s) => s.items.length > 0)
-          .map((s) => (
-            <ChoreSection key={s.title} title={s.title} tone={s.tone} count={s.items.length}>
-              {view === 'compact' ? (
-                <Card className="divide-y divide-border p-0">
-                  {s.items.map((chore) => <ChoreCompactItem key={chore.id} {...itemProps(chore)} />)}
-                </Card>
-              ) : (
-                <div className="grid gap-6">
-                  {s.items.map((chore) => <ChoreListItem key={chore.id} {...itemProps(chore)} />)}
-                </div>
-              )}
-            </ChoreSection>
-          ))}
+            {view !== 'calendar' &&
+              ([
+                { title: 'Overdue', tone: 'destructive' as const, items: overdue },
+                { title: 'Today', tone: undefined, items: today },
+                { title: 'This week', tone: undefined, items: upcoming },
+                { title: 'Later', tone: undefined, items: later },
+                { title: 'Paused', tone: 'neutral' as const, items: paused },
+              ])
+                .filter((s) => s.items.length > 0)
+                .map((s) => (
+                  <ChoreSection key={s.title} title={s.title} tone={s.tone} count={s.items.length}>
+                    {view === 'compact' ? (
+                      <Card className="divide-y divide-border p-0">
+                        {s.items.map((chore) => <ChoreCompactItem key={chore.id} {...itemProps(chore)} />)}
+                      </Card>
+                    ) : (
+                      <div className="grid gap-6">
+                        {s.items.map((chore) => <ChoreListItem key={chore.id} {...itemProps(chore)} />)}
+                      </div>
+                    )}
+                  </ChoreSection>
+                ))}
+          </div>
+        </div>
+
+        {/* Right info rail (desktop xl+ only). */}
+        {currentUser && (
+          <aside className="mt-4 hidden xl:mt-0 xl:block xl:w-72 xl:shrink-0">
+            <div className="sticky top-20">
+              <ChoreRail chores={chores ?? []} currentUser={currentUser} onSelectUser={setRailUser} />
+            </div>
+          </aside>
+        )}
+      </div>
 
       {creating && (
         <ChoreFormModal
@@ -313,6 +336,19 @@ export function ChoresPage() {
           chore={details}
           onClose={() => setDetails(null)}
           onComplete={() => { setCompleting(details); setDetails(null) }}
+        />
+      )}
+
+      {railUser && (
+        <UserDetailsModal
+          userId={railUser.id}
+          displayName={railUser.displayName}
+          avatarColor={railUser.avatarColor}
+          avatarEmoji={railUser.avatarEmoji}
+          equippedFrameKey={railUser.equippedFrameKey}
+          points={railUser.points}
+          weeklyPoints={railUser.weeklyPoints}
+          onClose={() => setRailUser(null)}
         />
       )}
 

@@ -182,6 +182,10 @@ public class GachaService
                     return Result.Fail(Error.Validation("Pick a color to equip."));
                 user.AvatarColor = def.Value;
                 break;
+            case CosmeticSlot.Emoji:
+                // A null key clears the emoji, falling back to initials.
+                user.AvatarEmoji = def?.Value;
+                break;
         }
 
         await _db.SaveChangesAsync(ct);
@@ -220,6 +224,7 @@ public class GachaService
             CosmeticSlot.Frame => user.EquippedFrameKey == def.Key,
             CosmeticSlot.Theme => user.EquippedThemeKey == def.Key,
             CosmeticSlot.Color => string.Equals(user.AvatarColor, def.Value, StringComparison.OrdinalIgnoreCase),
+            CosmeticSlot.Emoji => user.AvatarEmoji == def.Value,
             _ => false
         };
         return new CosmeticDto(def.Key, def.Name, def.Description, def.Slot, def.Rarity,

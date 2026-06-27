@@ -24,10 +24,15 @@ public record UserDto(
     /// <summary>Equipped app theme palette key (or null). Only meaningful for the owner's own view.</summary>
     public string? EquippedThemeKey { get; init; }
 
+    /// <summary>Equipped avatar emoji (or null for initials). Carried on every user projection so the
+    /// emoji renders wherever an avatar shows.</summary>
+    public string? AvatarEmoji { get; init; }
+
     public static UserDto FromEntity(User u, int weeklyPoints = 0) =>
         new(u.Id, u.Username, u.DisplayName, u.AvatarColor, u.Role, u.Points, weeklyPoints, u.CreatedAt,
             u.QuietHoursStart?.ToString("HH:mm"), u.QuietHoursEnd?.ToString("HH:mm"))
-            { IsFrozen = u.IsFrozen, EquippedFrameKey = u.EquippedFrameKey, EquippedThemeKey = u.EquippedThemeKey };
+            { IsFrozen = u.IsFrozen, EquippedFrameKey = u.EquippedFrameKey, EquippedThemeKey = u.EquippedThemeKey,
+              AvatarEmoji = u.AvatarEmoji };
 }
 
 public record LeaderboardEntryDto(
@@ -36,7 +41,8 @@ public record LeaderboardEntryDto(
     string AvatarColor,
     int Points,
     int WeeklyPoints,
-    string? EquippedFrameKey = null);
+    string? EquippedFrameKey = null,
+    string? AvatarEmoji = null);
 
 /// <summary>
 /// Result of a successful authentication. The raw <see cref="RefreshToken"/> is set by
@@ -437,7 +443,9 @@ public record UserStatsDto(
     int AllTimeCount,
     int OnTimeCount,
     int OverdueCount,
-    int MissedCount);
+    int MissedCount,
+    string? AvatarEmoji = null,
+    string? EquippedFrameKey = null);
 
 public record UserWeeklyCountDto(
     Guid UserId,

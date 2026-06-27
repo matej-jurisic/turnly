@@ -173,7 +173,7 @@ export function ChoreFilters({
                       active={value.assignees.includes(u.id)}
                       onClick={() => onChange({ ...value, assignees: toggle(value.assignees, u.id) })}
                     >
-                      <Avatar color={u.avatarColor} name={u.displayName} size={16} />
+                      <Avatar color={u.avatarColor} name={u.displayName} size={16} frame={u.equippedFrameKey} emoji={u.avatarEmoji} />
                       {u.displayName}
                     </TogglePill>
                   ))}

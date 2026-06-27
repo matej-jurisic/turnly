@@ -188,7 +188,7 @@ export function SearchBar({ open, onClose, onSelectChore, onSelectUser }: Search
                               activeIndex === idx ? 'bg-accent' : 'hover:bg-accent',
                             )}
                           >
-                            <Avatar color={user.avatarColor} name={user.displayName} size={24} />
+                            <Avatar color={user.avatarColor} name={user.displayName} size={24} frame={user.equippedFrameKey} emoji={user.avatarEmoji} />
                             <span className="flex-1 font-medium text-foreground">{user.displayName}</span>
                             <span className="text-xs text-muted-foreground">{user.points} pts</span>
                           </button>

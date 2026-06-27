@@ -13,8 +13,16 @@ export async function syncAppearanceFromServer(queryClient: QueryClient): Promis
   useAuthStore.getState().setUser(me)
   applyPalette(me.equippedThemeKey)
   // Fire the invalidations without awaiting their refetches: callers only need the store/palette
-  // updated synchronously, and the affected surfaces can refresh on their own.
-  void queryClient.invalidateQueries({ queryKey: ['gacha'] })
-  void queryClient.invalidateQueries({ queryKey: ['me'] })
-  void queryClient.invalidateQueries({ queryKey: ['leaderboard'] })
+  // updated synchronously, and the affected surfaces can refresh on their own. invalidateQueries
+  // only refetches *active* (mounted) queries, so listing every avatar-bearing surface is cheap.
+  // These all embed the user's avatar (color/frame/emoji) in their payload, so a customization
+  // change must refresh them or they show stale avatars until the next navigation.
+  for (const key of APPEARANCE_QUERY_KEYS) void queryClient.invalidateQueries({ queryKey: [key] })
 }
+
+/** Query keys whose cached payloads embed a user's avatar (color/frame/emoji) and so must be
+ * refreshed when the signed-in user changes their appearance. */
+const APPEARANCE_QUERY_KEYS = [
+  'gacha', 'me', 'leaderboard', 'chores', 'chore-users', 'users', 'history', 'stats',
+  'awards', 'redemptions', 'points-log',
+]

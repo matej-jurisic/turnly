@@ -48,7 +48,7 @@ export function GachaPage() {
   const pityPct = Math.min(100, Math.round((state.pullsSinceLegendary / state.pityThreshold) * 100))
 
   // Group the catalog by slot, then by rarity (rarest first).
-  const bySlot: Record<CosmeticSlot, Cosmetic[]> = { Frame: [], Theme: [], Color: [] }
+  const bySlot: Record<CosmeticSlot, Cosmetic[]> = { Frame: [], Theme: [], Color: [], Emoji: [] }
   for (const c of state.cosmetics) bySlot[c.slot].push(c)
 
   return (
@@ -122,6 +122,15 @@ export function GachaPage() {
       <CollectionSection
         title="Avatar colors"
         items={bySlot.Color}
+        userColor={user.avatarColor}
+        userName={user.displayName}
+        dust={state.dust}
+        busy={busy}
+        onCraft={(key) => craft.mutate(key)}
+      />
+      <CollectionSection
+        title="Avatar emojis"
+        items={bySlot.Emoji}
         userColor={user.avatarColor}
         userName={user.displayName}
         dust={state.dust}
@@ -257,7 +266,8 @@ function CosmeticCard({
   )
 }
 
-/** Visual preview: a framed avatar for frame cosmetics, a palette swatch for theme cosmetics. */
+/** Visual preview: a framed avatar for frame cosmetics, a palette swatch for theme cosmetics, a
+ * color/emoji avatar for color/emoji cosmetics. */
 function CosmeticPreview({
   cosmetic: c,
   userColor,
@@ -277,6 +287,17 @@ function CosmeticPreview({
         style={{ backgroundColor: c.value ?? '#6366f1' }}
       >
         {initials}
+      </span>
+    )
+  }
+
+  if (c.slot === 'Emoji') {
+    return (
+      <span
+        className={`inline-flex h-12 w-12 items-center justify-center overflow-hidden rounded-full text-white ${dimmed}`}
+        style={{ backgroundColor: userColor }}
+      >
+        <span className="block w-full text-center text-2xl leading-none">{c.value}</span>
       </span>
     )
   }

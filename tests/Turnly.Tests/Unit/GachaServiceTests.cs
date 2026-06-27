@@ -180,7 +180,7 @@ public class GachaServiceTests
     public async Task Equip_color_sets_the_avatar_color()
     {
         using var ctx = new TestContext();
-        const string key = "color-red";
+        const string key = "color-amber";
         var id = await SeedUserAsync(ctx);
         ctx.Db.UserCosmetics.Add(new UserCosmetic { UserId = id, CosmeticKey = key });
         await ctx.Db.SaveChangesAsync();
@@ -189,7 +189,7 @@ public class GachaServiceTests
 
         Assert.True(result.Succeeded);
         var u = await ctx.Db.Users.FindAsync(id);
-        Assert.Equal("#ef4444", u!.AvatarColor);
+        Assert.Equal("#f59e0b", u!.AvatarColor);
     }
 
     [Fact]

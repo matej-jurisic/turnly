@@ -44,7 +44,7 @@ export function UsersPage() {
   })
 
   return (
-    <div className="mx-auto max-w-3xl space-y-6">
+    <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-semibold text-foreground">Users</h1>
         <Button onClick={() => setCreating(true)}>Add user</Button>
@@ -57,7 +57,7 @@ export function UsersPage() {
         {users?.map((user) => (
           <div key={user.id} className="flex items-center gap-3 px-4 py-3 sm:gap-4">
             <div className="flex min-w-0 flex-1 items-center gap-3">
-              <Avatar color={user.avatarColor} name={user.displayName} frame={user.equippedFrameKey} />
+              <Avatar color={user.avatarColor} name={user.displayName} frame={user.equippedFrameKey} emoji={user.avatarEmoji} />
               <div className="min-w-0">
                 <p className="truncate text-foreground">
                   {user.displayName}

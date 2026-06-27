@@ -31,6 +31,8 @@ export function PointsPage() {
           userId={selectedUser.id}
           displayName={selectedUser.displayName}
           avatarColor={selectedUser.avatarColor}
+          avatarEmoji={selectedUser.avatarEmoji}
+          equippedFrameKey={selectedUser.equippedFrameKey}
           points={selectedUser.points}
           weeklyPoints={selectedUser.weeklyPoints}
           onClose={() => setSelectedUser(null)}
@@ -126,7 +128,7 @@ function LeaderboardSection({
               <span className="w-5 text-center text-sm font-medium text-muted-foreground">
                 {index + 1}
               </span>
-              <Avatar color={entry.avatarColor} name={entry.displayName} size={32} frame={entry.equippedFrameKey} />
+              <Avatar color={entry.avatarColor} name={entry.displayName} size={32} frame={entry.equippedFrameKey} emoji={entry.avatarEmoji} />
               <span className="flex-1 text-sm font-medium text-foreground">{entry.displayName}</span>
               <Badge tone="violet">
                 {showWeekly ? entry.weeklyPoints : entry.points} pts

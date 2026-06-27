@@ -5,6 +5,8 @@ export interface User {
   username: string
   displayName: string
   avatarColor: string
+  /** Equipped avatar emoji shown in place of initials, or null for initials. Visible to everyone. */
+  avatarEmoji?: string | null
   role: UserRole
   points: number
   weeklyPoints: number
@@ -41,9 +43,10 @@ export interface LeaderboardEntry {
   points: number
   weeklyPoints: number
   equippedFrameKey?: string | null
+  avatarEmoji?: string | null
 }
 
-export type CosmeticSlot = 'Frame' | 'Theme' | 'Color'
+export type CosmeticSlot = 'Frame' | 'Theme' | 'Color' | 'Emoji'
 export type CosmeticRarity = 'Common' | 'Rare' | 'Epic' | 'Legendary'
 
 export interface Cosmetic {
@@ -431,6 +434,8 @@ export interface UserStats {
   onTimeCount: number
   overdueCount: number
   missedCount: number
+  avatarEmoji?: string | null
+  equippedFrameKey?: string | null
 }
 
 export interface UserWeeklyCount {

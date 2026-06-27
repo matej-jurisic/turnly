@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { NavLink, Outlet, useNavigate } from 'react-router-dom'
+import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
 import { authApi, choresApi } from '@/lib/api'
 import { confirm } from '@/lib/confirm'
@@ -18,7 +18,11 @@ export function Layout() {
   const user = useAuthStore((s) => s.user)
   const clear = useAuthStore((s) => s.clear)
   const navigate = useNavigate()
+  const location = useLocation()
   const queryClient = useQueryClient()
+  // The chore list runs full-width so its right-hand info rail can anchor to the screen edge; it
+  // re-imposes its own centered column internally. Every other page stays at the standard max-w-5xl.
+  const fullWidth = location.pathname === '/chores'
   const [menuOpen, setMenuOpen] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
   const [detailChore, setDetailChore] = useState<Chore | null>(null)
@@ -84,13 +88,15 @@ export function Layout() {
   const isAdmin = user?.role === 'Admin'
 
   const tabs = [
+    // Daily action first, then the gamification loop (standing -> earned -> spend), then the log,
+    // and finally the admin/config cluster (Users is admin-only) out of the daily path.
     { to: '/chores', label: 'Chores', Icon: ChoresIcon },
-    ...(isAdmin ? [{ to: '/users', label: 'Users', Icon: UsersIcon }] : []),
     { to: '/points', label: 'Points', Icon: PointsIcon },
     { to: '/achievements', label: 'Achievements', Icon: AchievementsIcon },
     { to: '/awards', label: 'Awards', Icon: AwardsIcon },
     { to: '/gacha', label: 'Gacha', Icon: GachaIcon },
     { to: '/history', label: 'History', Icon: HistoryIcon },
+    ...(isAdmin ? [{ to: '/users', label: 'Users', Icon: UsersIcon }] : []),
     { to: '/settings', label: 'Settings', Icon: SettingsIcon },
   ]
 
@@ -157,7 +163,7 @@ export function Layout() {
           </div>
         </header>
 
-        <main className="mx-auto w-full max-w-5xl flex-1 px-4 py-4 md:px-8 md:py-8">
+        <main className={cn('mx-auto w-full flex-1 px-4 py-4 md:px-8 md:py-8', fullWidth ? 'max-w-none' : 'max-w-5xl')}>
           <Outlet />
         </main>
       </div>
@@ -232,6 +238,8 @@ export function Layout() {
           userId={detailUser.id}
           displayName={detailUser.displayName}
           avatarColor={detailUser.avatarColor}
+          avatarEmoji={detailUser.avatarEmoji}
+          equippedFrameKey={detailUser.equippedFrameKey}
           points={detailUser.points}
           weeklyPoints={detailUser.weeklyPoints}
           onClose={() => setDetailUser(null)}

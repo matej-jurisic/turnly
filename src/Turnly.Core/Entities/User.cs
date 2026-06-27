@@ -8,6 +8,11 @@ public class User
     public required string Username { get; set; }
     public required string DisplayName { get; set; }
     public string AvatarColor { get; set; } = "#6366f1";
+
+    /// <summary>The emoji shown on the avatar in place of initials, or null to use initials. Set from
+    /// an equipped <see cref="CosmeticSlot.Emoji"/> cosmetic's value; threads through
+    /// <c>UserDto.FromEntity</c> to every avatar render site. Visible to everyone.</summary>
+    public string? AvatarEmoji { get; set; }
     public string PasswordHash { get; set; } = string.Empty;
     public UserRole Role { get; set; } = UserRole.Member;
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;

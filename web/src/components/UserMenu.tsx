@@ -36,7 +36,7 @@ export function UserMenu({ onLogout }: { onLogout: () => void }) {
         aria-expanded={open}
         className="rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-card"
       >
-        <Avatar color={user.avatarColor} name={user.displayName} size={32} frame={user.equippedFrameKey} />
+        <Avatar color={user.avatarColor} name={user.displayName} size={32} frame={user.equippedFrameKey} emoji={user.avatarEmoji} />
       </button>
 
       {open && (

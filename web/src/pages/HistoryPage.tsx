@@ -200,6 +200,8 @@ export function HistoryPage() {
                       color={subject?.avatarColor ?? 'var(--muted)'}
                       name={subject?.displayName ?? '?'}
                       size={32}
+                      frame={subject?.equippedFrameKey}
+                      emoji={subject?.avatarEmoji}
                     />
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
@@ -427,7 +429,7 @@ function UserStatsTable({ userStats }: { userStats: UserStats[] }) {
               return (
                 <li key={u.userId} className="flex items-center gap-3 py-2.5">
                   <span className="w-5 text-center text-xs text-muted-foreground">{index + 1}</span>
-                  <Avatar color={u.avatarColor} name={u.displayName} size={28} />
+                  <Avatar color={u.avatarColor} name={u.displayName} size={28} frame={u.equippedFrameKey} emoji={u.avatarEmoji} />
                   <span className="flex-1 text-sm text-foreground">{u.displayName}</span>
                   <div className="flex items-center gap-3 text-xs text-muted-foreground">
                     {(u.onTimeCount + u.overdueCount + u.missedCount > 0) && (

@@ -7,6 +7,8 @@ interface UserDetailsModalProps {
   userId: string
   displayName: string
   avatarColor: string
+  avatarEmoji?: string | null
+  equippedFrameKey?: string | null
   points: number
   weeklyPoints: number
   onClose: () => void
@@ -16,6 +18,8 @@ export function UserDetailsModal({
   userId,
   displayName,
   avatarColor,
+  avatarEmoji,
+  equippedFrameKey,
   points,
   weeklyPoints,
   onClose,
@@ -27,7 +31,7 @@ export function UserDetailsModal({
 
   const title = (
     <span className="flex items-center gap-2">
-      <Avatar color={avatarColor} name={displayName} size={28} />
+      <Avatar color={avatarColor} name={displayName} size={28} frame={equippedFrameKey} emoji={avatarEmoji} />
       <span>{displayName}</span>
     </span>
   )

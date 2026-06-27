@@ -177,6 +177,10 @@ body {
   position: relative;
   display: inline-flex;
   border-radius: 9999px;
+  /* Hairline outer edge so a pale ring (e.g. liquid-gold's near-white stops) keeps a crisp
+   * circular outline instead of dissolving into a light background and reading as an oval.
+   * Outer (non-inset) so the rotating `.gx-spin::before` overlay never paints over it. */
+  box-shadow: 0 0 0 1px rgb(0 0 0 / 0.1);
 }
 .gx-av {
   position: relative;

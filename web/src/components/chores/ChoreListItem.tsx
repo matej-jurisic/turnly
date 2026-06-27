@@ -130,7 +130,7 @@ export function ChoreListItem({
                         className="relative inline-flex rounded-full"
                       >
                         <span className={'flex ' + (done ? 'grayscale' : '')}>
-                          <Avatar color={t.user.avatarColor} name={t.user.displayName} size={24} frame={t.user.equippedFrameKey} />
+                          <Avatar color={t.user.avatarColor} name={t.user.displayName} size={24} frame={t.user.equippedFrameKey} emoji={t.user.avatarEmoji} />
                         </span>
                         {done && (
                           <span className="absolute -bottom-0.5 -right-0.5 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-success text-success-foreground">
@@ -144,14 +144,14 @@ export function ChoreListItem({
               ) : chore.currentAssignee && (
                 <div className="flex shrink-0 items-center gap-2">
                   <span className="text-sm text-muted-foreground">{chore.currentAssignee.displayName}</span>
-                  <Avatar color={chore.currentAssignee.avatarColor} name={chore.currentAssignee.displayName} size={24} frame={chore.currentAssignee.equippedFrameKey} />
+                  <Avatar color={chore.currentAssignee.avatarColor} name={chore.currentAssignee.displayName} size={24} frame={chore.currentAssignee.equippedFrameKey} emoji={chore.currentAssignee.avatarEmoji} />
                   {chore.nextAssignee && (
                     <span
                       className="flex items-center gap-1 text-muted-foreground"
                       title={`Next: ${chore.nextAssignee.displayName}`}
                     >
                       <span aria-hidden="true">→</span>
-                      <Avatar color={chore.nextAssignee.avatarColor} name={chore.nextAssignee.displayName} size={20} frame={chore.nextAssignee.equippedFrameKey} />
+                      <Avatar color={chore.nextAssignee.avatarColor} name={chore.nextAssignee.displayName} size={20} frame={chore.nextAssignee.equippedFrameKey} emoji={chore.nextAssignee.avatarEmoji} />
                       <span className="sr-only">Next: {chore.nextAssignee.displayName}</span>
                     </span>
                   )}

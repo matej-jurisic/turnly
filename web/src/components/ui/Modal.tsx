@@ -62,20 +62,31 @@ export function Avatar({
   name,
   size = 36,
   frame,
+  emoji,
 }: {
   color: string
   name: string
   size?: number
   /** Equipped frame cosmetic key (gacha). When set, a decorative ring wraps the avatar. */
   frame?: string | null
+  /** Equipped avatar emoji (gacha). When set, replaces the initials. */
+  emoji?: string | null
 }) {
-  const initials = name.trim().slice(0, 2).toUpperCase()
+  const glyph = emoji || name.trim().slice(0, 2).toUpperCase()
+  // An emoji glyph is ~1em wide, so its centering offset is (size - fontSize)/2. To keep that offset
+  // on a whole pixel (a half-pixel snaps the glyph to one side at dpr 1, reading as off-center), the
+  // font size must share the avatar size's parity. Round to 0.5x (even for every avatar size we use,
+  // and small enough that the glyph isn't clipped top/bottom), then nudge to match parity for safety.
+  const emojiFontSize = (() => {
+    const fs = Math.round(size * 0.5)
+    return (size - fs) % 2 === 0 ? fs : fs + 1
+  })()
   const inner = (
     <span
-      className="gx-av inline-flex shrink-0 items-center justify-center rounded-full font-medium text-white"
-      style={{ backgroundColor: color, width: size, height: size, fontSize: size * 0.4 }}
+      className="gx-av inline-flex shrink-0 items-center justify-center overflow-hidden rounded-full font-medium text-white"
+      style={{ backgroundColor: color, width: size, height: size, fontSize: emoji ? emojiFontSize : size * 0.4 }}
     >
-      {initials}
+      {emoji ? <span className="block w-full text-center leading-none">{glyph}</span> : glyph}
     </span>
   )
 

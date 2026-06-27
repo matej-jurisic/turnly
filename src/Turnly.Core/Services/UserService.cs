@@ -40,7 +40,7 @@ public class UserService
             .OrderByDescending(u => u.Points)
             .Select(u => new LeaderboardEntryDto(
                 u.Id, u.DisplayName, u.AvatarColor, u.Points,
-                weeklyByUser.GetValueOrDefault(u.Id), u.EquippedFrameKey))
+                weeklyByUser.GetValueOrDefault(u.Id), u.EquippedFrameKey, u.AvatarEmoji))
             .ToList();
     }
 
@@ -87,7 +87,8 @@ public class UserService
                 && c.OccurrenceDueAt.HasValue && c.CompletedAt <= c.OccurrenceDueAt.Value),
             allCompletions.Count(c => c.CompletedByUserId == u.Id
                 && c.OccurrenceDueAt.HasValue && c.CompletedAt > c.OccurrenceDueAt.Value),
-            allCompletions.Count(c => c.IsExpired && c.PreviousAssigneeId == u.Id)
+            allCompletions.Count(c => c.IsExpired && c.PreviousAssigneeId == u.Id),
+            u.AvatarEmoji, u.EquippedFrameKey
         )).ToList();
 
         var totalMissedCount = allCompletions.Count(c => c.IsExpired);

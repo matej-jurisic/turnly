@@ -45,6 +45,7 @@ public class ResetService
             .SetProperty(u => u.PullsSinceLegendary, 0)
             .SetProperty(u => u.EquippedFrameKey, (string?)null)
             .SetProperty(u => u.EquippedThemeKey, (string?)null)
+            .SetProperty(u => u.AvatarEmoji, (string?)null)
             .SetProperty(u => u.AvatarColor, defaultColor), ct);
 
         await tx.CommitAsync(ct);

@@ -338,7 +338,7 @@ function RedemptionRow({
       {/* Desktop / tablet: single row */}
       <div className="hidden flex-wrap items-center gap-x-3 gap-y-2 px-6 py-3 sm:flex">
         <span className="text-2xl leading-none">{r.awardEmoji ?? '🎁'}</span>
-        {isAdmin && <Avatar color={r.user.avatarColor} name={r.user.displayName} size={28} />}
+        {isAdmin && <Avatar color={r.user.avatarColor} name={r.user.displayName} size={28} frame={r.user.equippedFrameKey} emoji={r.user.avatarEmoji} />}
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm text-foreground">
             {r.awardName}
@@ -369,7 +369,7 @@ function RedemptionRow({
           <span className="text-sm text-destructive">−{r.pointsSpent}</span>
           {isAdmin && (
             <span className="ml-auto flex items-center gap-2">
-              <Avatar color={r.user.avatarColor} name={r.user.displayName} size={24} />
+              <Avatar color={r.user.avatarColor} name={r.user.displayName} size={24} frame={r.user.equippedFrameKey} emoji={r.user.avatarEmoji} />
               <span className="truncate text-xs text-muted-foreground">{r.user.displayName}</span>
             </span>
           )}

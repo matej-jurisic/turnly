@@ -38,4 +38,5 @@ export const SLOT_LABEL: Record<CosmeticSlot, string> = {
   Frame: 'Frame',
   Theme: 'Theme',
   Color: 'Color',
+  Emoji: 'Emoji',
 }

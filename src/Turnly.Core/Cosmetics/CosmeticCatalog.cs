@@ -104,6 +104,26 @@ public static class CosmeticCatalog
         new("color-pink",   "Pink",   "A playful pink avatar.",     CosmeticSlot.Color, CosmeticRarity.Epic, Value: "#ec4899"),
         new("color-purple", "Purple", "A deep purple avatar.",      CosmeticSlot.Color, CosmeticRarity.Epic, Value: "#a855f7"),
         new("color-rose",   "Rose",   "An elegant rose avatar.",    CosmeticSlot.Color, CosmeticRarity.Legendary, Value: "#e11d48"),
+
+        // ---- Avatar emojis ----------------------------------------------------------------
+        // Shown on the avatar in place of initials. No free default (initials are the fallback);
+        // Value is the emoji char the backend writes to User.AvatarEmoji on equip.
+        // Common: everyday emoji.
+        new("emoji-star",     "Star",     "A bright star on your avatar.",     CosmeticSlot.Emoji, CosmeticRarity.Common, Value: "⭐"),
+        new("emoji-heart",    "Heart",    "A red heart on your avatar.",       CosmeticSlot.Emoji, CosmeticRarity.Common, Value: "❤️"),
+        new("emoji-paw",      "Paw",      "A little paw print.",               CosmeticSlot.Emoji, CosmeticRarity.Common, Value: "\U0001F43E"),
+        new("emoji-leaf",     "Leaf",     "A fresh green leaf.",               CosmeticSlot.Emoji, CosmeticRarity.Common, Value: "\U0001F343"),
+        // Rare: with a bit more character.
+        new("emoji-fire",     "Fire",     "A blazing flame.",                  CosmeticSlot.Emoji, CosmeticRarity.Rare, Value: "\U0001F525"),
+        new("emoji-rocket",   "Rocket",   "A rocket ready for liftoff.",       CosmeticSlot.Emoji, CosmeticRarity.Rare, Value: "\U0001F680"),
+        new("emoji-rainbow",  "Rainbow",  "A cheerful rainbow.",               CosmeticSlot.Emoji, CosmeticRarity.Rare, Value: "\U0001F308"),
+        // Epic: standout picks.
+        new("emoji-crown",    "Crown",    "A golden crown.",                   CosmeticSlot.Emoji, CosmeticRarity.Epic, Value: "\U0001F451"),
+        new("emoji-diamond",  "Diamond",  "A sparkling gem.",                  CosmeticSlot.Emoji, CosmeticRarity.Epic, Value: "\U0001F48E"),
+        new("emoji-ghost",    "Ghost",    "A friendly ghost.",                 CosmeticSlot.Emoji, CosmeticRarity.Epic, Value: "\U0001F47B"),
+        // Legendary: showpiece emoji.
+        new("emoji-unicorn",  "Unicorn",  "A magical unicorn.",                CosmeticSlot.Emoji, CosmeticRarity.Legendary, Value: "\U0001F984"),
+        new("emoji-dragon",   "Dragon",   "A mighty dragon.",                  CosmeticSlot.Emoji, CosmeticRarity.Legendary, Value: "\U0001F409"),
     ];
 
     public static CosmeticDefinition? Find(string key) => All.FirstOrDefault(c => c.Key == key);

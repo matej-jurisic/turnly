@@ -464,7 +464,7 @@ export function ChoreFormModal({ title, chore, onClose, onSaved }: ChoreFormModa
                     : 'bg-accent text-muted-foreground hover:text-foreground')
                 }
               >
-                <Avatar color={u.avatarColor} name={u.displayName} size={16} />
+                <Avatar color={u.avatarColor} name={u.displayName} size={16} frame={u.equippedFrameKey} emoji={u.avatarEmoji} />
                 {u.displayName}
               </button>
             ))}
@@ -483,7 +483,7 @@ export function ChoreFormModal({ title, chore, onClose, onSaved }: ChoreFormModa
                 {selectedAssignees.map((u) => (
                   <div key={u.id} className="flex items-center justify-between gap-2">
                     <span className="flex items-center gap-1.5 text-sm text-foreground">
-                      <Avatar color={u.avatarColor} name={u.displayName} size={16} />
+                      <Avatar color={u.avatarColor} name={u.displayName} size={16} frame={u.equippedFrameKey} emoji={u.avatarEmoji} />
                       {u.displayName}
                     </span>
                     <div className="flex items-center gap-1.5">

@@ -20,10 +20,10 @@ export function CustomizationModal({ onClose }: { onClose: () => void }) {
   const setTheme = useThemeStore((s) => s.setTheme)
   const queryClient = useQueryClient()
 
-  const { data: state } = useQuery({ queryKey: ['gacha'], queryFn: gachaApi.state })
+  const { data: state, isPending, isError, refetch } = useQuery({ queryKey: ['gacha'], queryFn: gachaApi.state })
 
   const equip = useMutation({
-    mutationFn: ({ slot, key }: { slot: 'Frame' | 'Theme' | 'Color'; key: string | null }) =>
+    mutationFn: ({ slot, key }: { slot: 'Frame' | 'Theme' | 'Color' | 'Emoji'; key: string | null }) =>
       gachaApi.equip(slot, key),
     onSuccess: (_data, { slot, key }) => {
       if (slot === 'Theme') applyPalette(key)
@@ -34,12 +34,40 @@ export function CustomizationModal({ onClose }: { onClose: () => void }) {
 
   if (!user) return null
 
+  // Until the gacha state resolves, `state` is undefined and every owned-filter below is empty -
+  // which would silently render only the free defaults. Guard with explicit loading/error states so
+  // a slow or failed fetch (retry is off) never masquerades as "you own nothing".
+  if (!state) {
+    return (
+      <Modal title="Customization" onClose={onClose}>
+        {isError ? (
+          <div className="flex flex-col items-center gap-3 py-10 text-center">
+            <p className="text-sm text-muted-foreground">Could not load your collection.</p>
+            <button
+              type="button"
+              onClick={() => refetch()}
+              className="rounded-lg border border-border px-3 py-1.5 text-sm text-foreground transition-colors hover:bg-accent"
+            >
+              Try again
+            </button>
+          </div>
+        ) : (
+          <div className="flex items-center justify-center py-10 text-sm text-muted-foreground">
+            {isPending ? 'Loading your collection...' : 'Loading...'}
+          </div>
+        )}
+      </Modal>
+    )
+  }
+
   const ownedThemes = (state?.cosmetics ?? []).filter((c) => c.slot === 'Theme' && c.owned)
   const ownedFrames = (state?.cosmetics ?? []).filter((c) => c.slot === 'Frame' && c.owned)
   const ownedColors = (state?.cosmetics ?? []).filter((c) => c.slot === 'Color' && c.owned)
+  const ownedEmojis = (state?.cosmetics ?? []).filter((c) => c.slot === 'Emoji' && c.owned)
   const activePalette = user.equippedThemeKey ?? null
   const activeFrame = user.equippedFrameKey ?? null
   const activeColor = user.avatarColor.toLowerCase()
+  const activeEmoji = user.avatarEmoji ?? null
 
   // Selecting a base mode: clear any equipped palette and set light/dark.
   function chooseMode(mode: 'light' | 'dark') {
@@ -57,6 +85,10 @@ export function CustomizationModal({ onClose }: { onClose: () => void }) {
 
   function chooseColor(key: string) {
     equip.mutate({ slot: 'Color', key })
+  }
+
+  function chooseEmoji(key: string | null) {
+    equip.mutate({ slot: 'Emoji', key })
   }
 
   const busy = equip.isPending
@@ -119,6 +151,31 @@ export function CustomizationModal({ onClose }: { onClose: () => void }) {
                 </div>
               )
             })}
+          </div>
+        </section>
+
+        {/* Avatar emoji */}
+        <section className="space-y-2">
+          <h3 className="text-sm font-semibold text-foreground">Avatar emoji</h3>
+          <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
+            <SwatchTile
+              label="Initials"
+              selected={!activeEmoji}
+              disabled={busy}
+              onClick={() => chooseEmoji(null)}
+              preview={<GlyphPreview emoji={null} color={user.avatarColor} name={user.displayName} />}
+            />
+            {ownedEmojis.map((c) => (
+              <SwatchTile
+                key={c.key}
+                label={c.name}
+                rarity={c.rarity}
+                selected={activeEmoji === c.value}
+                disabled={busy}
+                onClick={() => chooseEmoji(c.key)}
+                preview={<GlyphPreview emoji={c.value ?? null} color={user.avatarColor} name={user.displayName} />}
+              />
+            ))}
           </div>
         </section>
 
@@ -220,6 +277,22 @@ function PalettePreview({ paletteKey }: { paletteKey: string }) {
         <span className="h-2 w-8 rounded-full bg-muted" />
         <span className="mt-auto h-2.5 w-full rounded bg-card" />
       </span>
+    </span>
+  )
+}
+
+function GlyphPreview({ emoji, color, name }: { emoji: string | null; color: string; name: string }) {
+  const glyph = emoji || name.trim().slice(0, 2).toUpperCase()
+  return (
+    <span
+      className="gx-av inline-flex h-9 w-9 items-center justify-center overflow-hidden rounded-full text-white"
+      style={{ backgroundColor: color }}
+    >
+      {emoji ? (
+        <span className="block w-full text-center text-lg leading-none">{glyph}</span>
+      ) : (
+        <span className="text-xs font-medium">{glyph}</span>
+      )}
     </span>
   )
 }
