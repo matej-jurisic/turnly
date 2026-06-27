@@ -54,19 +54,19 @@ export function ChoreListItem({
         {chore.isFrozen ? (
           <Badge tone="neutral" className="border border-border bg-card">Paused</Badge>
         ) : chore.dueAt ? (
-          <Badge tone="amber" className="border border-warning bg-card">
+          <Badge tone="violet" className="border border-primary bg-card">
             {formatDate(chore.dueAt)}{nextDueTimeLabel(chore) && ` · ${nextDueTimeLabel(chore)}`}
           </Badge>
         ) : null}
         {chore.completionsRequired > 1 ? (
-          <Badge tone="violet" className="border border-primary bg-card">
+          <Badge tone="secondary" className="border border-border">
             {completionProgressLabel(chore)}
           </Badge>
         ) : (
-          <Badge tone="blue" className="border border-info bg-card">{repeatLabel(chore)}</Badge>
+          <Badge tone="secondary" className="border border-border">{repeatLabel(chore)}</Badge>
         )}
         {showStreak(chore) && (
-          <Badge tone="green" className="border border-success bg-card">🔥 {chore.currentStreak}</Badge>
+          <Badge tone="secondary" className="border border-border">🔥 {chore.currentStreak}</Badge>
         )}
       </div>
       <SwipeRow onSwipeRight={canComplete ? onComplete : undefined} onSwipeLeft={onDetails}>

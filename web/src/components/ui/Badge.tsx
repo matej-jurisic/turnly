@@ -1,10 +1,11 @@
 import type * as React from 'react'
 import { cn } from '@/lib/utils'
 
-export type BadgeTone = 'neutral' | 'violet' | 'red' | 'blue' | 'amber' | 'green'
+export type BadgeTone = 'neutral' | 'secondary' | 'violet' | 'red' | 'blue' | 'amber' | 'green'
 
 const tones: Record<BadgeTone, string> = {
   neutral: 'badge-neutral',
+  secondary: 'badge-secondary',
   violet: 'badge-violet',
   red: 'badge-red',
   blue: 'badge-blue',

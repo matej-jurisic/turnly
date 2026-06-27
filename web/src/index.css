@@ -146,6 +146,12 @@ body {
     background: var(--muted);
     color: var(--muted-foreground);
   }
+  /* Themed, low-emphasis pill: the palette's own secondary tint (opaque, so it reads cleanly
+   * even when a pill straddles a card edge over the gray canvas). Re-tints per palette. */
+  .badge-secondary {
+    background: var(--secondary);
+    color: var(--secondary-foreground);
+  }
   .badge-violet {
     background: color-mix(in srgb, var(--primary) 14%, transparent);
     color: var(--primary);
