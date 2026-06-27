@@ -9,9 +9,11 @@ interface ModalProps {
   title: ReactNode
   onClose: () => void
   children: ReactNode
+  /** Tailwind max-width class for the dialog. Defaults to `max-w-md`; widen for denser content. */
+  widthClassName?: string
 }
 
-export function Modal({ title, onClose, children }: ModalProps) {
+export function Modal({ title, onClose, children, widthClassName = 'max-w-md' }: ModalProps) {
   // Lock background scroll while open (mirrors the drawer's scroll-lock in Layout).
   useEffect(() => {
     const prev = document.body.style.overflow
@@ -37,7 +39,7 @@ export function Modal({ title, onClose, children }: ModalProps) {
       onClick={onClose}
     >
       <Card
-        className="flex max-h-[calc(100dvh-2rem)] w-full max-w-md flex-col"
+        className={`flex max-h-[calc(100dvh-2rem)] w-full flex-col ${widthClassName}`}
         onClick={(e) => e.stopPropagation()}
       >
         <CardHeader className="flex shrink-0 items-center justify-between">

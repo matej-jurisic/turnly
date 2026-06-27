@@ -65,9 +65,6 @@ export function ChoreListItem({
         ) : (
           <Badge tone="secondary" className="border border-border">{repeatLabel(chore)}</Badge>
         )}
-        {showStreak(chore) && (
-          <Badge tone="secondary" className="border border-border">🔥 {chore.currentStreak}</Badge>
-        )}
       </div>
       <SwipeRow onSwipeRight={canComplete ? onComplete : undefined} onSwipeLeft={onDetails}>
         <Card className="min-w-0 p-4">
@@ -115,6 +112,9 @@ export function ChoreListItem({
             <div className="mt-2.5 flex items-center justify-between gap-3">
               <div className="flex min-w-0 flex-wrap items-center gap-2">
                 <Badge tone="violet">{chore.points} pts</Badge>
+                {showStreak(chore) && (
+                  <Badge tone="secondary" className="border border-border">🔥 {chore.currentStreak}</Badge>
+                )}
                 {chore.tags.map((tag) => (
                   <Badge key={tag} tone="neutral">{tag}</Badge>
                 ))}
