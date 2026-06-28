@@ -9,6 +9,8 @@ import {
 export interface ChoreMenuProps {
   chore: Chore
   isAdmin: boolean
+  /** The logged-in user's id, to gate member-only actions (reassign their own chore). */
+  meId?: string
   undoPending: boolean
   skipPending: boolean
   deletePending: boolean
@@ -25,7 +27,7 @@ export interface ChoreMenuProps {
   onUnfreeze?: () => void
 }
 
-export function ChoreMenu({ chore, isAdmin, undoPending, skipPending, deletePending, freezePending, onDetails, onUndo, onSkip, onReassign, onReschedule, onEdit, onCopy, onDelete, onFreeze, onUnfreeze }: ChoreMenuProps) {
+export function ChoreMenu({ chore, isAdmin, meId, undoPending, skipPending, deletePending, freezePending, onDetails, onUndo, onSkip, onReassign, onReschedule, onEdit, onCopy, onDelete, onFreeze, onUnfreeze }: ChoreMenuProps) {
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
 
@@ -34,7 +36,10 @@ export function ChoreMenu({ chore, isAdmin, undoPending, skipPending, deletePend
   // Skip/reschedule in track mode target a specific person's schedule, so they're handled from the
   // details modal's per-person rows; the card menu only drives them for rotating chores.
   const canSkip = isAdmin && chore.repeatType !== 'OneTime' && Boolean(chore.dueAt) && !isIndependent(chore)
+  // Admins may reassign any rotating chore; a member may only reassign one they currently hold
+  // (their request then needs the target's acceptance).
   const canReassign = !isIndependent(chore) && chore.assignees.length > 1
+    && (isAdmin || chore.currentAssignee?.id === meId)
   const canReschedule = isAdmin && Boolean(chore.dueAt) && !isIndependent(chore)
 
   useEffect(() => {

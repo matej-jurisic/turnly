@@ -17,6 +17,7 @@ public class TurnlyDbContext : DbContext
     public DbSet<Tag> Tags => Set<Tag>();
     public DbSet<ChoreCompletion> ChoreCompletions => Set<ChoreCompletion>();
     public DbSet<ChoreAssignment> ChoreAssignments => Set<ChoreAssignment>();
+    public DbSet<ChoreReassignmentRequest> ChoreReassignmentRequests => Set<ChoreReassignmentRequest>();
     public DbSet<ChoreAssigneeTrack> ChoreAssigneeTracks => Set<ChoreAssigneeTrack>();
     public DbSet<PointsLogEntry> PointsLog => Set<PointsLogEntry>();
     public DbSet<Award> Awards => Set<Award>();
@@ -151,6 +152,29 @@ public class TurnlyDbContext : DbContext
                 .WithMany()
                 .HasForeignKey(x => x.AssignedByUserId)
                 .OnDelete(DeleteBehavior.SetNull);
+        });
+
+        b.Entity<ChoreReassignmentRequest>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Status).HasConversion<string>().HasMaxLength(16);
+
+            // Deleting a chore drops its reassignment requests.
+            e.HasOne(x => x.Chore)
+                .WithMany()
+                .HasForeignKey(x => x.ChoreId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // Restrict on the participants (consistent with the rest of the user-referencing model).
+            e.HasOne(x => x.FromUser)
+                .WithMany()
+                .HasForeignKey(x => x.FromUserId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            e.HasOne(x => x.ToUser)
+                .WithMany()
+                .HasForeignKey(x => x.ToUserId)
+                .OnDelete(DeleteBehavior.Restrict);
         });
 
         b.Entity<ChoreAssigneeTrack>(e =>

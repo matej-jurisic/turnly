@@ -242,7 +242,7 @@ public class ChoreManagementTests : IDisposable
     }
 
     [Fact]
-    public async Task Member_can_reassign_the_current_occurrence()
+    public async Task Member_reassignment_is_pending_until_target_accepts()
     {
         var (admin, adminAuth) = await AdminClientAsync();
         await admin.PostJsonAsync("/api/users",
@@ -256,9 +256,43 @@ public class ChoreManagementTests : IDisposable
         };
         var chore = await (await admin.PostJsonAsync("/api/chores", request)).ReadAsync<ChoreDto>();
 
-        var reassigned = await (await member.PostJsonAsync($"/api/chores/{chore.Id}/reassign",
+        // The member requests a reassignment to the admin: the chore stays with the member, and a
+        // pending request surfaces on the DTO.
+        var requested = await (await member.PostJsonAsync($"/api/chores/{chore.Id}/reassign",
             new ReassignChoreRequest(adminAuth.User.Id))).ReadAsync<ChoreDto>();
-        Assert.Equal(adminAuth.User.Id, reassigned.CurrentAssignee!.Id);
+        Assert.Equal(memberAuth.User.Id, requested.CurrentAssignee!.Id);
+        Assert.Equal(adminAuth.User.Id, requested.PendingReassignment!.ToUser.Id);
+
+        // The pending request also shows up on a fresh list fetch.
+        var listed = await (await admin.GetAsync("/api/chores")).ReadAsync<List<ChoreDto>>();
+        Assert.NotNull(listed.Single(c => c.Id == chore.Id).PendingReassignment);
+
+        // The target accepts: now the chore moves.
+        var accepted = await (await admin.PostJsonAsync($"/api/chores/{chore.Id}/reassign/accept", new { }))
+            .ReadAsync<ChoreDto>();
+        Assert.Equal(adminAuth.User.Id, accepted.CurrentAssignee!.Id);
+        Assert.Null(accepted.PendingReassignment);
+    }
+
+    [Fact]
+    public async Task Member_cannot_reassign_a_chore_they_do_not_hold()
+    {
+        var (admin, adminAuth) = await AdminClientAsync();
+        await admin.PostJsonAsync("/api/users",
+            new CreateUserRequest("kid", "Kid", "kidpass1", UserRole.Member, null));
+        var member = _factory.CreateClient();
+        var memberAuth = await member.LoginAsync("kid", "kidpass1");
+
+        // Admin holds the chore; the member is an assignee but not the current holder.
+        var request = NewChore(adminAuth.User.Id) with
+        {
+            AssigneeIds = [adminAuth.User.Id, memberAuth.User.Id],
+        };
+        var chore = await (await admin.PostJsonAsync("/api/chores", request)).ReadAsync<ChoreDto>();
+
+        var response = await member.PostJsonAsync($"/api/chores/{chore.Id}/reassign",
+            new ReassignChoreRequest(memberAuth.User.Id));
+        Assert.Equal(System.Net.HttpStatusCode.Forbidden, response.StatusCode);
     }
 
     [Fact]

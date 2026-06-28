@@ -13,12 +13,14 @@ public class ChoreService
     private readonly TurnlyDbContext _db;
     private readonly TagService _tags;
     private readonly AchievementService _achievements;
+    private readonly NotificationService _notifications;
 
-    public ChoreService(TurnlyDbContext db, TagService tags, AchievementService achievements)
+    public ChoreService(TurnlyDbContext db, TagService tags, AchievementService achievements, NotificationService notifications)
     {
         _db = db;
         _tags = tags;
         _achievements = achievements;
+        _notifications = notifications;
     }
 
     /// <summary><paramref name="viewerId"/> personalises track-mode chores to the logged-in user:
@@ -37,11 +39,13 @@ public class ChoreService
         var ids = chores.Select(c => c.Id).ToList();
         var completionsByChore = await CompletionsByChoreAsync(ids, ct);
         var assignmentsByChore = await AssignmentsByChoreAsync(ids, ct);
+        var pendingByChore = await PendingReassignmentsByChoreAsync(ids, ct);
         var now = DateTimeOffset.UtcNow;
 
         return chores
             .Select(c => ToDto(c, completionsByChore.GetValueOrDefault(c.Id),
-                assignmentsByChore.GetValueOrDefault(c.Id, []), now, viewerId))
+                assignmentsByChore.GetValueOrDefault(c.Id, []), now, viewerId,
+                pendingByChore.GetValueOrDefault(c.Id)))
             .ToList();
     }
 
@@ -53,8 +57,10 @@ public class ChoreService
 
         var completionsByChore = await CompletionsByChoreAsync([id], ct);
         var assignmentsByChore = await AssignmentsByChoreAsync([id], ct);
+        var pendingByChore = await PendingReassignmentsByChoreAsync([id], ct);
         return Result.Success(ToDto(chore, completionsByChore.GetValueOrDefault(id),
-            assignmentsByChore.GetValueOrDefault(id, []), DateTimeOffset.UtcNow, viewerId));
+            assignmentsByChore.GetValueOrDefault(id, []), DateTimeOffset.UtcNow, viewerId,
+            pendingByChore.GetValueOrDefault(id)));
     }
 
     public async Task<Result<ChoreDto>> CreateAsync(CreateChoreRequest req, CancellationToken ct = default)
@@ -322,9 +328,13 @@ public class ChoreService
         return await GetAsync(chore.Id, ct: ct);
     }
 
-    /// <summary>One-off reassignment of the current occurrence to another eligible assignee. The
-    /// chore's strategy still drives future rotations; this just sets the current occupant and logs
-    /// the assignment (keeping <see cref="AssignmentStrategy.LeastAssigned"/> honest).</summary>
+    /// <summary>Reassigns the current occurrence of a chore to another eligible assignee. Admins move
+    /// the chore immediately (the strategy still drives future rotations; this just sets the current
+    /// occupant and logs the assignment, keeping <see cref="AssignmentStrategy.LeastAssigned"/>
+    /// honest). A non-admin may only reassign a chore they currently hold, and the move does not take
+    /// effect until the target accepts: their request is recorded as a
+    /// <see cref="ReassignmentStatus.Pending"/> <see cref="ChoreReassignmentRequest"/> and the target
+    /// is notified (in-app + push). See <see cref="RespondToReassignmentAsync"/>.</summary>
     public async Task<Result<ChoreDto>> ReassignAsync(Guid id, Guid userId, ReassignChoreRequest req, CancellationToken ct = default)
     {
         var chore = await _db.Chores
@@ -339,8 +349,21 @@ public class ChoreService
         if (chore.Assignees.All(a => a.Id != req.AssigneeId))
             return Result.Fail<ChoreDto>(Error.Validation("The new assignee must be one of the chore's assignees."));
 
-        if (chore.CurrentAssigneeId != req.AssigneeId)
+        var actor = await _db.Users.FindAsync([userId], ct);
+        if (actor is null)
+            return Result.Fail<ChoreDto>(Error.NotFound("User not found."));
+
+        // Members may only reassign a chore they currently hold; admins may reassign any.
+        if (actor.Role != UserRole.Admin && chore.CurrentAssigneeId != userId)
+            return Result.Fail<ChoreDto>(Error.Forbidden("You can only reassign chores that are assigned to you."));
+
+        if (chore.CurrentAssigneeId == req.AssigneeId)
+            return await GetAsync(chore.Id, ct: ct); // already theirs — nothing to do
+
+        if (actor.Role == UserRole.Admin)
         {
+            // Immediate move. Void any pending request — the chore is being placed by an admin.
+            await CancelPendingReassignmentsAsync(chore.Id, ct);
             var previousAssigneeId = chore.CurrentAssigneeId;
             chore.CurrentAssigneeId = req.AssigneeId;
             _db.ChoreAssignments.Add(new ChoreAssignment
@@ -351,9 +374,91 @@ public class ChoreService
                 AssignedByUserId = userId,
             });
             await _db.SaveChangesAsync(ct);
+            return await GetAsync(chore.Id, ct: ct);
         }
 
+        // Member request: don't move the chore — supersede any prior pending request, record a new
+        // one, and notify the target so they can accept or decline.
+        await CancelPendingReassignmentsAsync(chore.Id, ct);
+        _db.ChoreReassignmentRequests.Add(new ChoreReassignmentRequest
+        {
+            ChoreId = chore.Id,
+            FromUserId = userId,
+            ToUserId = req.AssigneeId,
+        });
+
+        var title = string.IsNullOrWhiteSpace(chore.Emoji) ? chore.Name : $"{chore.Emoji} {chore.Name}";
+        await _notifications.NotifyUserAsync(req.AssigneeId, title,
+            $"{actor.DisplayName} wants to reassign this chore to you. Accept or decline it.", chore.Id, ct);
+
+        await _db.SaveChangesAsync(ct);
         return await GetAsync(chore.Id, ct: ct);
+    }
+
+    /// <summary>The target of a pending member reassignment accepts (the chore moves to them and the
+    /// assignment is logged) or declines (the chore stays with the requester). Either way the
+    /// requester is notified of the outcome. Only the request's target may respond.</summary>
+    public async Task<Result<ChoreDto>> RespondToReassignmentAsync(Guid choreId, Guid userId, bool accept, CancellationToken ct = default)
+    {
+        var request = await _db.ChoreReassignmentRequests
+            .Include(r => r.Chore)
+            .Where(r => r.ChoreId == choreId && r.ToUserId == userId && r.Status == ReassignmentStatus.Pending)
+            .FirstOrDefaultAsync(ct);
+        if (request is null)
+            return Result.Fail<ChoreDto>(Error.NotFound("No pending reassignment for you on this chore."));
+
+        var chore = request.Chore;
+        if (chore is null)
+            return Result.Fail<ChoreDto>(Error.NotFound("Chore not found."));
+
+        var now = DateTimeOffset.UtcNow;
+        request.RespondedAt = now;
+
+        var responder = await _db.Users.FindAsync([userId], ct);
+        var responderName = responder?.DisplayName ?? "Someone";
+        var title = string.IsNullOrWhiteSpace(chore.Emoji) ? chore.Name : $"{chore.Emoji} {chore.Name}";
+
+        if (accept)
+        {
+            request.Status = ReassignmentStatus.Accepted;
+            var previousAssigneeId = chore.CurrentAssigneeId;
+            chore.CurrentAssigneeId = request.ToUserId;
+            _db.ChoreAssignments.Add(new ChoreAssignment
+            {
+                ChoreId = chore.Id,
+                UserId = request.ToUserId,
+                PreviousAssigneeId = previousAssigneeId,
+                AssignedByUserId = userId,
+            });
+            await _notifications.NotifyUserAsync(request.FromUserId, title,
+                $"{responderName} accepted the reassignment. It's now their chore.", chore.Id, ct);
+        }
+        else
+        {
+            request.Status = ReassignmentStatus.Declined;
+            await _notifications.NotifyUserAsync(request.FromUserId, title,
+                $"{responderName} declined the reassignment. It's still your chore.", chore.Id, ct);
+        }
+
+        await _db.SaveChangesAsync(ct);
+        return await GetAsync(chore.Id, ct: ct);
+    }
+
+    /// <summary>Cancels (supersedes/voids) every outstanding <see cref="ReassignmentStatus.Pending"/>
+    /// request on a chore — called when a newer request is made or the chore is otherwise moved
+    /// (admin reassign, freeze rotation) so a stale acceptance can't resurrect an old owner. Does not
+    /// save; the caller commits.</summary>
+    private async Task CancelPendingReassignmentsAsync(Guid choreId, CancellationToken ct)
+    {
+        var pending = await _db.ChoreReassignmentRequests
+            .Where(r => r.ChoreId == choreId && r.Status == ReassignmentStatus.Pending)
+            .ToListAsync(ct);
+        var now = DateTimeOffset.UtcNow;
+        foreach (var r in pending)
+        {
+            r.Status = ReassignmentStatus.Cancelled;
+            r.RespondedAt = now;
+        }
     }
 
     /// <summary>Admin-only manual reschedule of the current occurrence: sets a new due instant (and
@@ -720,7 +825,8 @@ public class ChoreService
     }
 
     private static ChoreDto ToDto(Chore chore, List<ChoreCompletion>? completions,
-        IReadOnlyList<(Guid UserId, DateTimeOffset AssignedAt)> assignments, DateTimeOffset now, Guid? viewerId = null)
+        IReadOnlyList<(Guid UserId, DateTimeOffset AssignedAt)> assignments, DateTimeOffset now, Guid? viewerId = null,
+        ChoreReassignmentRequest? pending = null)
     {
         var latest = completions?.FirstOrDefault(c => !c.IsExpired);
 
@@ -765,7 +871,7 @@ public class ChoreService
             progress = completions?.Count(x => x.OccurrenceDueAt == chore.DueAt) ?? 0;
         var next = PredictNextAssignee(chore, completions, assignments, now);
         var streak = StreakCalculator.CurrentStreak(completions ?? []);
-        return ChoreDto.FromEntity(chore, latest, progress, next, currentStreak: streak);
+        return ChoreDto.FromEntity(chore, latest, progress, next, currentStreak: streak, pendingReassignment: pending);
     }
 
     /// <summary>Assignment history per chore id, as lightweight (user, when) pairs — for the
@@ -785,6 +891,27 @@ public class ChoreService
         return assignments
             .GroupBy(a => a.ChoreId)
             .ToDictionary(g => g.Key, g => g.Select(a => (a.UserId, a.AssignedAt)).ToList());
+    }
+
+    /// <summary>The single outstanding <see cref="ReassignmentStatus.Pending"/> request per chore (if
+    /// any), with both participants loaded for the DTO. At most one pending request exists per chore
+    /// (a newer request supersedes the older), so a first-match per chore is safe.</summary>
+    private async Task<Dictionary<Guid, ChoreReassignmentRequest>> PendingReassignmentsByChoreAsync(
+        List<Guid> choreIds, CancellationToken ct)
+    {
+        if (choreIds.Count == 0)
+            return new Dictionary<Guid, ChoreReassignmentRequest>();
+
+        var requests = await _db.ChoreReassignmentRequests
+            .Include(r => r.FromUser)
+            .Include(r => r.ToUser)
+            .Where(r => choreIds.Contains(r.ChoreId) && r.Status == ReassignmentStatus.Pending)
+            .AsNoTracking()
+            .ToListAsync(ct);
+
+        return requests
+            .GroupBy(r => r.ChoreId)
+            .ToDictionary(g => g.Key, g => g.First());
     }
 
     /// <summary>Validates the request and returns the resolved assignee entities.</summary>
@@ -1274,9 +1401,14 @@ public class ChoreService
                 AssignedAt = now,
                 PreviousAssigneeId = previousAssigneeId,
             });
+            // The chore just moved owners; void any pending acceptance so it can't resurrect a stale one.
+            await CancelPendingReassignmentsAsync(chore.Id, ct);
         }
 
         foreach (var chore in unassignable)
+        {
             chore.CurrentAssigneeId = null;
+            await CancelPendingReassignmentsAsync(chore.Id, ct);
+        }
     }
 }

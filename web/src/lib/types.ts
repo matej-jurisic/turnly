@@ -276,6 +276,15 @@ export interface Chore extends RecurrenceFields {
   unlockedAchievements?: Achievement[]
   /** When true the chore is paused: completions/skips blocked, no auto-advance, no notifications. */
   isFrozen: boolean
+  /** An outstanding member-initiated reassignment awaiting the target's acceptance, or null. */
+  pendingReassignment?: PendingReassignment | null
+}
+
+/** A pending member reassignment request: the chore stays with `fromUser` until `toUser` accepts. */
+export interface PendingReassignment {
+  id: string
+  fromUser: User
+  toUser: User
 }
 
 export interface ChoreRequest extends RecurrenceFields {

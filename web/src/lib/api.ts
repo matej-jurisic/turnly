@@ -197,6 +197,10 @@ export const choresApi = {
     request<Chore>(`/chores/${id}/skip`, { method: 'POST', body: json(body) }),
   reassign: (id: string, body: ReassignChoreRequest) =>
     request<Chore>(`/chores/${id}/reassign`, { method: 'POST', body: json(body) }),
+  acceptReassign: (id: string) =>
+    request<Chore>(`/chores/${id}/reassign/accept`, { method: 'POST', body: json({}) }),
+  declineReassign: (id: string) =>
+    request<Chore>(`/chores/${id}/reassign/decline`, { method: 'POST', body: json({}) }),
   reschedule: (id: string, body: RescheduleChoreRequest) =>
     request<Chore>(`/chores/${id}/reschedule`, { method: 'POST', body: json(body) }),
   undoCompletion: (completionId: string) =>

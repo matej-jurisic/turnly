@@ -6,7 +6,8 @@ Turnly is feature-complete. It provides foundation
 (auth, users, roles, Docker), chore CRUD with recurrence and assignment strategies, a dashboard
 with today/overdue/upcoming views (list, compact, and calendar layouts), per-user point totals,
 filtering, and global search, a history/stats view, awards and point redemption (with next-goal
-progress), per-occurrence skip and one-off reassignment, Web Push notifications (per-chore
+progress), per-occurrence skip and one-off reassignment (members reassign their own chores with the
+recipient's acceptance; admins reassign immediately), Web Push notifications (per-chore
 reminder/due/follow-up schedule via self-hosted VAPID keys, with per-user quiet hours), and UX
 polish (swipe actions, completion confetti, admin complete-on-behalf and activity-entry deletion).
 **Shared chores** can also be set to "Everyone (independent)", giving each assignee their own

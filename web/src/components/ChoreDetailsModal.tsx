@@ -6,6 +6,7 @@ import { toast } from '@/lib/toast'
 import { useAuthStore } from '@/store/auth'
 import { Modal, Avatar } from '@/components/ui/Modal'
 import { Badge } from '@/components/ui/Badge'
+import { Button } from '@/components/ui/Button'
 import { SkipIcon, TrashIcon } from '@/components/chores/icons'
 import {
   calendarDaysAgo, choreDueStatus, choreHasDueTime, completionProgressLabel, dueStatus, formatDate, formatGrace,
@@ -22,6 +23,7 @@ interface ChoreDetailsModalProps {
 export function ChoreDetailsModal({ chore, onClose, onComplete }: ChoreDetailsModalProps) {
   const queryClient = useQueryClient()
   const isAdmin = useAuthStore((s) => s.user?.role === 'Admin')
+  const meId = useAuthStore((s) => s.user?.id)
 
   const skipMutation = useMutation({
     mutationFn: (userId: string) => choresApi.skip(chore.id, { userId }),
@@ -30,6 +32,20 @@ export function ChoreDetailsModal({ chore, onClose, onComplete }: ChoreDetailsMo
       void queryClient.invalidateQueries({ queryKey: ['history'] })
     },
     onError: (err) => toast.error(err instanceof ApiError ? err.message : 'Skip failed'),
+  })
+
+  const pending = chore.pendingReassignment
+  const isReassignTarget = pending?.toUser.id === meId
+
+  const respondMutation = useMutation({
+    mutationFn: (accept: boolean) =>
+      accept ? choresApi.acceptReassign(chore.id) : choresApi.declineReassign(chore.id),
+    onSuccess: (_data, accept) => {
+      toast.success(accept ? 'Reassignment accepted.' : 'Reassignment declined.')
+      void queryClient.invalidateQueries({ queryKey: ['chores'] })
+      onClose()
+    },
+    onError: (err) => toast.error(err instanceof ApiError ? err.message : 'Action failed'),
   })
 
   const onSkipTrack = async (userId: string, name: string) => {
@@ -60,6 +76,26 @@ export function ChoreDetailsModal({ chore, onClose, onComplete }: ChoreDetailsMo
       <div className="max-h-[65vh] divide-y divide-border overflow-y-auto px-1 -mx-1 [&>*]:py-4 [&>*:first-child]:pt-0 [&>*:last-child]:pb-0">
         {chore.description && (
           <p className="text-sm text-muted-foreground">{chore.description}</p>
+        )}
+
+        {pending && (
+          <div>
+            <div className="rounded-lg border border-border bg-accent/50 px-3 py-2.5 text-sm">
+              <p className="text-muted-foreground">
+                {isReassignTarget ? (
+                  <><strong className="text-foreground">{pending.fromUser.displayName}</strong> asked you to take this chore.</>
+                ) : (
+                  <><strong className="text-foreground">{pending.fromUser.displayName}</strong> asked <strong className="text-foreground">{pending.toUser.displayName}</strong> to take this chore.</>
+                )}
+              </p>
+              {isReassignTarget && (
+                <div className="mt-2.5 flex gap-2">
+                  <Button size="sm" onClick={() => respondMutation.mutate(true)} disabled={respondMutation.isPending}>Accept</Button>
+                  <Button size="sm" variant="secondary" onClick={() => respondMutation.mutate(false)} disabled={respondMutation.isPending}>Decline</Button>
+                </div>
+              )}
+            </div>
+          </div>
         )}
 
         {chore.isFrozen && (

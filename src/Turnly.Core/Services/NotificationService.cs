@@ -166,19 +166,30 @@ public class NotificationService
     /// push service accepted.</summary>
     public async Task<Result<int>> SendTestAsync(Guid userId, CancellationToken ct = default)
     {
-        var subs = await _db.PushSubscriptions.Where(s => s.UserId == userId).ToListAsync(ct);
-        if (subs.Count == 0)
+        var hasSub = await _db.PushSubscriptions.AnyAsync(s => s.UserId == userId, ct);
+        if (!hasSub)
             return Result.Fail<int>(Error.Validation(
                 "No push subscription on this account. Enable notifications on this device first."));
 
-        const string title = "Turnly";
-        const string body = "Test notification: push is working. 🎉";
-        const string url = "/chores";
-        var payload = JsonSerializer.Serialize(new { title, body, url });
+        var sent = await NotifyUserAsync(userId, "Turnly", "Test notification: push is working. 🎉", choreId: null, ct);
+        await _db.SaveChangesAsync(ct);
+        return Result.Success(sent);
+    }
 
-        _db.UserNotifications.Add(new UserNotification { UserId = userId, Title = title, Body = body });
+    /// <summary>Writes an in-app inbox row for the user and pushes the same message to all of their
+    /// Web Push + FCM devices (best-effort; dead devices are pruned, <see cref="PushSendResult.Gone"/>).
+    /// Does <b>not</b> call <c>SaveChanges</c> — the caller commits, so this can join a larger
+    /// transaction. Used for ad-hoc, non-scheduled notifications (test push, reassignment requests).
+    /// Returns the number of devices the push services accepted.</summary>
+    public async Task<int> NotifyUserAsync(Guid userId, string title, string body, Guid? choreId, CancellationToken ct = default)
+    {
+        _db.UserNotifications.Add(new UserNotification { UserId = userId, Title = title, Body = body, ChoreId = choreId });
+
+        var url = choreId is { } cid ? $"/chores?chore={cid}" : "/chores";
+        var payload = JsonSerializer.Serialize(new { title, body, url, choreId });
 
         var sent = 0;
+        var subs = await _db.PushSubscriptions.Where(s => s.UserId == userId).ToListAsync(ct);
         foreach (var sub in subs)
         {
             PushSendResult result;
@@ -204,7 +215,7 @@ public class NotificationService
             PushSendResult result;
             try
             {
-                result = await _fcm.SendAsync(device.Token, title, body, url, choreId: null, ct);
+                result = await _fcm.SendAsync(device.Token, title, body, url, choreId, ct);
             }
             catch
             {
@@ -217,8 +228,7 @@ public class NotificationService
                 _db.FcmDevices.Remove(device);
         }
 
-        await _db.SaveChangesAsync(ct);
-        return Result.Success(sent);
+        return sent;
     }
 
     /// <summary>The user's in-app notification inbox (newest first, most recent 100).</summary>

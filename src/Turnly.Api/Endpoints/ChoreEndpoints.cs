@@ -72,13 +72,34 @@ public static class ChoreEndpoints
             return result.Succeeded ? Results.Ok(result.Value) : result.Error!.ToProblem();
         }).RequireAuthorization("Admin");
 
-        // One-off reassignment of the current occurrence (any member).
+        // Reassign the current occurrence. Admins move it immediately; a member may only reassign a
+        // chore they hold, and it becomes a pending request the target must accept (see below).
         group.MapPost("/{id:guid}/reassign", async (Guid id, ReassignChoreRequest req,
             ClaimsPrincipal principal, ChoreService chores, CancellationToken ct) =>
         {
             if (principal.GetUserId() is not { } userId)
                 return Results.Unauthorized();
             var result = await chores.ReassignAsync(id, userId, req, ct);
+            return result.Succeeded ? Results.Ok(result.Value) : result.Error!.ToProblem();
+        });
+
+        // The target of a pending member reassignment accepts (the chore moves to them) or declines
+        // (it stays with the requester). The service authorizes that the caller is the target.
+        group.MapPost("/{id:guid}/reassign/accept", async (Guid id,
+            ClaimsPrincipal principal, ChoreService chores, CancellationToken ct) =>
+        {
+            if (principal.GetUserId() is not { } userId)
+                return Results.Unauthorized();
+            var result = await chores.RespondToReassignmentAsync(id, userId, accept: true, ct);
+            return result.Succeeded ? Results.Ok(result.Value) : result.Error!.ToProblem();
+        });
+
+        group.MapPost("/{id:guid}/reassign/decline", async (Guid id,
+            ClaimsPrincipal principal, ChoreService chores, CancellationToken ct) =>
+        {
+            if (principal.GetUserId() is not { } userId)
+                return Results.Unauthorized();
+            var result = await chores.RespondToReassignmentAsync(id, userId, accept: false, ct);
             return result.Succeeded ? Results.Ok(result.Value) : result.Error!.ToProblem();
         });
 

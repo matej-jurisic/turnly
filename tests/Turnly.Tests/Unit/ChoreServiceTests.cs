@@ -581,25 +581,151 @@ public class ChoreServiceTests
     }
 
     [Fact]
-    public async Task ReassignAsync_sets_assignee_and_logs_assignment()
+    public async Task ReassignAsync_admin_sets_assignee_and_logs_assignment()
     {
         using var ctx = new TestContext();
         var (admin, member) = await SeedUsersAsync(ctx);
         var chore = (await ctx.Chores.CreateAsync(NewChore(member, [admin, member]))).Value!;
 
-        var result = await ctx.Chores.ReassignAsync(chore.Id, member, new ReassignChoreRequest(admin));
+        // An admin moves the chore immediately (no acceptance required).
+        var result = await ctx.Chores.ReassignAsync(chore.Id, admin, new ReassignChoreRequest(admin));
 
         Assert.True(result.Succeeded);
         Assert.Equal(admin, result.Value!.CurrentAssignee!.Id);
+        Assert.Null(result.Value!.PendingReassignment);
         // Initial assignment + the reassignment.
         Assert.Equal(2, await ctx.Db.ChoreAssignments.CountAsync(a => a.ChoreId == chore.Id));
 
         // The reassignment row records who did it and the previous assignee.
         var reassignment = await ctx.Db.ChoreAssignments
             .SingleAsync(a => a.ChoreId == chore.Id && a.AssignedByUserId != null);
-        Assert.Equal(member, reassignment.AssignedByUserId);
+        Assert.Equal(admin, reassignment.AssignedByUserId);
         Assert.Equal(member, reassignment.PreviousAssigneeId);
         Assert.Equal(admin, reassignment.UserId);
+    }
+
+    [Fact]
+    public async Task ReassignAsync_member_creates_pending_request_without_moving()
+    {
+        using var ctx = new TestContext();
+        var (admin, member) = await SeedUsersAsync(ctx);
+        // Member currently holds the chore and asks admin to take it.
+        var chore = (await ctx.Chores.CreateAsync(NewChore(member, [admin, member]))).Value!;
+
+        var result = await ctx.Chores.ReassignAsync(chore.Id, member, new ReassignChoreRequest(admin));
+
+        Assert.True(result.Succeeded);
+        // Chore does not move until the target accepts.
+        Assert.Equal(member, result.Value!.CurrentAssignee!.Id);
+        Assert.Equal(admin, result.Value!.PendingReassignment!.ToUser.Id);
+        Assert.Equal(member, result.Value!.PendingReassignment!.FromUser.Id);
+        // Only the initial assignment exists; no rotation logged yet.
+        Assert.Equal(1, await ctx.Db.ChoreAssignments.CountAsync(a => a.ChoreId == chore.Id));
+        // The target got an inbox notification.
+        Assert.Equal(1, await ctx.Db.UserNotifications.CountAsync(n => n.UserId == admin && n.ChoreId == chore.Id));
+
+        var request = await ctx.Db.ChoreReassignmentRequests.SingleAsync(r => r.ChoreId == chore.Id);
+        Assert.Equal(ReassignmentStatus.Pending, request.Status);
+    }
+
+    [Fact]
+    public async Task ReassignAsync_member_rejects_chore_not_assigned_to_them()
+    {
+        using var ctx = new TestContext();
+        var (admin, member) = await SeedUsersAsync(ctx);
+        // Admin holds the chore; the member is an assignee but not the current holder.
+        var chore = (await ctx.Chores.CreateAsync(NewChore(admin, [admin, member]))).Value!;
+
+        var result = await ctx.Chores.ReassignAsync(chore.Id, member, new ReassignChoreRequest(member));
+
+        Assert.False(result.Succeeded);
+        Assert.Equal(ErrorType.Forbidden, result.Error!.Type);
+        Assert.Empty(ctx.Db.ChoreReassignmentRequests);
+    }
+
+    [Fact]
+    public async Task ReassignAsync_member_supersedes_prior_pending_request()
+    {
+        using var ctx = new TestContext();
+        var (admin, member) = await SeedUsersAsync(ctx);
+        var third = (await ctx.Users.CreateAsync(
+            new CreateUserRequest("kid2", "Kid Two", "kidpass2", UserRole.Member, null))).Value!.Id;
+        var chore = (await ctx.Chores.CreateAsync(NewChore(member, [admin, member, third]))).Value!;
+
+        await ctx.Chores.ReassignAsync(chore.Id, member, new ReassignChoreRequest(admin));
+        var result = await ctx.Chores.ReassignAsync(chore.Id, member, new ReassignChoreRequest(third));
+
+        Assert.True(result.Succeeded);
+        Assert.Equal(third, result.Value!.PendingReassignment!.ToUser.Id);
+        // Exactly one request stays Pending; the first was cancelled.
+        Assert.Equal(1, await ctx.Db.ChoreReassignmentRequests.CountAsync(
+            r => r.ChoreId == chore.Id && r.Status == ReassignmentStatus.Pending));
+        Assert.Equal(1, await ctx.Db.ChoreReassignmentRequests.CountAsync(
+            r => r.ChoreId == chore.Id && r.Status == ReassignmentStatus.Cancelled));
+    }
+
+    [Fact]
+    public async Task RespondToReassignmentAsync_accept_moves_chore_and_logs_assignment()
+    {
+        using var ctx = new TestContext();
+        var (admin, member) = await SeedUsersAsync(ctx);
+        var chore = (await ctx.Chores.CreateAsync(NewChore(member, [admin, member]))).Value!;
+        await ctx.Chores.ReassignAsync(chore.Id, member, new ReassignChoreRequest(admin));
+
+        var result = await ctx.Chores.RespondToReassignmentAsync(chore.Id, admin, accept: true);
+
+        Assert.True(result.Succeeded);
+        Assert.Equal(admin, result.Value!.CurrentAssignee!.Id);
+        Assert.Null(result.Value!.PendingReassignment);
+
+        var request = await ctx.Db.ChoreReassignmentRequests.SingleAsync(r => r.ChoreId == chore.Id);
+        Assert.Equal(ReassignmentStatus.Accepted, request.Status);
+
+        // Initial assignment + the accepted reassignment, attributed to the accepter.
+        var reassignment = await ctx.Db.ChoreAssignments
+            .SingleAsync(a => a.ChoreId == chore.Id && a.AssignedByUserId != null);
+        Assert.Equal(admin, reassignment.AssignedByUserId);
+        Assert.Equal(member, reassignment.PreviousAssigneeId);
+        Assert.Equal(admin, reassignment.UserId);
+        // The requester was notified of the acceptance.
+        Assert.Equal(1, await ctx.Db.UserNotifications.CountAsync(n => n.UserId == member && n.ChoreId == chore.Id));
+    }
+
+    [Fact]
+    public async Task RespondToReassignmentAsync_decline_leaves_chore_with_requester()
+    {
+        using var ctx = new TestContext();
+        var (admin, member) = await SeedUsersAsync(ctx);
+        var chore = (await ctx.Chores.CreateAsync(NewChore(member, [admin, member]))).Value!;
+        await ctx.Chores.ReassignAsync(chore.Id, member, new ReassignChoreRequest(admin));
+
+        var result = await ctx.Chores.RespondToReassignmentAsync(chore.Id, admin, accept: false);
+
+        Assert.True(result.Succeeded);
+        Assert.Equal(member, result.Value!.CurrentAssignee!.Id);
+        Assert.Null(result.Value!.PendingReassignment);
+        Assert.Equal(1, await ctx.Db.ChoreAssignments.CountAsync(a => a.ChoreId == chore.Id)); // no new assignment
+
+        var request = await ctx.Db.ChoreReassignmentRequests.SingleAsync(r => r.ChoreId == chore.Id);
+        Assert.Equal(ReassignmentStatus.Declined, request.Status);
+    }
+
+    [Fact]
+    public async Task RespondToReassignmentAsync_rejects_non_target()
+    {
+        using var ctx = new TestContext();
+        var (admin, member) = await SeedUsersAsync(ctx);
+        var third = (await ctx.Users.CreateAsync(
+            new CreateUserRequest("kid2", "Kid Two", "kidpass2", UserRole.Member, null))).Value!.Id;
+        var chore = (await ctx.Chores.CreateAsync(NewChore(member, [admin, member, third]))).Value!;
+        await ctx.Chores.ReassignAsync(chore.Id, member, new ReassignChoreRequest(admin));
+
+        // Someone other than the target can't respond.
+        var result = await ctx.Chores.RespondToReassignmentAsync(chore.Id, third, accept: true);
+
+        Assert.False(result.Succeeded);
+        Assert.Equal(ErrorType.NotFound, result.Error!.Type);
+        Assert.Equal(member, (await ctx.Chores.GetAsync(chore.Id)).Value!.CurrentAssignee!.Id);
     }
 
     [Fact]
@@ -609,7 +735,8 @@ public class ChoreServiceTests
         var (admin, member) = await SeedUsersAsync(ctx);
         var chore = (await ctx.Chores.CreateAsync(NewChore(member, [admin, member]))).Value!;
 
-        await ctx.Chores.ReassignAsync(chore.Id, member, new ReassignChoreRequest(admin));
+        // An admin reassignment is logged immediately (the history feed reflects assignment rows).
+        await ctx.Chores.ReassignAsync(chore.Id, admin, new ReassignChoreRequest(admin));
 
         // Completions-only view (default) excludes reassignments and the initial assignment.
         var completionsOnly = await ctx.Chores.GetHistoryAsync(null, null, null);
@@ -618,7 +745,7 @@ public class ChoreServiceTests
         var withReassignments = await ctx.Chores.GetHistoryAsync(null, null, null, includeReassignments: true);
         var entry = Assert.Single(withReassignments);
         Assert.Equal("reassignment", entry.Kind);
-        Assert.Equal(member, entry.Actor!.Id);
+        Assert.Equal(admin, entry.Actor!.Id);
         Assert.Equal(member, entry.FromAssignee!.Id);
         Assert.Equal(admin, entry.ToAssignee!.Id);
     }

@@ -141,6 +141,7 @@ export function ChoresPage() {
   const itemProps = (chore: Chore) => ({
     chore,
     isAdmin,
+    meId: currentUser?.id,
     undoPending: undoMutation.isPending,
     skipPending: skipMutation.isPending,
     deletePending: deleteMutation.isPending,
@@ -301,6 +302,7 @@ export function ChoresPage() {
       {reassigning && (
         <ReassignModal
           chore={reassigning}
+          isAdmin={isAdmin}
           onClose={() => setReassigning(null)}
           onDone={() => {
             setReassigning(null)

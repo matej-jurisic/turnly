@@ -24,7 +24,7 @@
 - **Tags** — freeform labels for grouping/filtering chores
 - **Assignees** — list of users eligible to be assigned this chore; must include at least one user
 - **Current assignee** — the specific user currently assigned to this chore instance; must be selected from the assignees list on creation
-- **Reassign occurrence** — the current assignee for a single occurrence can be manually overridden (e.g. "you take today's") without changing the chore's assignment strategy; the override applies only to the current occurrence and the strategy resumes on the next recurrence
+- **Reassign occurrence** — the current assignee for a single occurrence can be manually overridden (e.g. "you take today's") without changing the chore's assignment strategy; the override applies only to the current occurrence and the strategy resumes on the next recurrence. **Admins** reassign immediately. A **non-admin** may only reassign a chore they are currently assigned to, and the reassignment must be **accepted**: the chosen person receives a request (in-app + push notification) and the chore stays with the requester until they accept; if they decline, it stays put. Only one pending request exists per chore at a time (a newer request supersedes the older).
 - **Assignment strategy** — determines how the next assignee is picked on each recurrence:
     - `Random` — pick any assignee at random
     - `Least Assigned` — pick the assignee who has been assigned this chore fewest times

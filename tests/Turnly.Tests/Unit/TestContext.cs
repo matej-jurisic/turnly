@@ -61,11 +61,11 @@ public sealed class TestContext : IDisposable
         Auth = new AuthService(Db, Hasher, Tokens);
         Setup = new SetupService(Db, Hasher, Auth);
         Tags = new TagService(Db);
-        Chores = new ChoreService(Db, Tags, Achievements);
+        Notifications = new NotificationService(Db, Push, Fcm, NullLogger<NotificationService>.Instance);
+        Chores = new ChoreService(Db, Tags, Achievements, Notifications);
         Users = new UserService(Db, Hasher, Achievements, Chores);
         Awards = new AwardService(Db);
         Redemptions = new RedemptionService(Db, Achievements);
-        Notifications = new NotificationService(Db, Push, Fcm, NullLogger<NotificationService>.Instance);
         Settings = new AppSettingsService(Db);
         // Seeded RNG so gacha pulls are deterministic in tests.
         Gacha = new GachaService(Db, new Random(12345));

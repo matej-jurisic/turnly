@@ -6,13 +6,14 @@ import {
   completionProgressLabel, formatDate, isIndependent,
   nextDueTimeLabel, repeatLabel, showStreak, trackIsDone, trackStatusText,
 } from '@/lib/chore-format'
-import { CheckIcon } from '@/components/chores/icons'
+import { CheckIcon, ReassignIcon } from '@/components/chores/icons'
 import { ChoreMenu } from '@/components/chores/ChoreMenu'
 import { SwipeRow } from '@/components/chores/SwipeRow'
 
 export function ChoreListItem({
   chore,
   isAdmin,
+  meId,
   undoPending,
   skipPending,
   deletePending,
@@ -31,6 +32,7 @@ export function ChoreListItem({
 }: {
   chore: Chore
   isAdmin: boolean
+  meId?: string
   undoPending: boolean
   skipPending: boolean
   deletePending: boolean
@@ -88,6 +90,7 @@ export function ChoreListItem({
                 <ChoreMenu
                   chore={chore}
                   isAdmin={isAdmin}
+                  meId={meId}
                   undoPending={undoPending}
                   skipPending={skipPending}
                   deletePending={deletePending}
@@ -112,6 +115,16 @@ export function ChoreListItem({
             <div className="mt-2.5 flex items-center justify-between gap-3">
               <div className="flex min-w-0 flex-wrap items-center gap-2">
                 <Badge tone="violet">{chore.points} pts</Badge>
+                {chore.pendingReassignment && (
+                  <Badge
+                    tone="amber"
+                    className="px-1"
+                    title={chore.pendingReassignment.toUser.id === meId ? 'Reassignment requested for you' : 'Reassignment pending'}
+                    aria-label={chore.pendingReassignment.toUser.id === meId ? 'Reassignment requested for you' : 'Reassignment pending'}
+                  >
+                    <ReassignIcon />
+                  </Badge>
+                )}
                 {showStreak(chore) && (
                   <Badge tone="secondary" className="border border-border">🔥 {chore.currentStreak}</Badge>
                 )}

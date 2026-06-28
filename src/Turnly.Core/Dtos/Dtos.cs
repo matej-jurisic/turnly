@@ -122,7 +122,8 @@ public record ChoreDto(
     DateTimeOffset CreatedAt)
 {
     public static ChoreDto FromEntity(Chore c, ChoreCompletion? lastCompletion = null, int? occurrenceProgress = null,
-        User? nextAssignee = null, ChoreAssigneeTrackDto[]? tracks = null, int currentStreak = 0) =>
+        User? nextAssignee = null, ChoreAssigneeTrackDto[]? tracks = null, int currentStreak = 0,
+        ChoreReassignmentRequest? pendingReassignment = null) =>
         new(c.Id, c.Name, c.Description, c.Emoji, c.Points, c.RepeatType,
             c.CustomMode, c.IntervalCount, c.IntervalUnit,
             c.Weekdays.ToArray(), c.WeeksOfMonth.ToArray(), c.DaysOfMonth.ToArray(), c.Months.ToArray(),
@@ -139,9 +140,17 @@ public record ChoreDto(
             occurrenceProgress,
             currentStreak,
             tracks ?? [],
-            c.CreatedAt) { IsFrozen = c.IsFrozen };
+            c.CreatedAt)
+        {
+            IsFrozen = c.IsFrozen,
+            PendingReassignment = pendingReassignment is null ? null : PendingReassignmentDto.FromEntity(pendingReassignment),
+        };
 
     public bool IsFrozen { get; init; }
+
+    /// <summary>The outstanding member-initiated reassignment awaiting acceptance, if any. Null when
+    /// the chore has no pending request.</summary>
+    public PendingReassignmentDto? PendingReassignment { get; init; }
 
     /// <summary>Achievements the credited user just unlocked with this completion — set only on the
     /// response to a self-completion so the client can show a celebration popup. Empty otherwise; not
@@ -301,6 +310,15 @@ public record CompleteChoreRequest(string? Notes, Guid? CompletedByUserId = null
 public record SkipChoreRequest(string? Notes, Guid? UserId = null);
 
 public record ReassignChoreRequest(Guid AssigneeId);
+
+/// <summary>An outstanding member-initiated reassignment awaiting the target's acceptance. Surfaced
+/// on <see cref="ChoreDto.PendingReassignment"/> so the UI can show "pending" state and let the
+/// target accept/decline.</summary>
+public record PendingReassignmentDto(Guid Id, UserDto FromUser, UserDto ToUser)
+{
+    public static PendingReassignmentDto FromEntity(ChoreReassignmentRequest r) =>
+        new(r.Id, UserDto.FromEntity(r.FromUser!), UserDto.FromEntity(r.ToUser!));
+}
 
 /// <summary><see cref="UserId"/> names whose track to reschedule on a track-mode chore (required
 /// there); ignored for rotating chores.</summary>
