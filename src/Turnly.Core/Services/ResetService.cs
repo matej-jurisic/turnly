@@ -17,7 +17,9 @@ public class ResetService
     /// <summary>Deletes completions/skips/expired activity, assignment history, the points log,
     /// redemptions, achievements, owned cosmetics, and the notification inbox; then zeroes every
     /// user's points, dust, and pity counter and resets their equipped cosmetics back to the free
-    /// defaults. Chores, tags, awards, users, push devices, and notification schedules are kept.
+    /// defaults. Chores, tags, awards, users, push devices, and notification schedules are kept —
+    /// as are each user's notification preferences and chore mutes, which are settings rather than
+    /// activity (clearing them would silently un-silence everyone).
     /// Runs as one transaction so a failure leaves the data untouched.</summary>
     public async Task<Result> FreshStartAsync(CancellationToken ct = default)
     {

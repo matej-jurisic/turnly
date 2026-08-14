@@ -6,7 +6,7 @@ import {
   completionProgressLabel, formatDate, isIndependent, nextDueTimeLabel,
   offerBadgeText, offerSentence, repeatLabel, showStreak, trackIsDone, trackStatusText,
 } from '@/lib/chore-format'
-import { CheckIcon, ReassignIcon } from '@/components/chores/icons'
+import { BellOffIcon, CheckIcon, ReassignIcon } from '@/components/chores/icons'
 import { ChoreMenu } from '@/components/chores/ChoreMenu'
 import { SwipeRow } from '@/components/chores/SwipeRow'
 
@@ -18,7 +18,9 @@ export function ChoreListItem({
   skipPending,
   deletePending,
   freezePending,
+  mutePending,
   onComplete,
+  onToggleMute,
   onUndo,
   onSkip,
   onReassign,
@@ -38,7 +40,9 @@ export function ChoreListItem({
   skipPending: boolean
   deletePending: boolean
   freezePending?: boolean
+  mutePending?: boolean
   onComplete: () => void
+  onToggleMute: () => void
   onUndo: () => void
   onSkip: () => void
   onReassign: () => void
@@ -77,6 +81,15 @@ export function ChoreListItem({
               <div className="flex min-w-0 items-center gap-2 self-center">
                 {chore.emoji && <span className="shrink-0 text-xl leading-tight">{chore.emoji}</span>}
                 <span className="line-clamp-2 font-semibold text-foreground">{chore.name}</span>
+                {chore.isMuted && (
+                  <span
+                    className="shrink-0 text-muted-foreground"
+                    title="You muted this chore's notifications"
+                    aria-label="Notifications muted"
+                  >
+                    <BellOffIcon />
+                  </span>
+                )}
               </div>
 
               <div className="flex shrink-0 items-center gap-1 self-start">
@@ -97,7 +110,9 @@ export function ChoreListItem({
                   skipPending={skipPending}
                   deletePending={deletePending}
                   freezePending={freezePending}
+                  mutePending={mutePending}
                   onDetails={onDetails}
+                  onToggleMute={onToggleMute}
                   onUndo={onUndo}
                   onSkip={onSkip}
                   onReassign={onReassign}

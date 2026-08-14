@@ -19,6 +19,11 @@ Key non-obvious implementation decisions:
 - **Auto-advance**: `ChoreAutoAdvanceService` polls `ChoreService.AutoAdvanceAsync(now)` every minute. Writes `ChoreCompletion.IsExpired` rows for unfilled occurrences, advances via `FromScheduledDate`, rotates. `OneTime` excluded.
 - **Achievements**: catalog in `AchievementCatalog.cs`. `EvaluateForUserAsync` called inline by CompleteAsync/RedeemAsync/AdjustPointsAsync — no background worker. Earned badges are permanent (reversals don't revoke). `UnlockedAchievements` on ChoreDto/RedemptionDto surfaces new badges to the client.
 - **Gacha**: catalog in `CosmeticCatalog.cs`. `EquippedFrameKey`/`EquippedThemeKey`/`AvatarEmoji`/`Dust`/`PullsSinceLegendary` on `User`. Equipping a Color cosmetic writes `User.AvatarColor = def.Value`; equipping an Emoji cosmetic writes `User.AvatarEmoji = def.Value` (a null key clears it, avatar falls back to initials) — both denormalized, thread via `UserDto.FromEntity`/`LeaderboardEntryDto`. The `Avatar` component (`ui/Modal.tsx`) renders `emoji` in place of initials wherever it renders `frame`. `color-indigo` (#6366f1) is the one `Default = true` cosmetic (free for everyone); Emoji has no default (initials are the fallback). Equipping lives in `CustomizationModal.tsx`, not GachaPage. Shared refetch helper: `syncAppearanceFromServer` in `lib/appearance.ts`.
+- **Notification controls**: every send path funnels through the pure `NotificationRouter.Resolve(category, preference, choreMuted, inQuietHours)` → `DeliveryChannel` (`PushAndInbox | InboxOnly | Off`). Rules compose by taking the **most restrictive** answer; suppression only travels one way (nothing promotes a notification back up). `Off` drops the inbox row too; a mute or quiet window only demotes push to inbox-only. `NotificationCategory.System` is non-configurable (`IsConfigurable`) so the test push can't be made to lie about the delivery path.
+  - `UserNotificationPreference { UserId, Category, Channel }` is **sparse** - an absent row means the default, so existing users need no backfill and `UpdatePreferenceAsync` *deletes* the row when set back to `PushAndInbox`. `ListPreferencesAsync` returns the matrix complete (defaults filled in) so the client doesn't have to know them.
+  - `ChoreMute { UserId, ChoreId, Until? }` is per-user: muting a shared chore only quiets it for the muter. An expired mute is simply not loaded rather than swept on a timer. Surfaces on `ChoreDto.IsMuted`/`MutedUntil`, personalized by `viewerId` the same way `DueAt` is on track chores.
+  - `NotificationService.LoadRoutingAsync` builds the `RoutingContext` (preferences + mutes + quiet windows + local now) **once** per scan or fan-out. `NotifyUsersAsync` is the fan-out entry point - `ChoreService.OfferAsync`'s open-offer broadcast uses it so routing isn't reloaded per recipient. ⚠️ SQLite can't compare a `DateTimeOffset` in SQL, so mute-expiry filtering runs client-side (same gotcha as ordering).
+  - Fresh start deliberately **keeps** preferences and mutes: they're settings, not activity.
 - **Freeze**: `Chore.IsFrozen` blocks complete/skip/auto-advance; on unfreeze, recurring chores step forward via `FromScheduledDate` until `DueAt >= now`. `User.IsFrozen` excludes from rotation; freeze auto-reassigns owned chores via `ExecuteChoreReassignmentsForFreezeAsync`.
 - **Reassignment**: `ChoreService.ReassignAsync` is **admin-only** and moves the chore immediately (logs a `ChoreAssignment` reassignment row + voids any live offer). Members hand chores over through offers instead.
 - **Chore offers**: a member puts the occurrence they hold up for someone to take via `OfferAsync` (`POST /api/chores/{id}/offer`), recording a `ChoreOffer { ChoreId, FromUserId, ToUserId?, BountyPoints, ClaimedByUserId?, Status }` (`OfferStatus.Pending`). `ToUserId` **null = open** (fans out `NotificationService.NotifyUserAsync` to every other non-frozen assignee, first claim wins); set = targeted at one person, who may also decline. The chore does **not** move until `ClaimOfferAsync` (`POST .../offer/claim`) sets `CurrentAssigneeId` + logs the `ChoreAssignment`. Also `DeclineOfferAsync` (targeted only) and `WithdrawOfferAsync` (`DELETE .../offer`, offerer or admin).
@@ -49,14 +54,16 @@ Paths under `src/` / `web/src/` / `tests/Turnly.Tests/`. Copy the nearest existi
 **Backend (`Turnly.Core`)**
 - `Entities/` — POCOs; `Guid Id = Guid.NewGuid()` + `DateTimeOffset CreatedAt`, no base class.
   Key entities: `User, Chore, ChoreCompletion, ChoreAssignment, ChoreAssigneeTrack,
-  ChoreOffer, PointsLogEntry, Award, Redemption, ChoreNotification, PushSubscription,
-  FcmDevice, NotificationDelivery, UserNotification, AppSetting, UserAchievement, UserCosmetic`.
+  ChoreOffer, ChoreMute, PointsLogEntry, Award, Redemption, ChoreNotification, PushSubscription,
+  FcmDevice, NotificationDelivery, UserNotification, UserNotificationPreference, AppSetting,
+  UserAchievement, UserCosmetic`.
   `ChoreCompletion` has `IsSkip`/`IsExpired` flags. `ChoreAssignment` logs every assignment (backs
   `LeastAssigned` + lets undo reverse rotation via `ChoreCompletionId` link). `NotificationDelivery`
   is `(ChoreNotificationId, OccurrenceDueAt, UserId)`-unique dedup — how "stop on completion" works.
 - `Enums/` — `UserRole, RepeatType, PointsLogType, RedemptionStatus, CustomRecurrenceMode,
   AssignmentStrategy, SchedulingPreference, OfferStatus, NotificationType, NotificationTiming,
-  NotificationOffsetUnit, NotificationRecipients`; **stored as strings** (`HasConversion<string>`).
+  NotificationOffsetUnit, NotificationRecipients, NotificationCategory, DeliveryChannel`;
+  **stored as strings** (`HasConversion<string>`).
 - `Data/TurnlyDbContext.cs` — DbSets + `OnModelCreating`. Many-to-many via skip navs (`Chore.Assignees`,
   `Chore.Tags`). List fields (`Weekdays`, `WeeksOfMonth`, `DaysOfMonth`, `Months`, `TimesOfDay`)
   stored via CSV `ValueConverter` + `ValueComparer`.
@@ -70,6 +77,7 @@ Paths under `src/` / `web/src/` / `tests/Turnly.Tests/`. Copy the nearest existi
   fixed-slot scanning, scheduling prefs). `AssignmentPicker.Pick` for rotating strategies.
   `StreakCalculator.CurrentStreak` for on-time streaks.
 - `Notifications/` — `NotificationPlanner.FireTime` (pure, before/at/after offset math).
+  `NotificationRouter.Resolve`/`IsConfigurable`/`CategoryOf` (pure, the single suppression gate).
   `VapidOptions` (`IsConfigured`), `IPushSender`/`WebPushSender`, `IFcmSender`/`FcmSender`.
   `QuietHours.Contains` (pure, wrap-aware). `TimeZoneResolver` (IANA/Windows → `TimeZoneInfo`).
 - ⚠️ **SQLite can't `ORDER BY` a `DateTimeOffset`** — sort client-side after `ToListAsync`.

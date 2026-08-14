@@ -278,6 +278,30 @@ export interface Chore extends RecurrenceFields {
   isFrozen: boolean
   /** A live offer waiting to be claimed, or null when the chore isn't up for grabs. */
   openOffer?: ChoreOffer | null
+  /** Whether *you* have muted this chore's notifications. Personal, like `dueAt` on track chores:
+   * muting a shared chore only quiets it for you. */
+  isMuted: boolean
+  /** When your mute lapses, or null for an indefinite mute (or no mute). */
+  mutedUntil?: string | null
+}
+
+/** What a notification is about, from the recipient's point of view. Mirrors the backend enum. */
+export type NotificationCategory =
+  | 'ChoreReminder'
+  | 'ChoreDue'
+  | 'ChoreOverdue'
+  | 'OfferReceived'
+  | 'OfferResponse'
+  | 'System'
+
+/** How far a notification is allowed to reach you. `InboxOnly` still records it in the bell. */
+export type DeliveryChannel = 'PushAndInbox' | 'InboxOnly' | 'Off'
+
+export interface NotificationPreference {
+  category: NotificationCategory
+  channel: DeliveryChannel
+  /** False for categories you aren't allowed to silence; render those read-only. */
+  configurable: boolean
 }
 
 /**

@@ -18,6 +18,9 @@ import type {
   LeaderboardEntry,
   Achievement,
   NotificationInboxItem,
+  NotificationPreference,
+  NotificationCategory,
+  DeliveryChannel,
   PointsLogEntry,
   ProfileUpdate,
   PushDevice,
@@ -264,6 +267,17 @@ export const notificationsApi = {
     request<void>(`/notifications/inbox/${id}`, { method: 'DELETE' }),
   clearInbox: () =>
     request<{ cleared: number }>('/notifications/inbox', { method: 'DELETE' }),
+  preferences: () => request<NotificationPreference[]>('/notifications/preferences'),
+  // Returns the whole matrix back, so the caller can replace its cache rather than patch it.
+  setPreference: (category: NotificationCategory, channel: DeliveryChannel) =>
+    request<NotificationPreference[]>('/notifications/preferences', {
+      method: 'PUT',
+      body: json({ category, channel }),
+    }),
+  muteChore: (choreId: string, until?: string | null) =>
+    request<void>(`/notifications/mutes/${choreId}`, { method: 'POST', body: json({ until: until ?? null }) }),
+  unmuteChore: (choreId: string) =>
+    request<void>(`/notifications/mutes/${choreId}`, { method: 'DELETE' }),
 }
 
 export const achievementsApi = {

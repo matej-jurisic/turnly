@@ -27,6 +27,8 @@ public class TurnlyDbContext : DbContext
     public DbSet<FcmDevice> FcmDevices => Set<FcmDevice>();
     public DbSet<NotificationDelivery> NotificationDeliveries => Set<NotificationDelivery>();
     public DbSet<UserNotification> UserNotifications => Set<UserNotification>();
+    public DbSet<UserNotificationPreference> UserNotificationPreferences => Set<UserNotificationPreference>();
+    public DbSet<ChoreMute> ChoreMutes => Set<ChoreMute>();
     public DbSet<AppSetting> AppSettings => Set<AppSetting>();
     public DbSet<UserAchievement> UserAchievements => Set<UserAchievement>();
     public DbSet<UserCosmetic> UserCosmetics => Set<UserCosmetic>();
@@ -294,6 +296,38 @@ public class TurnlyDbContext : DbContext
                 .WithMany()
                 .HasForeignKey(x => x.ChoreId)
                 .OnDelete(DeleteBehavior.SetNull);
+        });
+
+        b.Entity<UserNotificationPreference>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Category).HasConversion<string>().HasMaxLength(32);
+            e.Property(x => x.Channel).HasConversion<string>().HasMaxLength(16);
+            // At most one preference row per category per user (storage is sparse; absent = default).
+            e.HasIndex(x => new { x.UserId, x.Category }).IsUnique();
+
+            e.HasOne(x => x.User)
+                .WithMany()
+                .HasForeignKey(x => x.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        b.Entity<ChoreMute>(e =>
+        {
+            e.HasKey(x => x.Id);
+            // A user mutes a given chore at most once.
+            e.HasIndex(x => new { x.UserId, x.ChoreId }).IsUnique();
+
+            e.HasOne(x => x.User)
+                .WithMany()
+                .HasForeignKey(x => x.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // A mute is meaningless without its chore.
+            e.HasOne(x => x.Chore)
+                .WithMany()
+                .HasForeignKey(x => x.ChoreId)
+                .OnDelete(DeleteBehavior.Cascade);
         });
 
         b.Entity<UserAchievement>(e =>

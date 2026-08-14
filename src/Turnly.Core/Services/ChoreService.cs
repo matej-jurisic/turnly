@@ -41,11 +41,12 @@ public class ChoreService
         var assignmentsByChore = await AssignmentsByChoreAsync(ids, ct);
         var pendingByChore = await OpenOffersByChoreAsync(ids, ct);
         var now = DateTimeOffset.UtcNow;
+        var mutedByChore = await MutesByChoreAsync(ids, viewerId, now, ct);
 
         return chores
             .Select(c => ToDto(c, completionsByChore.GetValueOrDefault(c.Id),
                 assignmentsByChore.GetValueOrDefault(c.Id, []), now, viewerId,
-                pendingByChore.GetValueOrDefault(c.Id)))
+                pendingByChore.GetValueOrDefault(c.Id), mutedByChore.GetValueOrDefault(c.Id)))
             .ToList();
     }
 
@@ -58,9 +59,11 @@ public class ChoreService
         var completionsByChore = await CompletionsByChoreAsync([id], ct);
         var assignmentsByChore = await AssignmentsByChoreAsync([id], ct);
         var pendingByChore = await OpenOffersByChoreAsync([id], ct);
+        var now = DateTimeOffset.UtcNow;
+        var mutedByChore = await MutesByChoreAsync([id], viewerId, now, ct);
         return Result.Success(ToDto(chore, completionsByChore.GetValueOrDefault(id),
-            assignmentsByChore.GetValueOrDefault(id, []), DateTimeOffset.UtcNow, viewerId,
-            pendingByChore.GetValueOrDefault(id)));
+            assignmentsByChore.GetValueOrDefault(id, []), now, viewerId,
+            pendingByChore.GetValueOrDefault(id), mutedByChore.GetValueOrDefault(id)));
     }
 
     public async Task<Result<ChoreDto>> CreateAsync(CreateChoreRequest req, CancellationToken ct = default)
@@ -453,13 +456,16 @@ public class ChoreService
         if (req.ToUserId is { } notifyTarget)
         {
             await _notifications.NotifyUserAsync(notifyTarget, title,
-                $"{actor.DisplayName} is offering you this chore{reward}. Claim or decline it.", chore.Id, ct);
+                $"{actor.DisplayName} is offering you this chore{reward}. Claim or decline it.", chore.Id,
+                NotificationCategory.OfferReceived, ct);
         }
         else
         {
-            foreach (var user in eligible)
-                await _notifications.NotifyUserAsync(user.Id, title,
-                    $"{actor.DisplayName} put this chore up for grabs{reward}. Claim it before someone else does.", chore.Id, ct);
+            // One fan-out call, so the routing context is loaded once for the whole eligible set
+            // rather than once per recipient.
+            await _notifications.NotifyUsersAsync(eligible.Select(u => u.Id).ToList(), title,
+                $"{actor.DisplayName} put this chore up for grabs{reward}. Claim it before someone else does.",
+                chore.Id, NotificationCategory.OfferReceived, ct);
         }
 
         await _db.SaveChangesAsync(ct);
@@ -538,7 +544,8 @@ public class ChoreService
 
         var reward = offer.BountyPoints > 0 ? $" and took your {offer.BountyPoints} points" : "";
         await _notifications.NotifyUserAsync(offer.FromUserId, NotificationTitle(chore),
-            $"{claimer.DisplayName} claimed this chore{reward}. It's off your plate.", chore.Id, ct);
+            $"{claimer.DisplayName} claimed this chore{reward}. It's off your plate.", chore.Id,
+            NotificationCategory.OfferResponse, ct);
 
         await _db.SaveChangesAsync(ct);
         await tx.CommitAsync(ct);
@@ -566,7 +573,8 @@ public class ChoreService
 
         var responder = await _db.Users.FindAsync([userId], ct);
         await _notifications.NotifyUserAsync(offer.FromUserId, NotificationTitle(chore),
-            $"{responder?.DisplayName ?? "Someone"} turned down your offer. It's still your chore.", chore.Id, ct);
+            $"{responder?.DisplayName ?? "Someone"} turned down your offer. It's still your chore.", chore.Id,
+            NotificationCategory.OfferResponse, ct);
 
         await _db.SaveChangesAsync(ct);
         return await GetAsync(chore.Id, viewerId: userId, ct: ct);
@@ -599,7 +607,9 @@ public class ChoreService
 
         if (offer.ToUserId is { } target)
             await _notifications.NotifyUserAsync(target, NotificationTitle(chore),
-                "That offer was withdrawn, so there's nothing to claim.", chore.Id, ct);
+                "That offer was withdrawn, so there's nothing to claim.", chore.Id,
+                // Same thread as the offer they were sent: silencing offers silences the retraction too.
+                NotificationCategory.OfferReceived, ct);
 
         await _db.SaveChangesAsync(ct);
         return await GetAsync(chore.Id, viewerId: userId, ct: ct);
@@ -1012,7 +1022,7 @@ public class ChoreService
 
     private static ChoreDto ToDto(Chore chore, List<ChoreCompletion>? completions,
         IReadOnlyList<(Guid UserId, DateTimeOffset AssignedAt)> assignments, DateTimeOffset now, Guid? viewerId = null,
-        ChoreOffer? offer = null)
+        ChoreOffer? offer = null, ChoreMute? mute = null)
     {
         var latest = completions?.FirstOrDefault(c => !c.IsExpired);
 
@@ -1047,7 +1057,9 @@ public class ChoreService
             return ChoreDto.FromEntity(chore, latest, tracks: trackDtos, currentStreak: personalStreak) with
             {
                 DueAt = personalDue,
-                OccurrenceProgress = personalProgress
+                OccurrenceProgress = personalProgress,
+                IsMuted = mute is not null,
+                MutedUntil = mute?.Until
             };
         }
 
@@ -1057,7 +1069,31 @@ public class ChoreService
             progress = completions?.Count(x => x.OccurrenceDueAt == chore.DueAt) ?? 0;
         var next = PredictNextAssignee(chore, completions, assignments, now);
         var streak = StreakCalculator.CurrentStreak(completions ?? []);
-        return ChoreDto.FromEntity(chore, latest, progress, next, currentStreak: streak, openOffer: offer);
+        return ChoreDto.FromEntity(chore, latest, progress, next, currentStreak: streak, openOffer: offer) with
+        {
+            IsMuted = mute is not null,
+            MutedUntil = mute?.Until
+        };
+    }
+
+    /// <summary>The viewer's own live mute per chore id (expired mutes are excluded, so they stop
+    /// applying without anything sweeping for them). Empty when there's no viewer — a mute is personal,
+    /// so an unattributed render shows nothing muted.</summary>
+    private async Task<Dictionary<Guid, ChoreMute>> MutesByChoreAsync(
+        List<Guid> choreIds, Guid? viewerId, DateTimeOffset now, CancellationToken ct)
+    {
+        if (choreIds.Count == 0 || viewerId is not { } vid)
+            return new Dictionary<Guid, ChoreMute>();
+
+        // SQLite can't compare a DateTimeOffset in SQL, so the expiry filter runs client-side.
+        var mutes = await _db.ChoreMutes
+            .Where(m => m.UserId == vid && choreIds.Contains(m.ChoreId))
+            .AsNoTracking()
+            .ToListAsync(ct);
+
+        return mutes
+            .Where(m => m.Until == null || m.Until > now)
+            .ToDictionary(m => m.ChoreId);
     }
 
     /// <summary>Assignment history per chore id, as lightweight (user, when) pairs — for the

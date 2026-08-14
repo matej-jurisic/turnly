@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { choresApi, ApiError } from '@/lib/api'
+import { choresApi, notificationsApi, ApiError } from '@/lib/api'
 import { toast } from '@/lib/toast'
 import { confirm } from '@/lib/confirm'
 import { useAuthStore } from '@/store/auth'
@@ -105,6 +105,17 @@ export function ChoresPage() {
     onError: (err) => toast.error(err instanceof ApiError ? err.message : 'Unpause failed'),
   })
 
+  // A mute is personal, so it only changes this viewer's chore list — no leaderboard/points to sync.
+  const muteMutation = useMutation({
+    mutationFn: ({ id, muted }: { id: string; muted: boolean }) =>
+      muted ? notificationsApi.unmuteChore(id) : notificationsApi.muteChore(id),
+    onSuccess: (_data, { muted }) => {
+      queryClient.invalidateQueries({ queryKey: ['chores'] })
+      toast.success(muted ? 'Notifications unmuted.' : 'Notifications muted for this chore.')
+    },
+    onError: (err) => toast.error(err instanceof ApiError ? err.message : 'Something went wrong'),
+  })
+
   const allTags = useMemo(
     () => [...new Set((chores ?? []).flatMap((c) => c.tags))].sort(),
     [chores],
@@ -149,6 +160,7 @@ export function ChoresPage() {
     skipPending: skipMutation.isPending,
     deletePending: deleteMutation.isPending,
     freezePending: freezeMutation.isPending || unfreezeMutation.isPending,
+    mutePending: muteMutation.isPending,
     onComplete: () => setCompleting(chore),
     onUndo: async () => {
       const wasSkip = chore.lastCompletion?.isSkip
@@ -193,6 +205,7 @@ export function ChoresPage() {
       }
     },
     onDetails: () => setDetails(chore),
+    onToggleMute: () => muteMutation.mutate({ id: chore.id, muted: chore.isMuted }),
     onFreeze: () => freezeMutation.mutate(chore.id),
     onUnfreeze: () => unfreezeMutation.mutate(chore.id),
   })

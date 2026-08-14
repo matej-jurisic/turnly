@@ -172,6 +172,31 @@ chore-earned points used for awards, so it is a reward sink, not gambling.
   notifications are suppressed; the in-app inbox row is still written so nothing is lost. The window is
   evaluated against the configured **family timezone** (see Self-Hosting).
 
+### Personal notification controls
+
+Each user decides what reaches them. These settings are personal: they never change what anyone else
+receives, and an admin cannot set them on someone's behalf.
+
+- **Per-category delivery** — every notification belongs to one category, and each can be set to:
+    - **Push** (default) — buzz your devices and record it in your inbox
+    - **Inbox** — record it in your inbox without buzzing your devices
+    - **Off** — don't send it at all (no push, no inbox row)
+  The categories are: **chore reminders** (nudges before the due time), **chore due** (at the due
+  time), **overdue chases** (follow-ups after the due time), **offers to you** (someone offers you a
+  chore or puts one up for grabs), **replies to your offers** (someone claims or declines a chore you
+  offered), and **app messages** (test pushes and account notices - always delivered, so a test push
+  can never be silently swallowed).
+- **Mute a chore** — silence one specific chore from its menu, rather than a whole category. A mute is
+  yours alone: everyone else still gets notified normally. It can be indefinite or set to lapse at a
+  chosen time, and a muted chore shows a small bell-off marker in the chore list.
+- **How the controls combine** — the most restrictive answer wins, and suppression only travels one
+  way: nothing can promote a notification back up. A mute or an active quiet-hours window downgrades a
+  push to an inbox record (you are saying "don't interrupt me", not "pretend it never happened"), while
+  **Off** is the only setting that discards a notification outright.
+- Quiet hours and these preferences apply to **every** notification, including offer notifications,
+  not only the scheduled per-chore ones.
+- A **fresh start** keeps these settings: they are preferences, not activity.
+
 ---
 
 ## Freeze / Away
@@ -196,7 +221,7 @@ chore-earned points used for awards, so it is a reward sink, not gambling.
 - A **Fresh start** action in Settings (Danger zone) gives a clean slate while **keeping every chore and its schedule**
 - Clears all chore activity (completions, skips, auto-expired slots), assignment history, the points log, award redemptions, achievements, and gacha progress (owned cosmetics, dust, pity)
 - Resets every user's points to **0** and their equipped cosmetics (frame, theme, avatar color) back to the free defaults
-- Keeps users, tags, awards, push devices, and notification schedules; each chore keeps its current assignee and next due date
+- Keeps users, tags, awards, push devices, notification schedules, and each user's personal notification preferences and chore mutes; each chore keeps its current assignee and next due date
 - Irreversible — a confirmation is required before it runs
 
 ---

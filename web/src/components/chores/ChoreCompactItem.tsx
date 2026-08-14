@@ -4,7 +4,7 @@ import {
   choreHasDueTime, dueStatus, formatDate, isIndependent, nextDueTimeLabel,
   offerBadgeText, offerSentence, showStreak,
 } from '@/lib/chore-format'
-import { CheckIcon, ReassignIcon } from '@/components/chores/icons'
+import { BellOffIcon, CheckIcon, ReassignIcon } from '@/components/chores/icons'
 
 /** Actions shared by every chore-row layout (list / compact). Mirrors the object built by
  * `ChoresPage.itemProps`. */
@@ -17,7 +17,9 @@ export interface ChoreItemProps {
   skipPending: boolean
   deletePending: boolean
   freezePending?: boolean
+  mutePending?: boolean
   onComplete: () => void
+  onToggleMute: () => void
   onUndo: () => void
   onSkip: () => void
   onReassign: () => void
@@ -77,6 +79,15 @@ export function ChoreCompactItem(props: ChoreItemProps) {
         <div className="flex min-w-0 items-center gap-2">
           {chore.emoji && <span className="shrink-0 text-base leading-none">{chore.emoji}</span>}
           <span className="truncate text-sm font-medium text-foreground">{chore.name}</span>
+          {chore.isMuted && (
+            <span
+              className="shrink-0 text-muted-foreground"
+              title="You muted this chore's notifications"
+              aria-label="Notifications muted"
+            >
+              <BellOffIcon />
+            </span>
+          )}
           {showStreak(chore) && <span className="shrink-0 text-xs text-success">🔥 {chore.currentStreak}</span>}
         </div>
 

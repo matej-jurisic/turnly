@@ -108,6 +108,45 @@ public static class NotificationEndpoints
             return Results.Ok(new { cleared });
         });
 
+        // The caller's notification preference matrix (every category, defaults filled in).
+        group.MapGet("/preferences", async (ClaimsPrincipal principal, NotificationService notifications, CancellationToken ct) =>
+        {
+            if (principal.GetUserId() is not { } userId)
+                return Results.Unauthorized();
+            return Results.Ok(await notifications.ListPreferencesAsync(userId, ct));
+        });
+
+        // Set one category's channel. Returns the whole matrix so the client can replace its cache.
+        group.MapPut("/preferences", async (
+            UpdateNotificationPreferenceRequest req, ClaimsPrincipal principal,
+            NotificationService notifications, CancellationToken ct) =>
+        {
+            if (principal.GetUserId() is not { } userId)
+                return Results.Unauthorized();
+            var result = await notifications.UpdatePreferenceAsync(userId, req, ct);
+            return result.Succeeded ? Results.Ok(result.Value) : result.Error!.ToProblem();
+        });
+
+        // Mute / unmute a chore for the caller only.
+        group.MapPost("/mutes/{choreId:guid}", async (
+            Guid choreId, MuteChoreRequest? req, ClaimsPrincipal principal,
+            NotificationService notifications, CancellationToken ct) =>
+        {
+            if (principal.GetUserId() is not { } userId)
+                return Results.Unauthorized();
+            var result = await notifications.MuteChoreAsync(userId, choreId, req?.Until, ct);
+            return result.Succeeded ? Results.NoContent() : result.Error!.ToProblem();
+        });
+
+        group.MapDelete("/mutes/{choreId:guid}", async (
+            Guid choreId, ClaimsPrincipal principal, NotificationService notifications, CancellationToken ct) =>
+        {
+            if (principal.GetUserId() is not { } userId)
+                return Results.Unauthorized();
+            var result = await notifications.UnmuteChoreAsync(userId, choreId, ct);
+            return result.Succeeded ? Results.NoContent() : result.Error!.ToProblem();
+        });
+
         // Dev/debug: send an immediate test push to the calling admin's own devices.
         group.MapPost("/test", async (
             ClaimsPrincipal principal, NotificationService notifications, CancellationToken ct) =>

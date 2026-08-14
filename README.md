@@ -8,7 +8,8 @@ with today/overdue/upcoming views (list, compact, and calendar layouts), per-use
 filtering, and global search, a history/stats view, awards and point redemption (with next-goal
 progress), per-occurrence skip, admin reassignment, and chore offers (put a chore you're holding up for anyone
 to take, optionally with a points bounty), Web Push notifications (per-chore
-reminder/due/follow-up schedule via self-hosted VAPID keys, with per-user quiet hours), and UX
+reminder/due/follow-up schedule via self-hosted VAPID keys, with per-user quiet hours and
+per-category delivery controls), and UX
 polish (swipe actions, completion confetti, admin complete-on-behalf and activity-entry deletion).
 **Shared chores** can also be set to "Everyone (independent)", giving each assignee their own
 schedule and per-person quota — one chore for "everyone does the dishes once a week" without anyone
@@ -152,6 +153,20 @@ background scheduler stays idle and the rest of the app works normally.
 Users can also set **quiet hours** (a nightly window that suppresses push but still records the
 in-app inbox item) in settings. Quiet hours are evaluated against the **family timezone** an admin
 configures under **Settings** (falling back to the server's host zone when unset).
+
+### Choosing what notifies you
+
+Under **Settings → What notifies you**, each person decides how every kind of notification reaches
+them: **Push** (buzz your devices, default), **Inbox** (record it in the bell without buzzing), or
+**Off** (don't send it at all). The categories cover chore reminders, chores coming due, overdue
+chases, offers sent to you, and replies to offers you made. App messages such as the test push are
+always delivered.
+
+To silence one specific chore instead of a whole category, use **Mute** on that chore's menu. A mute
+is personal: everyone else still gets notified normally, and the chore shows a small bell-off marker
+in your list. Muting and quiet hours downgrade a push to an inbox record rather than discarding it,
+so nothing is lost; only **Off** drops a notification entirely. These are per-user settings, so an
+admin cannot change them for someone else, and a fresh start leaves them intact.
 
 ## Tests
 

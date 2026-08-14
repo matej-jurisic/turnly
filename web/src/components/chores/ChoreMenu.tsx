@@ -3,7 +3,7 @@ import type { Chore } from '@/lib/types'
 import { isIndependent } from '@/lib/chore-format'
 import {
   DotsIcon, InfoIcon, SkipIcon, ReassignIcon, UndoIcon, CalendarIcon, EditIcon, CopyIcon, TrashIcon,
-  PauseIcon, PlayIcon,
+  PauseIcon, PlayIcon, BellIcon, BellOffIcon,
 } from '@/components/chores/icons'
 
 export interface ChoreMenuProps {
@@ -15,7 +15,9 @@ export interface ChoreMenuProps {
   skipPending: boolean
   deletePending: boolean
   freezePending?: boolean
+  mutePending?: boolean
   onDetails: () => void
+  onToggleMute: () => void
   onUndo: () => void
   onSkip: () => void
   onReassign: () => void
@@ -28,7 +30,7 @@ export interface ChoreMenuProps {
   onUnfreeze?: () => void
 }
 
-export function ChoreMenu({ chore, isAdmin, meId, undoPending, skipPending, deletePending, freezePending, onDetails, onUndo, onSkip, onReassign, onOffer, onReschedule, onEdit, onCopy, onDelete, onFreeze, onUnfreeze }: ChoreMenuProps) {
+export function ChoreMenu({ chore, isAdmin, meId, undoPending, skipPending, deletePending, freezePending, mutePending, onDetails, onToggleMute, onUndo, onSkip, onReassign, onOffer, onReschedule, onEdit, onCopy, onDelete, onFreeze, onUnfreeze }: ChoreMenuProps) {
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
 
@@ -74,6 +76,16 @@ export function ChoreMenu({ chore, isAdmin, meId, undoPending, skipPending, dele
           >
             <InfoIcon />
             Details
+          </button>
+          {/* Personal, so it's offered to everyone: muting only quiets the chore for you. */}
+          <button
+            type="button"
+            disabled={mutePending}
+            onClick={() => { setOpen(false); onToggleMute() }}
+            className="flex w-full items-center gap-2 px-3 py-2 text-sm text-foreground transition-colors hover:bg-accent disabled:opacity-50"
+          >
+            {chore.isMuted ? <BellIcon /> : <BellOffIcon />}
+            {chore.isMuted ? 'Unmute' : 'Mute'}
           </button>
           {canSkip && (
             <button

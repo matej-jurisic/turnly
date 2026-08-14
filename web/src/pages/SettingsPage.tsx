@@ -12,6 +12,7 @@ import { clearServerOrigin, getServerOrigin } from '@/lib/server-config'
 import { setRefreshToken } from '@/lib/native-auth'
 import { getNativePushToken, nativePushPermission, registerNativePush, unregisterNativePush } from '@/lib/native-push'
 import { useAuthStore } from '@/store/auth'
+import type { DeliveryChannel, NotificationCategory, NotificationPreference } from '@/lib/types'
 import { Button } from '@/components/ui/Button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { Input, Label, Select } from '@/components/ui/Field'
@@ -68,6 +69,8 @@ export function SettingsPage() {
 
       {isNative() ? <NativeNotificationsCard /> : <NotificationsCard />}
 
+      <NotificationPreferencesCard />
+
       <QuietHoursCard />
 
       {isAdmin && <TimezoneCard />}
@@ -118,10 +121,7 @@ function AccountCard() {
           <p><span className="text-foreground">{user?.displayName}</span> (@{user?.username})</p>
           <p>Role: {user?.role}</p>
         </div>
-        <p>
-          Choose your avatar color, frame, and app theme from the account menu (Customization). Unlock
-          more in the Gacha.
-        </p>
+        <p>Avatar, frame, and theme live in the account menu, under Customization.</p>
       </CardContent>
     </Card>
   )
@@ -251,7 +251,7 @@ function NotificationsCard() {
       </CardHeader>
       <CardContent className="space-y-3">
         <p className="text-sm text-muted-foreground">
-          Get push reminders for your chores on this device. Notifications stop once a chore is marked complete.
+          Push reminders for your chores on this device. They stop once the chore is done.
         </p>
         {unsupported ? (
           <p className="text-sm text-muted-foreground">This browser doesn’t support push notifications.</p>
@@ -297,7 +297,7 @@ function NotificationsCard() {
               })}
             </ul>
             <p className="text-xs text-muted-foreground">
-              Removing a device stops notifications there. To re-enable, open Turnly on that device and turn notifications on.
+              Removing a device stops notifications there until you turn them back on from that device.
             </p>
           </div>
         )}
@@ -307,7 +307,7 @@ function NotificationsCard() {
             <Button type="button" variant="secondary" disabled={testing} onClick={sendTest}>
               {testing ? 'Sending…' : 'Send test notification'}
             </Button>
-            <p className="mt-1 text-xs text-muted-foreground">Dev: pushes an immediate notification to your devices.</p>
+            <p className="mt-1 text-xs text-muted-foreground">Sends one right now, to check it works.</p>
           </div>
         )}
         {message && (
@@ -391,7 +391,7 @@ function NativeNotificationsCard() {
       </CardHeader>
       <CardContent className="space-y-3">
         <p className="text-sm text-muted-foreground">
-          Get push reminders for your chores on this device. Notifications stop once a chore is marked complete.
+          Push reminders for your chores on this device. They stop once the chore is done.
         </p>
         {permission === null ? (
           <p className="text-sm text-muted-foreground">Checking…</p>
@@ -414,7 +414,7 @@ function NativeNotificationsCard() {
             <Button type="button" variant="secondary" disabled={testing} onClick={sendTest}>
               {testing ? 'Sending…' : 'Send test notification'}
             </Button>
-            <p className="mt-1 text-xs text-muted-foreground">Dev: pushes an immediate notification to your devices.</p>
+            <p className="mt-1 text-xs text-muted-foreground">Sends one right now, to check it works.</p>
           </div>
         )}
         {message && (
@@ -422,6 +422,112 @@ function NativeNotificationsCard() {
             {message.text}
           </p>
         )}
+      </CardContent>
+    </Card>
+  )
+}
+
+/** Label and one-line explanation per category, in the order the card shows them. Categories the
+ * server marks non-configurable are rendered read-only rather than hidden, so the list still
+ * describes everything Turnly can send you. */
+const CATEGORY_COPY: Record<NotificationCategory, { label: string; hint: string }> = {
+  ChoreReminder: { label: 'Chore reminders', hint: 'Before a chore is due.' },
+  ChoreDue: { label: 'Chore due', hint: 'When a chore is due.' },
+  ChoreOverdue: { label: 'Overdue chases', hint: 'After a chore is late.' },
+  OfferReceived: { label: 'Offers to you', hint: 'A chore offered to you or up for grabs.' },
+  OfferResponse: { label: 'Replies to your offers', hint: 'Someone claims or declines your offer.' },
+  System: { label: 'App messages', hint: 'Test pushes and account notices. Always on.' },
+}
+
+const CHANNEL_COPY: Record<DeliveryChannel, { label: string; title: string }> = {
+  PushAndInbox: { label: 'Push', title: 'Buzz your devices and record it in your inbox' },
+  InboxOnly: { label: 'Inbox', title: 'Record it in your inbox without buzzing your devices' },
+  Off: { label: 'Off', title: 'Don’t send it at all' },
+}
+
+const CHANNELS: DeliveryChannel[] = ['PushAndInbox', 'InboxOnly', 'Off']
+
+function NotificationPreferencesCard() {
+  const queryClient = useQueryClient()
+  const { data: preferences, isLoading } = useQuery({
+    queryKey: ['notification-preferences'],
+    queryFn: notificationsApi.preferences,
+  })
+
+  const mutation = useMutation({
+    mutationKey: ['notification-preferences', 'set'],
+    mutationFn: ({ category, channel }: { category: NotificationCategory; channel: DeliveryChannel }) =>
+      notificationsApi.setPreference(category, channel),
+    // Move the pill immediately; the round trip is invisible unless it fails.
+    onMutate: async ({ category, channel }) => {
+      await queryClient.cancelQueries({ queryKey: ['notification-preferences'] })
+      const previous = queryClient.getQueryData<NotificationPreference[]>(['notification-preferences'])
+      queryClient.setQueryData<NotificationPreference[]>(['notification-preferences'], (current) =>
+        current?.map((pref) => (pref.category === category ? { ...pref, channel } : pref)),
+      )
+      return { previous }
+    },
+    // The server hands back the full matrix, so seed the cache with it instead of refetching.
+    // Skip it while another click is still in flight, otherwise a slower earlier
+    // response would overwrite the newer optimistic state.
+    onSuccess: (updated) => {
+      if (queryClient.isMutating({ mutationKey: ['notification-preferences', 'set'] }) === 1) {
+        queryClient.setQueryData(['notification-preferences'], updated)
+      }
+    },
+    onError: (err, _vars, context) => {
+      if (context?.previous) queryClient.setQueryData(['notification-preferences'], context.previous)
+      toast.error(err instanceof ApiError ? err.message : 'Something went wrong')
+    },
+  })
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>What notifies you</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <p className="text-sm text-muted-foreground">
+          Yours alone. <span className="text-foreground">Push</span> buzzes your devices,{' '}
+          <span className="text-foreground">Inbox</span> only shows in the bell,{' '}
+          <span className="text-foreground">Off</span> sends nothing.
+        </p>
+        {isLoading && <p className="text-sm text-muted-foreground">Loading…</p>}
+        <div className="divide-y divide-border">
+          {preferences?.map((pref) => (
+            <div key={pref.category} className="flex items-center justify-between gap-4 py-3">
+              <div className="min-w-0">
+                <p className="text-sm text-foreground">{CATEGORY_COPY[pref.category].label}</p>
+                <p className="text-xs text-muted-foreground">{CATEGORY_COPY[pref.category].hint}</p>
+              </div>
+              <div className="flex shrink-0 rounded-lg border border-border p-0.5" role="group">
+                {CHANNELS.map((channel) => {
+                  const selected = pref.channel === channel
+                  return (
+                    <button
+                      key={channel}
+                      type="button"
+                      title={CHANNEL_COPY[channel].title}
+                      aria-pressed={selected}
+                      disabled={!pref.configurable}
+                      onClick={() => mutation.mutate({ category: pref.category, channel })}
+                      className={`rounded-md px-2.5 py-1 text-xs transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
+                        selected
+                          ? 'bg-primary/10 font-semibold text-primary'
+                          : 'text-muted-foreground hover:bg-accent hover:text-foreground'
+                      }`}
+                    >
+                      {CHANNEL_COPY[channel].label}
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
+        <p className="text-xs text-muted-foreground">
+          To silence just one chore, use Mute on its menu.
+        </p>
       </CardContent>
     </Card>
   )
@@ -462,8 +568,8 @@ function QuietHoursCard() {
       </CardHeader>
       <CardContent className="space-y-4">
         <p className="text-sm text-muted-foreground">
-          Mute push notifications during these hours. They still arrive in your in-app inbox, so nothing
-          is missed. You just won’t get buzzed. A window like 22:00 to 07:00 spans midnight.
+          No buzzing during these hours. Notifications still land in your inbox. A window like 22:00 to
+          07:00 spans midnight.
         </p>
         <label className="flex items-center gap-2 text-sm text-foreground">
           <input
@@ -530,8 +636,7 @@ function TimezoneCard() {
       </CardHeader>
       <CardContent className="space-y-4">
         <p className="text-sm text-muted-foreground">
-          The timezone quiet hours are evaluated against. Set it to your family’s timezone so reminders
-          respect quiet hours correctly, no matter where the server runs.
+          Quiet hours are measured in this timezone, wherever the server runs.
         </p>
         <div className="space-y-2">
           <Label htmlFor="tz">Family timezone</Label>
@@ -551,9 +656,6 @@ function TimezoneCard() {
             </button>
           )}
         </div>
-        {!selected && serverTz && (
-          <p className="text-xs text-muted-foreground">Currently using the server timezone: {serverTz}.</p>
-        )}
         <Button onClick={() => mutation.mutate()} disabled={!dirty || mutation.isPending}>
           {mutation.isPending ? 'Saving…' : 'Save timezone'}
         </Button>
@@ -631,7 +733,7 @@ function DangerZoneCard() {
     const ok = await confirm({
       title: 'Fresh start',
       message:
-        'This permanently deletes all activity, point history, redemptions, achievements, and gacha progress, and resets everyone’s points to 0. Your chores and their schedules are kept. This cannot be undone.',
+        'Deletes all activity, points, redemptions, achievements, and gacha progress for everyone. Chores and schedules are kept. This cannot be undone.',
       confirmLabel: 'Reset everything',
     })
     if (!ok) return
@@ -661,9 +763,8 @@ function DangerZoneCard() {
       </CardHeader>
       <CardContent className="space-y-3">
         <p className="text-sm text-muted-foreground">
-          Clear all activity, point history, redemptions, achievements, and gacha progress, and reset
-          everyone&apos;s points to 0. Your chores and their schedules stay exactly as they are. Use this
-          for a clean slate, for example at the start of a new month. This cannot be undone.
+          Wipe all history and progress and put everyone back to 0 points. Chores and schedules stay.
+          Handy at the start of a new month. Cannot be undone.
         </p>
         <Button type="button" variant="danger" disabled={busy} onClick={onFreshStart}>
           {busy ? 'Resetting…' : 'Fresh start'}

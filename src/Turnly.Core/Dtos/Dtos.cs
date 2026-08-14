@@ -151,6 +151,14 @@ public record ChoreDto(
     /// <summary>The live offer waiting to be claimed, if any. Null when the chore isn't up for grabs.</summary>
     public ChoreOfferDto? OpenOffer { get; init; }
 
+    /// <summary>Whether the <i>viewer</i> has muted this chore's notifications — personalized like
+    /// <see cref="DueAt"/> is on track-mode chores, since a mute is per-user. False when there's no
+    /// viewer (an unattributed render).</summary>
+    public bool IsMuted { get; init; }
+
+    /// <summary>When the viewer's mute lapses, or null for an indefinite mute (or no mute at all).</summary>
+    public DateTimeOffset? MutedUntil { get; init; }
+
     /// <summary>Achievements the credited user just unlocked with this completion — set only on the
     /// response to a self-completion so the client can show a celebration popup. Empty otherwise; not
     /// part of the chore's persistent state.</summary>
@@ -449,6 +457,21 @@ public record NotificationInboxDto(
     public static NotificationInboxDto FromEntity(Turnly.Core.Entities.UserNotification n) =>
         new(n.Id, n.Title, n.Body, n.ChoreId, n.ReadAt is not null, n.CreatedAt);
 }
+
+/// <summary>One row of the notification preference matrix. <see cref="Configurable"/> is false for
+/// categories the user isn't allowed to silence, so the UI can render them read-only rather than
+/// offering a control the server would ignore.</summary>
+public record NotificationPreferenceDto(
+    NotificationCategory Category,
+    DeliveryChannel Channel,
+    bool Configurable);
+
+/// <summary>Set one category's channel. Sent one row at a time — the matrix is small and each control
+/// is an independent choice, so there's nothing to batch.</summary>
+public record UpdateNotificationPreferenceRequest(NotificationCategory Category, DeliveryChannel Channel);
+
+/// <summary>Mute a chore for the calling user. <see cref="Until"/> null = indefinite.</summary>
+public record MuteChoreRequest(DateTimeOffset? Until = null);
 
 public record CreateTagRequest(string Name);
 

@@ -311,6 +311,34 @@ namespace Turnly.Core.Migrations
                     b.ToTable("ChoreCompletions");
                 });
 
+            modelBuilder.Entity("Turnly.Core.Entities.ChoreMute", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("ChoreId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTimeOffset?>("Until")
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ChoreId");
+
+                    b.HasIndex("UserId", "ChoreId")
+                        .IsUnique();
+
+                    b.ToTable("ChoreMutes");
+                });
+
             modelBuilder.Entity("Turnly.Core.Entities.ChoreNotification", b =>
                 {
                     b.Property<Guid>("Id")
@@ -793,6 +821,36 @@ namespace Turnly.Core.Migrations
                     b.ToTable("UserNotifications");
                 });
 
+            modelBuilder.Entity("Turnly.Core.Entities.UserNotificationPreference", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Category")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Channel")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId", "Category")
+                        .IsUnique();
+
+                    b.ToTable("UserNotificationPreferences");
+                });
+
             modelBuilder.Entity("ChoreTag", b =>
                 {
                     b.HasOne("Turnly.Core.Entities.Chore", null)
@@ -901,6 +959,25 @@ namespace Turnly.Core.Migrations
                     b.Navigation("Chore");
 
                     b.Navigation("CompletedBy");
+                });
+
+            modelBuilder.Entity("Turnly.Core.Entities.ChoreMute", b =>
+                {
+                    b.HasOne("Turnly.Core.Entities.Chore", "Chore")
+                        .WithMany()
+                        .HasForeignKey("ChoreId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Turnly.Core.Entities.User", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Chore");
+
+                    b.Navigation("User");
                 });
 
             modelBuilder.Entity("Turnly.Core.Entities.ChoreNotification", b =>
@@ -1056,6 +1133,17 @@ namespace Turnly.Core.Migrations
                         .IsRequired();
 
                     b.Navigation("Chore");
+
+                    b.Navigation("User");
+                });
+
+            modelBuilder.Entity("Turnly.Core.Entities.UserNotificationPreference", b =>
+                {
+                    b.HasOne("Turnly.Core.Entities.User", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
 
                     b.Navigation("User");
                 });

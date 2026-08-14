@@ -171,7 +171,8 @@ public class NotificationService
             return Result.Fail<int>(Error.Validation(
                 "No push subscription on this account. Enable notifications on this device first."));
 
-        var sent = await NotifyUserAsync(userId, "Turnly", "Test notification: push is working. 🎉", choreId: null, ct);
+        var sent = await NotifyUserAsync(userId, "Turnly", "Test notification: push is working. 🎉",
+            choreId: null, NotificationCategory.System, ct);
         await _db.SaveChangesAsync(ct);
         return Result.Success(sent);
     }
@@ -179,17 +180,45 @@ public class NotificationService
     /// <summary>Writes an in-app inbox row for the user and pushes the same message to all of their
     /// Web Push + FCM devices (best-effort; dead devices are pruned, <see cref="PushSendResult.Gone"/>).
     /// Does <b>not</b> call <c>SaveChanges</c> — the caller commits, so this can join a larger
-    /// transaction. Used for ad-hoc, non-scheduled notifications (test push, reassignment requests).
+    /// transaction. Used for ad-hoc, non-scheduled notifications (test push, chore offers).
+    /// Subject to the recipient's <paramref name="category"/> preference, chore mute and quiet hours.
     /// Returns the number of devices the push services accepted.</summary>
-    public async Task<int> NotifyUserAsync(Guid userId, string title, string body, Guid? choreId, CancellationToken ct = default)
+    public Task<int> NotifyUserAsync(Guid userId, string title, string body, Guid? choreId,
+        NotificationCategory category, CancellationToken ct = default) =>
+        NotifyUsersAsync([userId], title, body, choreId, category, ct);
+
+    /// <summary>Fans one message out to several recipients, loading the routing context (preferences,
+    /// mutes, quiet hours) once for the whole set rather than once per user. Each recipient is routed
+    /// independently, so one person muting the chore doesn't affect anyone else.</summary>
+    public async Task<int> NotifyUsersAsync(IReadOnlyCollection<Guid> userIds, string title, string body,
+        Guid? choreId, NotificationCategory category, CancellationToken ct = default)
     {
-        _db.UserNotifications.Add(new UserNotification { UserId = userId, Title = title, Body = body, ChoreId = choreId });
+        if (userIds.Count == 0)
+            return 0;
+
+        var now = DateTimeOffset.UtcNow;
+        var routing = await LoadRoutingAsync(userIds, now, ct);
 
         var url = choreId is { } cid ? $"/chores?chore={cid}" : "/chores";
         var payload = JsonSerializer.Serialize(new { title, body, url, choreId });
 
+        var pushIds = new List<Guid>();
+        foreach (var userId in userIds.Distinct())
+        {
+            var channel = routing.Resolve(userId, category, choreId);
+            if (channel == DeliveryChannel.Off)
+                continue;
+
+            _db.UserNotifications.Add(new UserNotification { UserId = userId, Title = title, Body = body, ChoreId = choreId });
+            if (channel == DeliveryChannel.PushAndInbox)
+                pushIds.Add(userId);
+        }
+
+        if (pushIds.Count == 0)
+            return 0;
+
         var sent = 0;
-        var subs = await _db.PushSubscriptions.Where(s => s.UserId == userId).ToListAsync(ct);
+        var subs = await _db.PushSubscriptions.Where(s => pushIds.Contains(s.UserId)).ToListAsync(ct);
         foreach (var sub in subs)
         {
             PushSendResult result;
@@ -208,8 +237,8 @@ public class NotificationService
                 _db.PushSubscriptions.Remove(sub);
         }
 
-        // Also fire to the user's native (FCM) devices.
-        var fcmDevices = await _db.FcmDevices.Where(d => d.UserId == userId).ToListAsync(ct);
+        // Also fire to the recipients' native (FCM) devices.
+        var fcmDevices = await _db.FcmDevices.Where(d => pushIds.Contains(d.UserId)).ToListAsync(ct);
         foreach (var device in fcmDevices)
         {
             PushSendResult result;
@@ -283,6 +312,160 @@ public class NotificationService
         return items.Count;
     }
 
+    /// <summary>The caller's full preference matrix: every category, with the user's stored channel or
+    /// the default where they have no row. Returned complete (rather than sparse) so the UI can render
+    /// the matrix without knowing the defaults.</summary>
+    public async Task<List<NotificationPreferenceDto>> ListPreferencesAsync(Guid userId, CancellationToken ct = default)
+    {
+        var stored = (await _db.UserNotificationPreferences
+                .Where(p => p.UserId == userId)
+                .ToListAsync(ct))
+            .ToDictionary(p => p.Category, p => p.Channel);
+
+        return Enum.GetValues<NotificationCategory>()
+            .Select(category => new NotificationPreferenceDto(
+                category,
+                stored.TryGetValue(category, out var channel) ? channel : DeliveryChannel.PushAndInbox,
+                NotificationRouter.IsConfigurable(category)))
+            .ToList();
+    }
+
+    /// <summary>Sets one category's channel for the caller. Writing the default deletes the row, so
+    /// storage stays sparse and "never touched it" and "set it back to default" converge.</summary>
+    public async Task<Result<List<NotificationPreferenceDto>>> UpdatePreferenceAsync(
+        Guid userId, UpdateNotificationPreferenceRequest req, CancellationToken ct = default)
+    {
+        if (!Enum.IsDefined(req.Category))
+            return Result.Fail<List<NotificationPreferenceDto>>(Error.Validation("Unknown notification category."));
+        if (!Enum.IsDefined(req.Channel))
+            return Result.Fail<List<NotificationPreferenceDto>>(Error.Validation("Unknown delivery channel."));
+        if (!NotificationRouter.IsConfigurable(req.Category))
+            return Result.Fail<List<NotificationPreferenceDto>>(
+                Error.Validation($"{req.Category} notifications cannot be turned off."));
+
+        var existing = await _db.UserNotificationPreferences
+            .FirstOrDefaultAsync(p => p.UserId == userId && p.Category == req.Category, ct);
+
+        if (req.Channel == DeliveryChannel.PushAndInbox)
+        {
+            if (existing is not null)
+                _db.UserNotificationPreferences.Remove(existing);
+        }
+        else if (existing is null)
+        {
+            _db.UserNotificationPreferences.Add(new UserNotificationPreference
+            {
+                UserId = userId,
+                Category = req.Category,
+                Channel = req.Channel
+            });
+        }
+        else
+        {
+            existing.Channel = req.Channel;
+        }
+
+        await _db.SaveChangesAsync(ct);
+        return Result.Success(await ListPreferencesAsync(userId, ct));
+    }
+
+    /// <summary>Mutes a chore for the calling user. Re-muting an already-muted chore updates the
+    /// expiry rather than failing, so the UI can offer "mute for a day" over an indefinite mute.</summary>
+    public async Task<Result> MuteChoreAsync(Guid userId, Guid choreId, DateTimeOffset? until, CancellationToken ct = default)
+    {
+        if (until is { } u && u <= DateTimeOffset.UtcNow)
+            return Result.Fail(Error.Validation("A mute must end in the future."));
+
+        if (!await _db.Chores.AnyAsync(c => c.Id == choreId, ct))
+            return Result.Fail(Error.NotFound("Chore not found."));
+
+        var existing = await _db.ChoreMutes.FirstOrDefaultAsync(m => m.UserId == userId && m.ChoreId == choreId, ct);
+        if (existing is null)
+            _db.ChoreMutes.Add(new ChoreMute { UserId = userId, ChoreId = choreId, Until = until });
+        else
+            existing.Until = until;
+
+        await _db.SaveChangesAsync(ct);
+        return Result.Success();
+    }
+
+    /// <summary>Unmutes a chore for the calling user. Idempotent — unmuting something that isn't muted
+    /// succeeds, so the client never has to check first.</summary>
+    public async Task<Result> UnmuteChoreAsync(Guid userId, Guid choreId, CancellationToken ct = default)
+    {
+        var existing = await _db.ChoreMutes.FirstOrDefaultAsync(m => m.UserId == userId && m.ChoreId == choreId, ct);
+        if (existing is not null)
+        {
+            _db.ChoreMutes.Remove(existing);
+            await _db.SaveChangesAsync(ct);
+        }
+        return Result.Success();
+    }
+
+    /// <summary>Everything <see cref="NotificationRouter.Resolve"/> needs for a set of recipients,
+    /// loaded once per scan (or once per fan-out) instead of once per notification.</summary>
+    private sealed class RoutingContext
+    {
+        public required TimeOnly LocalNow { get; init; }
+        public required Dictionary<Guid, (TimeOnly? Start, TimeOnly? End)> Quiet { get; init; }
+        public required Dictionary<(Guid UserId, NotificationCategory Category), DeliveryChannel> Preferences { get; init; }
+        public required HashSet<(Guid UserId, Guid ChoreId)> Mutes { get; init; }
+
+        /// <summary>The effective channel for one recipient. A missing preference row means the
+        /// category is at its default, which is how sparse storage stays invisible to callers.</summary>
+        public DeliveryChannel Resolve(Guid userId, NotificationCategory category, Guid? choreId)
+        {
+            var preference = Preferences.TryGetValue((userId, category), out var p) ? p : DeliveryChannel.PushAndInbox;
+            var muted = choreId is { } cid && Mutes.Contains((userId, cid));
+            var quiet = Quiet.TryGetValue(userId, out var q) && QuietHours.Contains(q.Start, q.End, LocalNow);
+            return NotificationRouter.Resolve(category, preference, muted, quiet);
+        }
+    }
+
+    /// <summary>Loads preferences, active chore mutes and quiet-hours windows for the given recipients.
+    /// Quiet hours is a local wall-clock window, so "now" is converted to the configured family
+    /// timezone (falling back to the server's local zone when unset) rather than compared in UTC.</summary>
+    private async Task<RoutingContext> LoadRoutingAsync(
+        IReadOnlyCollection<Guid> userIds, DateTimeOffset now, CancellationToken ct)
+    {
+        var ids = userIds.Distinct().ToList();
+
+        var tzId = await _db.AppSettings
+            .Where(s => s.Key == AppSettingsService.TimeZoneKey)
+            .Select(s => s.Value)
+            .FirstOrDefaultAsync(ct);
+        var localNow = TimeOnly.FromTimeSpan(TimeZoneInfo.ConvertTime(now, TimeZoneResolver.Resolve(tzId)).TimeOfDay);
+
+        var quiet = (await _db.Users
+                .Where(u => ids.Contains(u.Id) && u.QuietHoursStart != null)
+                .Select(u => new { u.Id, u.QuietHoursStart, u.QuietHoursEnd })
+                .ToListAsync(ct))
+            .ToDictionary(u => u.Id, u => (u.QuietHoursStart, u.QuietHoursEnd));
+
+        var preferences = (await _db.UserNotificationPreferences
+                .Where(p => ids.Contains(p.UserId))
+                .ToListAsync(ct))
+            .ToDictionary(p => (p.UserId, p.Category), p => p.Channel);
+
+        // An expired mute is simply not loaded, so it stops applying without anything sweeping for it.
+        // SQLite can't compare a DateTimeOffset in SQL, so the expiry filter runs client-side.
+        var mutes = (await _db.ChoreMutes
+                .Where(m => ids.Contains(m.UserId))
+                .Select(m => new { m.UserId, m.ChoreId, m.Until })
+                .ToListAsync(ct))
+            .Where(m => m.Until == null || m.Until > now)
+            .Select(m => (m.UserId, m.ChoreId))
+            .ToHashSet();
+
+        return new RoutingContext
+        {
+            LocalNow = localNow,
+            Quiet = quiet,
+            Preferences = preferences,
+            Mutes = mutes
+        };
+    }
+
     /// <summary>Scans every scheduled chore and fires any notification entry whose moment has
     /// arrived (and hasn't already fired for this occurrence). Returns the number of entries fired.</summary>
     public async Task<int> ProcessDueAsync(DateTimeOffset now, CancellationToken ct = default)
@@ -297,14 +480,6 @@ public class NotificationService
 
         if (chores.Count == 0)
             return 0;
-
-        // Quiet hours are a local wall-clock window, so evaluate "now" in the configured family
-        // timezone (falling back to the server's local zone when unset) rather than UTC.
-        var tzId = await _db.AppSettings
-            .Where(s => s.Key == AppSettingsService.TimeZoneKey)
-            .Select(s => s.Value)
-            .FirstOrDefaultAsync(ct);
-        var localNow = TimeOnly.FromTimeSpan(TimeZoneInfo.ConvertTime(now, TimeZoneResolver.Resolve(tzId)).TimeOfDay);
 
         var choreIds = chores.Select(c => c.Id).ToList();
 
@@ -336,19 +511,14 @@ public class NotificationService
             .GroupBy(d => d.UserId)
             .ToDictionary(g => g.Key, g => g.ToList());
 
-        // Quiet-hours windows for everyone who could receive a push, so we can mute (but still inbox) it.
-        // Also load frozen status so we can skip notifications to frozen users entirely.
-        var userFlags = (await _db.Users
-                .Where(u => recipientIds.Contains(u.Id))
-                .Select(u => new { u.Id, u.QuietHoursStart, u.QuietHoursEnd, u.IsFrozen })
+        // Per-recipient preferences, chore mutes and quiet-hours windows, loaded once for the scan.
+        var routing = await LoadRoutingAsync(recipientIds, now, ct);
+
+        // Frozen users are skipped entirely — their occurrences are paused, not merely silenced.
+        var frozenUserIds = (await _db.Users
+                .Where(u => recipientIds.Contains(u.Id) && u.IsFrozen)
+                .Select(u => u.Id)
                 .ToListAsync(ct))
-            .ToDictionary(u => u.Id);
-        var quietByUser = userFlags
-            .Where(kvp => kvp.Value.QuietHoursStart != null)
-            .ToDictionary(kvp => kvp.Key, kvp => (kvp.Value.QuietHoursStart, kvp.Value.QuietHoursEnd));
-        var frozenUserIds = userFlags
-            .Where(kvp => kvp.Value.IsFrozen)
-            .Select(kvp => kvp.Key)
             .ToHashSet();
 
         var fired = 0;
@@ -365,7 +535,7 @@ public class NotificationService
                         if (track.DueAt is not { } trackDue) continue;
                         if (frozenUserIds.Contains(track.UserId)) continue;
                         if (await TryFireAsync(chore, entry, trackDue, track.UserId, [track.UserId],
-                                delivered, subsByUser, fcmByUser, quietByUser, localNow, now, ct))
+                                delivered, subsByUser, fcmByUser, routing, now, ct))
                             fired++;
                     }
                 }
@@ -378,7 +548,7 @@ public class NotificationService
                         .Distinct()
                         .ToList();
                     if (await TryFireAsync(chore, entry, dueAt, dedupUserId: null, recipients,
-                            delivered, subsByUser, fcmByUser, quietByUser, localNow, now, ct))
+                            delivered, subsByUser, fcmByUser, routing, now, ct))
                         fired++;
                 }
             }
@@ -397,7 +567,7 @@ public class NotificationService
         IReadOnlyList<Guid> recipientIds, HashSet<(Guid, long, Guid?)> delivered,
         Dictionary<Guid, List<PushSubscription>> subsByUser,
         Dictionary<Guid, List<FcmDevice>> fcmByUser,
-        Dictionary<Guid, (TimeOnly? Start, TimeOnly? End)> quietByUser, TimeOnly localNow, DateTimeOffset now, CancellationToken ct)
+        RoutingContext routing, DateTimeOffset now, CancellationToken ct)
     {
         var fireAt = NotificationPlanner.FireTime(entry, occurrenceDueAt);
         if (fireAt > now || fireAt < now - StaleWindow)
@@ -409,7 +579,7 @@ public class NotificationService
 
         // In track mode the message names the track owner; otherwise the chore's current assignee.
         await SendEntryAsync(chore, entry, occurrenceDueAt, recipientIds,
-            dedupUserId ?? chore.CurrentAssigneeId, subsByUser, fcmByUser, quietByUser, localNow, now, ct);
+            dedupUserId ?? chore.CurrentAssigneeId, subsByUser, fcmByUser, routing, now, ct);
 
         _db.NotificationDeliveries.Add(new NotificationDelivery
         {
@@ -426,15 +596,23 @@ public class NotificationService
         Chore chore, ChoreNotification entry, DateTimeOffset occurrenceDueAt, IReadOnlyList<Guid> recipientIds,
         Guid? messageAssigneeId, Dictionary<Guid, List<PushSubscription>> subsByUser,
         Dictionary<Guid, List<FcmDevice>> fcmByUser,
-        Dictionary<Guid, (TimeOnly? Start, TimeOnly? End)> quietByUser, TimeOnly localNow, DateTimeOffset now, CancellationToken ct)
+        RoutingContext routing, DateTimeOffset now, CancellationToken ct)
     {
         var (title, body) = BuildMessage(chore, entry, occurrenceDueAt, messageAssigneeId, now);
         var url = $"/chores?chore={chore.Id}";
         var payload = JsonSerializer.Serialize(new { title, body, url, choreId = chore.Id });
+        var category = NotificationRouter.CategoryOf(entry.Type);
 
         var attempted = 0;
+        var wanted = 0;
         foreach (var userId in recipientIds)
         {
+            // Each recipient is routed independently: their category preference, whether they muted
+            // this chore, and their quiet hours. Applies to both Web Push and native FCM.
+            var channel = routing.Resolve(userId, category, chore.Id);
+            if (channel == DeliveryChannel.Off)
+                continue;
+
             // Record the in-app inbox item even if the user has no reachable push device.
             _db.UserNotifications.Add(new UserNotification
             {
@@ -444,11 +622,10 @@ public class NotificationService
                 ChoreId = chore.Id
             });
 
-            // Suppress the push (but not the inbox row) while this recipient is in their quiet hours.
-            // Applies to both Web Push and native FCM.
-            if (quietByUser.TryGetValue(userId, out var quiet) &&
-                QuietHours.Contains(quiet.Start, quiet.End, localNow))
+            if (channel != DeliveryChannel.PushAndInbox)
                 continue;
+
+            wanted++;
 
             // Web Push devices.
             if (subsByUser.TryGetValue(userId, out var subs))
@@ -494,7 +671,9 @@ public class NotificationService
             }
         }
 
-        if (attempted == 0)
+        // Only a recipient who *wanted* a push and had no device is worth warning about; someone who
+        // silenced the category or muted the chore got exactly what they asked for.
+        if (attempted == 0 && wanted > 0)
             _logger.LogWarning(
                 "Chore '{Chore}' notification fired but no recipient ({Recipients}) has a push subscription — nothing was sent.",
                 chore.Name, entry.Recipients);

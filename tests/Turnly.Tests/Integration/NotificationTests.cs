@@ -82,5 +82,100 @@ public class NotificationTests : IDisposable
         Assert.Single(fetched.Notifications);
     }
 
+    [Fact]
+    public async Task Preferences_endpoint_returns_the_full_matrix()
+    {
+        var (admin, _) = await AdminClientAsync();
+
+        var prefs = await (await admin.GetAsync("/api/notifications/preferences"))
+            .ReadAsync<NotificationPreferenceDto[]>();
+
+        Assert.Equal(Enum.GetValues<NotificationCategory>().Length, prefs.Length);
+        Assert.All(prefs, p => Assert.Equal(DeliveryChannel.PushAndInbox, p.Channel));
+    }
+
+    [Fact]
+    public async Task Setting_a_preference_round_trips()
+    {
+        var (admin, _) = await AdminClientAsync();
+
+        var updated = await (await admin.PutJsonAsync("/api/notifications/preferences",
+                new UpdateNotificationPreferenceRequest(NotificationCategory.ChoreOverdue, DeliveryChannel.Off)))
+            .ReadAsync<NotificationPreferenceDto[]>();
+        Assert.Equal(DeliveryChannel.Off,
+            updated.Single(p => p.Category == NotificationCategory.ChoreOverdue).Channel);
+
+        var fetched = await (await admin.GetAsync("/api/notifications/preferences"))
+            .ReadAsync<NotificationPreferenceDto[]>();
+        Assert.Equal(DeliveryChannel.Off,
+            fetched.Single(p => p.Category == NotificationCategory.ChoreOverdue).Channel);
+    }
+
+    [Fact]
+    public async Task Setting_a_preference_rejects_the_system_category()
+    {
+        var (admin, _) = await AdminClientAsync();
+
+        var response = await admin.PutJsonAsync("/api/notifications/preferences",
+            new UpdateNotificationPreferenceRequest(NotificationCategory.System, DeliveryChannel.Off));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Muting_a_chore_surfaces_on_the_chore_dto()
+    {
+        var (admin, adminAuth) = await AdminClientAsync();
+        var chore = await (await admin.PostJsonAsync("/api/chores", new CreateChoreRequest(
+                "Dishes", null, "🍽️", 10, RepeatType.Daily, null, null, null, null, null, null, null, 1, false,
+                AssignmentStrategy.KeepLastAssigned, SchedulingPreference.FromScheduledDate, null, false, null,
+                Start, [adminAuth.User.Id], adminAuth.User.Id, null, [])))
+            .ReadAsync<ChoreDto>();
+
+        var mute = await admin.PostJsonAsync($"/api/notifications/mutes/{chore.Id}", new MuteChoreRequest(null));
+        Assert.Equal(HttpStatusCode.NoContent, mute.StatusCode);
+
+        var muted = await (await admin.GetAsync($"/api/chores/{chore.Id}")).ReadAsync<ChoreDto>();
+        Assert.True(muted.IsMuted);
+
+        var unmute = await admin.DeleteAsync($"/api/notifications/mutes/{chore.Id}");
+        Assert.Equal(HttpStatusCode.NoContent, unmute.StatusCode);
+
+        var unmuted = await (await admin.GetAsync($"/api/chores/{chore.Id}")).ReadAsync<ChoreDto>();
+        Assert.False(unmuted.IsMuted);
+    }
+
+    [Fact]
+    public async Task A_mute_is_invisible_to_other_members()
+    {
+        var (admin, adminAuth) = await AdminClientAsync();
+        await admin.PostJsonAsync("/api/users",
+            new CreateUserRequest("kid", "Kid", "kidpass1", UserRole.Member, null));
+        var chore = await (await admin.PostJsonAsync("/api/chores", new CreateChoreRequest(
+                "Dishes", null, "🍽️", 10, RepeatType.Daily, null, null, null, null, null, null, null, 1, false,
+                AssignmentStrategy.KeepLastAssigned, SchedulingPreference.FromScheduledDate, null, false, null,
+                Start, [adminAuth.User.Id], adminAuth.User.Id, null, [])))
+            .ReadAsync<ChoreDto>();
+
+        await admin.PostJsonAsync($"/api/notifications/mutes/{chore.Id}", new MuteChoreRequest(null));
+
+        var member = _factory.CreateClient();
+        var memberAuth = await member.LoginAsync("kid", "kidpass1");
+        member.UseBearer(memberAuth.AccessToken);
+
+        var asMember = await (await member.GetAsync($"/api/chores/{chore.Id}")).ReadAsync<ChoreDto>();
+        Assert.False(asMember.IsMuted);
+    }
+
+    [Fact]
+    public async Task Muting_an_unknown_chore_is_not_found()
+    {
+        var (admin, _) = await AdminClientAsync();
+
+        var response = await admin.PostJsonAsync($"/api/notifications/mutes/{Guid.NewGuid()}", new MuteChoreRequest(null));
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    }
+
     private record VapidKeyResponse(string PublicKey);
 }
