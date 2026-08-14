@@ -1,7 +1,8 @@
 import type { Chore } from '@/lib/types'
 import { Badge } from '@/components/ui/Badge'
 import {
-  choreHasDueTime, dueStatus, formatDate, isIndependent, nextDueTimeLabel, showStreak,
+  choreHasDueTime, dueStatus, formatDate, isIndependent, nextDueTimeLabel,
+  offerBadgeText, offerSentence, showStreak,
 } from '@/lib/chore-format'
 import { CheckIcon, ReassignIcon } from '@/components/chores/icons'
 
@@ -53,11 +54,7 @@ export function ChoreCompactItem(props: ChoreItemProps) {
   const status = dueStatus(chore.dueAt, choreHasDueTime(chore))
   const assignee = assigneeLabel(chore)
   const offer = chore.openOffer
-  const offerLabel = !offer ? '' : offer.fromUser.id === meId
-    ? 'You offered this chore'
-    : offer.toUser
-      ? (offer.toUser.id === meId ? 'Offered to you' : 'Offered to someone')
-      : 'Up for grabs'
+  const offerLabel = offer ? offerSentence(offer, meId) : ''
 
   return (
     <div className="flex items-center gap-3 px-4 py-2.5">
@@ -88,9 +85,10 @@ export function ChoreCompactItem(props: ChoreItemProps) {
           <Badge tone="violet" className="shrink-0">{chore.points} pts</Badge>
           {assignee && <span className="min-w-0 truncate text-xs text-muted-foreground">{assignee}</span>}
           {offer && (
-            <Badge tone="amber" className="shrink-0 gap-1" title={offerLabel} aria-label={offerLabel}>
+            <Badge tone="amber" className="min-w-0 gap-1" title={offerLabel} aria-label={offerLabel}>
               <ReassignIcon />
-              {offer.bountyPoints > 0 && <span>+{offer.bountyPoints}</span>}
+              <span className="truncate">{offerBadgeText(offer, meId)}</span>
+              {offer.bountyPoints > 0 && <span className="shrink-0">+{offer.bountyPoints}</span>}
             </Badge>
           )}
           {chore.isFrozen ? (

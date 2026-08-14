@@ -2,6 +2,7 @@ import type {
   AssignmentStrategy,
   Chore,
   ChoreNotification,
+  ChoreOffer,
   ChoreTrack,
   CustomRecurrenceMode,
   RepeatType,
@@ -170,6 +171,24 @@ export function trackProgressLabel(chore: Chore, track: ChoreTrack): string {
   const period = PERIOD_LABELS[chore.repeatType] ?? 'done'
   if (track.completionsRequired <= 1) return ''
   return `${track.progress}/${track.completionsRequired} ${period}`
+}
+
+/** Short badge text for a live offer: who the chore is waiting on. Targeted offers name the
+ * recipient so the offerer can see at a glance where the chore went. */
+export function offerBadgeText(offer: ChoreOffer, meId?: string): string {
+  if (!offer.toUser) return 'Up for grabs'
+  return offer.toUser.id === meId ? 'To you' : `To ${offer.toUser.displayName}`
+}
+
+/** Full sentence describing a live offer, used as the badge tooltip / accessible label. */
+export function offerSentence(offer: ChoreOffer, meId?: string): string {
+  const from = offer.fromUser.displayName
+  const to = offer.toUser?.displayName
+  if (offer.fromUser.id === meId) {
+    return to ? `You offered this chore to ${to}` : 'You put this chore up for grabs'
+  }
+  if (offer.toUser?.id === meId) return `${from} offered you this chore`
+  return to ? `${from} offered this chore to ${to}` : `${from} put this chore up for grabs`
 }
 
 const NOTIFICATION_TYPE_LABELS = {

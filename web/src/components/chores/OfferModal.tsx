@@ -30,7 +30,8 @@ export function OfferModal({ chore, onClose, onDone }: { chore: Chore; onClose: 
   const mutation = useMutation({
     mutationFn: () => choresApi.offer(chore.id, { toUserId: toUserId || null, bountyPoints: bounty }),
     onSuccess: () => {
-      toast.success(toUserId ? 'Offer sent.' : 'Chore is up for grabs.')
+      const recipient = candidates.find((u) => u.id === toUserId)
+      toast.success(recipient ? `Offered to ${recipient.displayName}.` : 'Chore is up for grabs.')
       // The bounty left the offerer's balance, so points on screen are stale.
       void queryClient.invalidateQueries({ queryKey: ['me'] })
       void queryClient.invalidateQueries({ queryKey: ['leaderboard'] })

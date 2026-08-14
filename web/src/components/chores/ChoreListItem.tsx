@@ -3,8 +3,8 @@ import { Badge } from '@/components/ui/Badge'
 import { Card } from '@/components/ui/Card'
 import { Avatar } from '@/components/ui/Modal'
 import {
-  completionProgressLabel, formatDate, isIndependent,
-  nextDueTimeLabel, repeatLabel, showStreak, trackIsDone, trackStatusText,
+  completionProgressLabel, formatDate, isIndependent, nextDueTimeLabel,
+  offerBadgeText, offerSentence, repeatLabel, showStreak, trackIsDone, trackStatusText,
 } from '@/lib/chore-format'
 import { CheckIcon, ReassignIcon } from '@/components/chores/icons'
 import { ChoreMenu } from '@/components/chores/ChoreMenu'
@@ -120,15 +120,12 @@ export function ChoreListItem({
                 <Badge tone="violet">{chore.points} pts</Badge>
                 {chore.openOffer && (() => {
                   const offer = chore.openOffer!
-                  const label = offer.fromUser.id === meId
-                    ? 'You offered this chore'
-                    : offer.toUser
-                      ? (offer.toUser.id === meId ? 'Offered to you' : 'Offered to someone')
-                      : 'Up for grabs'
+                  const label = offerSentence(offer, meId)
                   return (
-                    <Badge tone="amber" className="gap-1" title={label} aria-label={label}>
+                    <Badge tone="amber" className="max-w-full gap-1" title={label} aria-label={label}>
                       <ReassignIcon />
-                      {offer.bountyPoints > 0 && <span>+{offer.bountyPoints}</span>}
+                      <span className="truncate">{offerBadgeText(offer, meId)}</span>
+                      {offer.bountyPoints > 0 && <span className="shrink-0">+{offer.bountyPoints}</span>}
                     </Badge>
                   )
                 })()}
