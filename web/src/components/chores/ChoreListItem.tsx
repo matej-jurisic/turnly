@@ -22,6 +22,7 @@ export function ChoreListItem({
   onUndo,
   onSkip,
   onReassign,
+  onOffer,
   onReschedule,
   onEdit,
   onCopy,
@@ -41,6 +42,7 @@ export function ChoreListItem({
   onUndo: () => void
   onSkip: () => void
   onReassign: () => void
+  onOffer: () => void
   onReschedule: () => void
   onEdit: () => void
   onCopy: () => void
@@ -99,6 +101,7 @@ export function ChoreListItem({
                   onUndo={onUndo}
                   onSkip={onSkip}
                   onReassign={onReassign}
+                  onOffer={onOffer}
                   onReschedule={onReschedule}
                   onEdit={onEdit}
                   onCopy={onCopy}
@@ -115,16 +118,20 @@ export function ChoreListItem({
             <div className="mt-2.5 flex items-center justify-between gap-3">
               <div className="flex min-w-0 flex-wrap items-center gap-2">
                 <Badge tone="violet">{chore.points} pts</Badge>
-                {chore.pendingReassignment && (
-                  <Badge
-                    tone="amber"
-                    className="px-1"
-                    title={chore.pendingReassignment.toUser.id === meId ? 'Reassignment requested for you' : 'Reassignment pending'}
-                    aria-label={chore.pendingReassignment.toUser.id === meId ? 'Reassignment requested for you' : 'Reassignment pending'}
-                  >
-                    <ReassignIcon />
-                  </Badge>
-                )}
+                {chore.openOffer && (() => {
+                  const offer = chore.openOffer!
+                  const label = offer.fromUser.id === meId
+                    ? 'You offered this chore'
+                    : offer.toUser
+                      ? (offer.toUser.id === meId ? 'Offered to you' : 'Offered to someone')
+                      : 'Up for grabs'
+                  return (
+                    <Badge tone="amber" className="gap-1" title={label} aria-label={label}>
+                      <ReassignIcon />
+                      {offer.bountyPoints > 0 && <span>+{offer.bountyPoints}</span>}
+                    </Badge>
+                  )
+                })()}
                 {showStreak(chore) && (
                   <Badge tone="secondary" className="border border-border">🔥 {chore.currentStreak}</Badge>
                 )}

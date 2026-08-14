@@ -18,6 +18,8 @@ import { ChoreCalendar } from '@/components/chores/ChoreCalendar'
 import { Card } from '@/components/ui/Card'
 import { ChoreFormModal } from '@/components/chores/ChoreFormModal'
 import { ReassignModal } from '@/components/chores/ReassignModal'
+import { OfferModal } from '@/components/chores/OfferModal'
+import { OfferBoard } from '@/components/chores/OfferBoard'
 import { CopyChoreModal } from '@/components/chores/CopyChoreModal'
 import { RescheduleModal } from '@/components/chores/RescheduleModal'
 import {
@@ -41,6 +43,7 @@ export function ChoresPage() {
   const [creating, setCreating] = useState(false)
   const [completing, setCompleting] = useState<Chore | null>(null)
   const [reassigning, setReassigning] = useState<Chore | null>(null)
+  const [offering, setOffering] = useState<Chore | null>(null)
   const [rescheduling, setRescheduling] = useState<Chore | null>(null)
   const [copying, setCopying] = useState<Chore | null>(null)
   const [details, setDetails] = useState<Chore | null>(null)
@@ -174,6 +177,7 @@ export function ChoresPage() {
       }
     },
     onReassign: () => setReassigning(chore),
+    onOffer: () => setOffering(chore),
     onReschedule: () => setRescheduling(chore),
     onEdit: () => setEditing(chore),
     onCopy: () => setCopying(chore),
@@ -215,6 +219,10 @@ export function ChoresPage() {
                 onViewChange={changeView}
               />
             )}
+
+            {/* Offers you can take, above everything else and in every view — it's the only place
+                they're discoverable on a phone. Hidden when there's nothing to claim. */}
+            <OfferBoard chores={chores ?? []} meId={currentUser?.id} onSelect={setDetails} />
 
             {isLoading && <p className="text-muted-foreground">Loading…</p>}
             {error && <p className="text-destructive">{(error as ApiError).message}</p>}
@@ -302,10 +310,20 @@ export function ChoresPage() {
       {reassigning && (
         <ReassignModal
           chore={reassigning}
-          isAdmin={isAdmin}
           onClose={() => setReassigning(null)}
           onDone={() => {
             setReassigning(null)
+            invalidate()
+          }}
+        />
+      )}
+
+      {offering && (
+        <OfferModal
+          chore={offering}
+          onClose={() => setOffering(null)}
+          onDone={() => {
+            setOffering(null)
             invalidate()
           }}
         />

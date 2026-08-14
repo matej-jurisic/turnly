@@ -17,7 +17,7 @@ public class TurnlyDbContext : DbContext
     public DbSet<Tag> Tags => Set<Tag>();
     public DbSet<ChoreCompletion> ChoreCompletions => Set<ChoreCompletion>();
     public DbSet<ChoreAssignment> ChoreAssignments => Set<ChoreAssignment>();
-    public DbSet<ChoreReassignmentRequest> ChoreReassignmentRequests => Set<ChoreReassignmentRequest>();
+    public DbSet<ChoreOffer> ChoreOffers => Set<ChoreOffer>();
     public DbSet<ChoreAssigneeTrack> ChoreAssigneeTracks => Set<ChoreAssigneeTrack>();
     public DbSet<PointsLogEntry> PointsLog => Set<PointsLogEntry>();
     public DbSet<Award> Awards => Set<Award>();
@@ -154,12 +154,12 @@ public class TurnlyDbContext : DbContext
                 .OnDelete(DeleteBehavior.SetNull);
         });
 
-        b.Entity<ChoreReassignmentRequest>(e =>
+        b.Entity<ChoreOffer>(e =>
         {
             e.HasKey(x => x.Id);
             e.Property(x => x.Status).HasConversion<string>().HasMaxLength(16);
 
-            // Deleting a chore drops its reassignment requests.
+            // Deleting a chore drops its offers.
             e.HasOne(x => x.Chore)
                 .WithMany()
                 .HasForeignKey(x => x.ChoreId)
@@ -171,9 +171,15 @@ public class TurnlyDbContext : DbContext
                 .HasForeignKey(x => x.FromUserId)
                 .OnDelete(DeleteBehavior.Restrict);
 
+            // Null on an open offer — nobody in particular is being asked.
             e.HasOne(x => x.ToUser)
                 .WithMany()
                 .HasForeignKey(x => x.ToUserId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            e.HasOne(x => x.ClaimedBy)
+                .WithMany()
+                .HasForeignKey(x => x.ClaimedByUserId)
                 .OnDelete(DeleteBehavior.Restrict);
         });
 

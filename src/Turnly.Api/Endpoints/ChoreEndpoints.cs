@@ -72,8 +72,7 @@ public static class ChoreEndpoints
             return result.Succeeded ? Results.Ok(result.Value) : result.Error!.ToProblem();
         }).RequireAuthorization("Admin");
 
-        // Reassign the current occurrence. Admins move it immediately; a member may only reassign a
-        // chore they hold, and it becomes a pending request the target must accept (see below).
+        // Admin-only direct move of the current occupant. Members offer the chore instead (below).
         group.MapPost("/{id:guid}/reassign", async (Guid id, ReassignChoreRequest req,
             ClaimsPrincipal principal, ChoreService chores, CancellationToken ct) =>
         {
@@ -83,23 +82,44 @@ public static class ChoreEndpoints
             return result.Succeeded ? Results.Ok(result.Value) : result.Error!.ToProblem();
         });
 
-        // The target of a pending member reassignment accepts (the chore moves to them) or declines
-        // (it stays with the requester). The service authorizes that the caller is the target.
-        group.MapPost("/{id:guid}/reassign/accept", async (Guid id,
+        // Put the current occurrence up for someone to take, optionally with a points bounty. An
+        // omitted ToUserId makes it open to every other assignee, first come first served.
+        group.MapPost("/{id:guid}/offer", async (Guid id, OfferChoreRequest req,
             ClaimsPrincipal principal, ChoreService chores, CancellationToken ct) =>
         {
             if (principal.GetUserId() is not { } userId)
                 return Results.Unauthorized();
-            var result = await chores.RespondToReassignmentAsync(id, userId, accept: true, ct);
+            var result = await chores.OfferAsync(id, userId, req, ct);
             return result.Succeeded ? Results.Ok(result.Value) : result.Error!.ToProblem();
         });
 
-        group.MapPost("/{id:guid}/reassign/decline", async (Guid id,
+        // Take an offered chore. The service authorizes eligibility and settles the claim race.
+        group.MapPost("/{id:guid}/offer/claim", async (Guid id,
             ClaimsPrincipal principal, ChoreService chores, CancellationToken ct) =>
         {
             if (principal.GetUserId() is not { } userId)
                 return Results.Unauthorized();
-            var result = await chores.RespondToReassignmentAsync(id, userId, accept: false, ct);
+            var result = await chores.ClaimOfferAsync(id, userId, ct);
+            return result.Succeeded ? Results.Ok(result.Value) : result.Error!.ToProblem();
+        });
+
+        // Turn down an offer aimed at you (targeted offers only).
+        group.MapPost("/{id:guid}/offer/decline", async (Guid id,
+            ClaimsPrincipal principal, ChoreService chores, CancellationToken ct) =>
+        {
+            if (principal.GetUserId() is not { } userId)
+                return Results.Unauthorized();
+            var result = await chores.DeclineOfferAsync(id, userId, ct);
+            return result.Succeeded ? Results.Ok(result.Value) : result.Error!.ToProblem();
+        });
+
+        // Pull your own offer back (admins can withdraw anyone's).
+        group.MapDelete("/{id:guid}/offer", async (Guid id,
+            ClaimsPrincipal principal, ChoreService chores, CancellationToken ct) =>
+        {
+            if (principal.GetUserId() is not { } userId)
+                return Results.Unauthorized();
+            var result = await chores.WithdrawOfferAsync(id, userId, ct);
             return result.Succeeded ? Results.Ok(result.Value) : result.Error!.ToProblem();
         });
 

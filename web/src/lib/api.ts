@@ -23,6 +23,7 @@ import type {
   PushDevice,
   PushSubscribeRequest,
   ReassignChoreRequest,
+  OfferChoreRequest,
   RescheduleChoreRequest,
   Redemption,
   SetupRequest,
@@ -197,10 +198,13 @@ export const choresApi = {
     request<Chore>(`/chores/${id}/skip`, { method: 'POST', body: json(body) }),
   reassign: (id: string, body: ReassignChoreRequest) =>
     request<Chore>(`/chores/${id}/reassign`, { method: 'POST', body: json(body) }),
-  acceptReassign: (id: string) =>
-    request<Chore>(`/chores/${id}/reassign/accept`, { method: 'POST', body: json({}) }),
-  declineReassign: (id: string) =>
-    request<Chore>(`/chores/${id}/reassign/decline`, { method: 'POST', body: json({}) }),
+  offer: (id: string, body: OfferChoreRequest) =>
+    request<Chore>(`/chores/${id}/offer`, { method: 'POST', body: json(body) }),
+  claimOffer: (id: string) =>
+    request<Chore>(`/chores/${id}/offer/claim`, { method: 'POST', body: json({}) }),
+  declineOffer: (id: string) =>
+    request<Chore>(`/chores/${id}/offer/decline`, { method: 'POST', body: json({}) }),
+  withdrawOffer: (id: string) => request<Chore>(`/chores/${id}/offer`, { method: 'DELETE' }),
   reschedule: (id: string, body: RescheduleChoreRequest) =>
     request<Chore>(`/chores/${id}/reschedule`, { method: 'POST', body: json(body) }),
   undoCompletion: (completionId: string) =>

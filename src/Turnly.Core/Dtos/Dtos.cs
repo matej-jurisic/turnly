@@ -123,7 +123,7 @@ public record ChoreDto(
 {
     public static ChoreDto FromEntity(Chore c, ChoreCompletion? lastCompletion = null, int? occurrenceProgress = null,
         User? nextAssignee = null, ChoreAssigneeTrackDto[]? tracks = null, int currentStreak = 0,
-        ChoreReassignmentRequest? pendingReassignment = null) =>
+        ChoreOffer? openOffer = null) =>
         new(c.Id, c.Name, c.Description, c.Emoji, c.Points, c.RepeatType,
             c.CustomMode, c.IntervalCount, c.IntervalUnit,
             c.Weekdays.ToArray(), c.WeeksOfMonth.ToArray(), c.DaysOfMonth.ToArray(), c.Months.ToArray(),
@@ -143,14 +143,13 @@ public record ChoreDto(
             c.CreatedAt)
         {
             IsFrozen = c.IsFrozen,
-            PendingReassignment = pendingReassignment is null ? null : PendingReassignmentDto.FromEntity(pendingReassignment),
+            OpenOffer = openOffer is null ? null : ChoreOfferDto.FromEntity(openOffer),
         };
 
     public bool IsFrozen { get; init; }
 
-    /// <summary>The outstanding member-initiated reassignment awaiting acceptance, if any. Null when
-    /// the chore has no pending request.</summary>
-    public PendingReassignmentDto? PendingReassignment { get; init; }
+    /// <summary>The live offer waiting to be claimed, if any. Null when the chore isn't up for grabs.</summary>
+    public ChoreOfferDto? OpenOffer { get; init; }
 
     /// <summary>Achievements the credited user just unlocked with this completion — set only on the
     /// response to a self-completion so the client can show a celebration popup. Empty otherwise; not
@@ -309,15 +308,21 @@ public record CompleteChoreRequest(string? Notes, Guid? CompletedByUserId = null
 /// ignored for rotating chores, which only have one schedule to skip.</summary>
 public record SkipChoreRequest(string? Notes, Guid? UserId = null);
 
+/// <summary>Admin-only direct move of a chore to another assignee.</summary>
 public record ReassignChoreRequest(Guid AssigneeId);
 
-/// <summary>An outstanding member-initiated reassignment awaiting the target's acceptance. Surfaced
-/// on <see cref="ChoreDto.PendingReassignment"/> so the UI can show "pending" state and let the
-/// target accept/decline.</summary>
-public record PendingReassignmentDto(Guid Id, UserDto FromUser, UserDto ToUser)
+/// <summary>Puts a chore up for someone to take. <see cref="ToUserId"/> null makes it an open offer any
+/// other assignee can claim; set, it's aimed at that one person. <see cref="BountyPoints"/> is the
+/// (optional) sweetener, capped at the offerer's balance.</summary>
+public record OfferChoreRequest(Guid? ToUserId = null, int BountyPoints = 0);
+
+/// <summary>A live offer waiting to be claimed. Surfaced on <see cref="ChoreDto.OpenOffer"/> so the UI
+/// can show the "up for grabs" state, the bounty, and the claim/decline actions. <see cref="ToUser"/> is
+/// null for an open offer.</summary>
+public record ChoreOfferDto(Guid Id, UserDto FromUser, UserDto? ToUser, int BountyPoints)
 {
-    public static PendingReassignmentDto FromEntity(ChoreReassignmentRequest r) =>
-        new(r.Id, UserDto.FromEntity(r.FromUser!), UserDto.FromEntity(r.ToUser!));
+    public static ChoreOfferDto FromEntity(ChoreOffer o) =>
+        new(o.Id, UserDto.FromEntity(o.FromUser!), o.ToUser is null ? null : UserDto.FromEntity(o.ToUser), o.BountyPoints);
 }
 
 /// <summary><see cref="UserId"/> names whose track to reschedule on a track-mode chore (required

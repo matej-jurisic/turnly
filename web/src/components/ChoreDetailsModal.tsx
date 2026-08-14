@@ -34,19 +34,50 @@ export function ChoreDetailsModal({ chore, onClose, onComplete }: ChoreDetailsMo
     onError: (err) => toast.error(err instanceof ApiError ? err.message : 'Skip failed'),
   })
 
-  const pending = chore.pendingReassignment
-  const isReassignTarget = pending?.toUser.id === meId
+  const offer = chore.openOffer
+  const isMyOffer = offer?.fromUser.id === meId
+  // Targeted offers are claimable only by their recipient; open ones by any other assignee.
+  const isOfferTarget = offer?.toUser?.id === meId
+  const canClaim = !!offer && !isMyOffer
+    && (offer.toUser ? isOfferTarget : chore.assignees.some((u) => u.id === meId))
 
-  const respondMutation = useMutation({
-    mutationFn: (accept: boolean) =>
-      accept ? choresApi.acceptReassign(chore.id) : choresApi.declineReassign(chore.id),
-    onSuccess: (_data, accept) => {
-      toast.success(accept ? 'Reassignment accepted.' : 'Reassignment declined.')
-      void queryClient.invalidateQueries({ queryKey: ['chores'] })
+  // A claim moves points between two people, so the balances on screen go stale too.
+  const invalidateOffer = () => {
+    void queryClient.invalidateQueries({ queryKey: ['chores'] })
+    void queryClient.invalidateQueries({ queryKey: ['me'] })
+    void queryClient.invalidateQueries({ queryKey: ['leaderboard'] })
+  }
+
+  const claimMutation = useMutation({
+    mutationFn: () => choresApi.claimOffer(chore.id),
+    onSuccess: () => {
+      toast.success(offer?.bountyPoints ? `Claimed for ${offer.bountyPoints} points.` : 'Chore claimed.')
+      invalidateOffer()
+      onClose()
+    },
+    onError: (err) => toast.error(err instanceof ApiError ? err.message : 'Claim failed'),
+  })
+
+  const declineOfferMutation = useMutation({
+    mutationFn: () => choresApi.declineOffer(chore.id),
+    onSuccess: () => {
+      toast.success('Offer declined.')
+      invalidateOffer()
       onClose()
     },
     onError: (err) => toast.error(err instanceof ApiError ? err.message : 'Action failed'),
   })
+
+  const withdrawMutation = useMutation({
+    mutationFn: () => choresApi.withdrawOffer(chore.id),
+    onSuccess: () => {
+      toast.success('Offer withdrawn.')
+      invalidateOffer()
+    },
+    onError: (err) => toast.error(err instanceof ApiError ? err.message : 'Withdraw failed'),
+  })
+
+  const offerBusy = claimMutation.isPending || declineOfferMutation.isPending || withdrawMutation.isPending
 
   const onSkipTrack = async (userId: string, name: string) => {
     if (await confirm({
@@ -78,20 +109,38 @@ export function ChoreDetailsModal({ chore, onClose, onComplete }: ChoreDetailsMo
           <p className="text-sm text-muted-foreground">{chore.description}</p>
         )}
 
-        {pending && (
+        {offer && (
           <div>
             <div className="rounded-lg border border-border bg-accent/50 px-3 py-2.5 text-sm">
               <p className="text-muted-foreground">
-                {isReassignTarget ? (
-                  <><strong className="text-foreground">{pending.fromUser.displayName}</strong> asked you to take this chore.</>
+                {isMyOffer ? (
+                  offer.toUser
+                    ? <>You offered this chore to <strong className="text-foreground">{offer.toUser.displayName}</strong>.</>
+                    : <>You put this chore up for grabs.</>
+                ) : isOfferTarget ? (
+                  <><strong className="text-foreground">{offer.fromUser.displayName}</strong> offered you this chore.</>
+                ) : offer.toUser ? (
+                  <><strong className="text-foreground">{offer.fromUser.displayName}</strong> offered this chore to <strong className="text-foreground">{offer.toUser.displayName}</strong>.</>
                 ) : (
-                  <><strong className="text-foreground">{pending.fromUser.displayName}</strong> asked <strong className="text-foreground">{pending.toUser.displayName}</strong> to take this chore.</>
+                  <><strong className="text-foreground">{offer.fromUser.displayName}</strong> put this chore up for grabs.</>
+                )}
+                {offer.bountyPoints > 0 && (
+                  <> Whoever takes it earns <strong className="text-foreground">{offer.bountyPoints} points</strong>.</>
                 )}
               </p>
-              {isReassignTarget && (
+              {(canClaim || isMyOffer || isAdmin) && (
                 <div className="mt-2.5 flex gap-2">
-                  <Button size="sm" onClick={() => respondMutation.mutate(true)} disabled={respondMutation.isPending}>Accept</Button>
-                  <Button size="sm" variant="secondary" onClick={() => respondMutation.mutate(false)} disabled={respondMutation.isPending}>Decline</Button>
+                  {canClaim && (
+                    <Button size="sm" onClick={() => claimMutation.mutate()} disabled={offerBusy}>
+                      {offer.bountyPoints > 0 ? `Claim for ${offer.bountyPoints}` : 'Claim'}
+                    </Button>
+                  )}
+                  {isOfferTarget && (
+                    <Button size="sm" variant="secondary" onClick={() => declineOfferMutation.mutate()} disabled={offerBusy}>Decline</Button>
+                  )}
+                  {(isMyOffer || isAdmin) && (
+                    <Button size="sm" variant="secondary" onClick={() => withdrawMutation.mutate()} disabled={offerBusy}>Withdraw</Button>
+                  )}
                 </div>
               )}
             </div>

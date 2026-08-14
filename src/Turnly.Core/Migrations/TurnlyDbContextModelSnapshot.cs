@@ -353,13 +353,19 @@ namespace Turnly.Core.Migrations
                     b.ToTable("ChoreNotifications");
                 });
 
-            modelBuilder.Entity("Turnly.Core.Entities.ChoreReassignmentRequest", b =>
+            modelBuilder.Entity("Turnly.Core.Entities.ChoreOffer", b =>
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("TEXT");
 
+                    b.Property<int>("BountyPoints")
+                        .HasColumnType("INTEGER");
+
                     b.Property<Guid>("ChoreId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid?>("ClaimedByUserId")
                         .HasColumnType("TEXT");
 
                     b.Property<DateTimeOffset>("CreatedAt")
@@ -376,18 +382,20 @@ namespace Turnly.Core.Migrations
                         .HasMaxLength(16)
                         .HasColumnType("TEXT");
 
-                    b.Property<Guid>("ToUserId")
+                    b.Property<Guid?>("ToUserId")
                         .HasColumnType("TEXT");
 
                     b.HasKey("Id");
 
                     b.HasIndex("ChoreId");
 
+                    b.HasIndex("ClaimedByUserId");
+
                     b.HasIndex("FromUserId");
 
                     b.HasIndex("ToUserId");
 
-                    b.ToTable("ChoreReassignmentRequests");
+                    b.ToTable("ChoreOffers");
                 });
 
             modelBuilder.Entity("Turnly.Core.Entities.FcmDevice", b =>
@@ -906,13 +914,18 @@ namespace Turnly.Core.Migrations
                     b.Navigation("Chore");
                 });
 
-            modelBuilder.Entity("Turnly.Core.Entities.ChoreReassignmentRequest", b =>
+            modelBuilder.Entity("Turnly.Core.Entities.ChoreOffer", b =>
                 {
                     b.HasOne("Turnly.Core.Entities.Chore", "Chore")
                         .WithMany()
                         .HasForeignKey("ChoreId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
+
+                    b.HasOne("Turnly.Core.Entities.User", "ClaimedBy")
+                        .WithMany()
+                        .HasForeignKey("ClaimedByUserId")
+                        .OnDelete(DeleteBehavior.Restrict);
 
                     b.HasOne("Turnly.Core.Entities.User", "FromUser")
                         .WithMany()
@@ -923,10 +936,11 @@ namespace Turnly.Core.Migrations
                     b.HasOne("Turnly.Core.Entities.User", "ToUser")
                         .WithMany()
                         .HasForeignKey("ToUserId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
+                        .OnDelete(DeleteBehavior.Restrict);
 
                     b.Navigation("Chore");
+
+                    b.Navigation("ClaimedBy");
 
                     b.Navigation("FromUser");
 

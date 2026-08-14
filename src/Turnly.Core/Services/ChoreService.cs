@@ -39,7 +39,7 @@ public class ChoreService
         var ids = chores.Select(c => c.Id).ToList();
         var completionsByChore = await CompletionsByChoreAsync(ids, ct);
         var assignmentsByChore = await AssignmentsByChoreAsync(ids, ct);
-        var pendingByChore = await PendingReassignmentsByChoreAsync(ids, ct);
+        var pendingByChore = await OpenOffersByChoreAsync(ids, ct);
         var now = DateTimeOffset.UtcNow;
 
         return chores
@@ -57,7 +57,7 @@ public class ChoreService
 
         var completionsByChore = await CompletionsByChoreAsync([id], ct);
         var assignmentsByChore = await AssignmentsByChoreAsync([id], ct);
-        var pendingByChore = await PendingReassignmentsByChoreAsync([id], ct);
+        var pendingByChore = await OpenOffersByChoreAsync([id], ct);
         return Result.Success(ToDto(chore, completionsByChore.GetValueOrDefault(id),
             assignmentsByChore.GetValueOrDefault(id, []), DateTimeOffset.UtcNow, viewerId,
             pendingByChore.GetValueOrDefault(id)));
@@ -253,6 +253,10 @@ public class ChoreService
             var advancedToNewOccurrence = await AdvanceScheduleAsync(chore, completion, now, ct);
             if (advancedToNewOccurrence || (chore.RotateOnEachCompletion && chore.DueAt is not null))
                 await RotateAssigneeAsync(chore, now, completion.CompletedByUserId!.Value, completion.Id, ct);
+
+            // The occurrence someone was being offered is done, so nobody can claim it any more —
+            // void the offer and give the bounty back.
+            await VoidOffersAsync(chore, OfferStatus.Cancelled, ct);
         }
 
         await _db.SaveChangesAsync(ct);
@@ -322,19 +326,18 @@ public class ChoreService
         else
         {
             await AdvanceScheduleAsync(chore, skip, now, ct);
+            // Same as a completion: the offered occurrence is gone, so refund and void.
+            await VoidOffersAsync(chore, OfferStatus.Cancelled, ct);
         }
 
         await _db.SaveChangesAsync(ct);
         return await GetAsync(chore.Id, ct: ct);
     }
 
-    /// <summary>Reassigns the current occurrence of a chore to another eligible assignee. Admins move
-    /// the chore immediately (the strategy still drives future rotations; this just sets the current
-    /// occupant and logs the assignment, keeping <see cref="AssignmentStrategy.LeastAssigned"/>
-    /// honest). A non-admin may only reassign a chore they currently hold, and the move does not take
-    /// effect until the target accepts: their request is recorded as a
-    /// <see cref="ReassignmentStatus.Pending"/> <see cref="ChoreReassignmentRequest"/> and the target
-    /// is notified (in-app + push). See <see cref="RespondToReassignmentAsync"/>.</summary>
+    /// <summary>Admin-only: moves the current occurrence of a chore to another assignee immediately.
+    /// The strategy still drives future rotations; this just sets the current occupant and logs the
+    /// assignment, keeping <see cref="AssignmentStrategy.LeastAssigned"/> honest. Members don't get a
+    /// direct move — they put the chore up for someone to take via <see cref="OfferAsync"/>.</summary>
     public async Task<Result<ChoreDto>> ReassignAsync(Guid id, Guid userId, ReassignChoreRequest req, CancellationToken ct = default)
     {
         var chore = await _db.Chores
@@ -353,113 +356,296 @@ public class ChoreService
         if (actor is null)
             return Result.Fail<ChoreDto>(Error.NotFound("User not found."));
 
-        // Members may only reassign a chore they currently hold; admins may reassign any.
-        if (actor.Role != UserRole.Admin && chore.CurrentAssigneeId != userId)
-            return Result.Fail<ChoreDto>(Error.Forbidden("You can only reassign chores that are assigned to you."));
+        if (actor.Role != UserRole.Admin)
+            return Result.Fail<ChoreDto>(Error.Forbidden("Only admins can reassign a chore directly. Offer it instead and let someone claim it."));
 
         if (chore.CurrentAssigneeId == req.AssigneeId)
             return await GetAsync(chore.Id, ct: ct); // already theirs — nothing to do
 
-        if (actor.Role == UserRole.Admin)
-        {
-            // Immediate move. Void any pending request — the chore is being placed by an admin.
-            await CancelPendingReassignmentsAsync(chore.Id, ct);
-            var previousAssigneeId = chore.CurrentAssigneeId;
-            chore.CurrentAssigneeId = req.AssigneeId;
-            _db.ChoreAssignments.Add(new ChoreAssignment
-            {
-                ChoreId = chore.Id,
-                UserId = req.AssigneeId,
-                PreviousAssigneeId = previousAssigneeId,
-                AssignedByUserId = userId,
-            });
-            await _db.SaveChangesAsync(ct);
-            return await GetAsync(chore.Id, ct: ct);
-        }
+        // Void any live offer with a refund — the chore is being placed by an admin, so nobody is
+        // going to claim it.
+        await VoidOffersAsync(chore, OfferStatus.Cancelled, ct);
 
-        // Member request: don't move the chore — supersede any prior pending request, record a new
-        // one, and notify the target so they can accept or decline.
-        await CancelPendingReassignmentsAsync(chore.Id, ct);
-        _db.ChoreReassignmentRequests.Add(new ChoreReassignmentRequest
+        var previousAssigneeId = chore.CurrentAssigneeId;
+        chore.CurrentAssigneeId = req.AssigneeId;
+        _db.ChoreAssignments.Add(new ChoreAssignment
         {
             ChoreId = chore.Id,
-            FromUserId = userId,
-            ToUserId = req.AssigneeId,
+            UserId = req.AssigneeId,
+            PreviousAssigneeId = previousAssigneeId,
+            AssignedByUserId = userId,
         });
-
-        var title = string.IsNullOrWhiteSpace(chore.Emoji) ? chore.Name : $"{chore.Emoji} {chore.Name}";
-        await _notifications.NotifyUserAsync(req.AssigneeId, title,
-            $"{actor.DisplayName} wants to reassign this chore to you. Accept or decline it.", chore.Id, ct);
-
         await _db.SaveChangesAsync(ct);
         return await GetAsync(chore.Id, ct: ct);
     }
 
-    /// <summary>The target of a pending member reassignment accepts (the chore moves to them and the
-    /// assignment is logged) or declines (the chore stays with the requester). Either way the
-    /// requester is notified of the outcome. Only the request's target may respond.</summary>
-    public async Task<Result<ChoreDto>> RespondToReassignmentAsync(Guid choreId, Guid userId, bool accept, CancellationToken ct = default)
+    /// <summary>Puts the current occurrence of a chore up for someone else to take, optionally with a
+    /// points bounty. With no <c>ToUserId</c> the offer is <b>open</b>: every other assignee is notified
+    /// and the first to claim it gets it. With one, it's targeted at that person, who can claim or
+    /// decline. Either way the chore doesn't move until someone claims it.
+    ///
+    /// <para>The bounty is deducted from the offerer here and held until the offer resolves, so a claim
+    /// can always be paid. A newer offer supersedes any live one (refunded).</para></summary>
+    public async Task<Result<ChoreDto>> OfferAsync(Guid id, Guid userId, OfferChoreRequest req, CancellationToken ct = default)
     {
-        var request = await _db.ChoreReassignmentRequests
-            .Include(r => r.Chore)
-            .Where(r => r.ChoreId == choreId && r.ToUserId == userId && r.Status == ReassignmentStatus.Pending)
-            .FirstOrDefaultAsync(ct);
-        if (request is null)
-            return Result.Fail<ChoreDto>(Error.NotFound("No pending reassignment for you on this chore."));
-
-        var chore = request.Chore;
+        var chore = await _db.Chores
+            .Include(c => c.Assignees)
+            .FirstOrDefaultAsync(c => c.Id == id, ct);
         if (chore is null)
             return Result.Fail<ChoreDto>(Error.NotFound("Chore not found."));
 
-        var now = DateTimeOffset.UtcNow;
-        request.RespondedAt = now;
+        if (IsIndependent(chore))
+            return Result.Fail<ChoreDto>(Error.Validation("This chore is shared per person, so there's no single assignee to hand over."));
+        if (chore.IsFrozen)
+            return Result.Fail<ChoreDto>(Error.Validation("This chore is paused and cannot be offered."));
+        if (chore.CurrentAssigneeId != userId)
+            return Result.Fail<ChoreDto>(Error.Forbidden("You can only offer a chore that's assigned to you."));
 
-        var responder = await _db.Users.FindAsync([userId], ct);
-        var responderName = responder?.DisplayName ?? "Someone";
-        var title = string.IsNullOrWhiteSpace(chore.Emoji) ? chore.Name : $"{chore.Emoji} {chore.Name}";
+        var actor = await _db.Users.FindAsync([userId], ct);
+        if (actor is null)
+            return Result.Fail<ChoreDto>(Error.NotFound("User not found."));
 
-        if (accept)
+        if (req.BountyPoints < 0)
+            return Result.Fail<ChoreDto>(Error.Validation("A bounty can't be negative."));
+        // The escrow below would otherwise put the offerer in the red.
+        if (req.BountyPoints > actor.Points)
+            return Result.Fail<ChoreDto>(Error.Validation($"You only have {actor.Points} points to offer."));
+
+        // Frozen users are out of rotation, so they're not eligible to pick anything up either.
+        var eligible = chore.Assignees.Where(a => a.Id != userId && !a.IsFrozen).ToList();
+        if (req.ToUserId is { } target)
         {
-            request.Status = ReassignmentStatus.Accepted;
-            var previousAssigneeId = chore.CurrentAssigneeId;
-            chore.CurrentAssigneeId = request.ToUserId;
-            _db.ChoreAssignments.Add(new ChoreAssignment
+            if (target == userId)
+                return Result.Fail<ChoreDto>(Error.Validation("You can't offer a chore to yourself."));
+            if (eligible.All(a => a.Id != target))
+                return Result.Fail<ChoreDto>(Error.Validation("You can only offer this chore to one of its other assignees."));
+        }
+        else if (eligible.Count == 0)
+        {
+            return Result.Fail<ChoreDto>(Error.Validation("There's nobody else assigned to this chore to take it."));
+        }
+
+        // Supersede any live offer (refunding its bounty) before escrowing the new one.
+        await VoidOffersAsync(chore, OfferStatus.Cancelled, ct);
+
+        _db.ChoreOffers.Add(new ChoreOffer
+        {
+            ChoreId = chore.Id,
+            FromUserId = userId,
+            ToUserId = req.ToUserId,
+            BountyPoints = req.BountyPoints,
+        });
+
+        if (req.BountyPoints > 0)
+        {
+            actor.Points -= req.BountyPoints;
+            _db.PointsLog.Add(new PointsLogEntry
             {
-                ChoreId = chore.Id,
-                UserId = request.ToUserId,
-                PreviousAssigneeId = previousAssigneeId,
-                AssignedByUserId = userId,
+                UserId = userId,
+                Delta = -req.BountyPoints,
+                Type = PointsLogType.Bounty,
+                Description = $"Bounty offered on {chore.Name}",
             });
-            await _notifications.NotifyUserAsync(request.FromUserId, title,
-                $"{responderName} accepted the reassignment. It's now their chore.", chore.Id, ct);
+        }
+
+        var title = NotificationTitle(chore);
+        var reward = req.BountyPoints > 0 ? $" for {req.BountyPoints} points" : "";
+        if (req.ToUserId is { } notifyTarget)
+        {
+            await _notifications.NotifyUserAsync(notifyTarget, title,
+                $"{actor.DisplayName} is offering you this chore{reward}. Claim or decline it.", chore.Id, ct);
         }
         else
         {
-            request.Status = ReassignmentStatus.Declined;
-            await _notifications.NotifyUserAsync(request.FromUserId, title,
-                $"{responderName} declined the reassignment. It's still your chore.", chore.Id, ct);
+            foreach (var user in eligible)
+                await _notifications.NotifyUserAsync(user.Id, title,
+                    $"{actor.DisplayName} put this chore up for grabs{reward}. Claim it before someone else does.", chore.Id, ct);
         }
 
         await _db.SaveChangesAsync(ct);
-        return await GetAsync(chore.Id, ct: ct);
+        return await GetAsync(chore.Id, viewerId: userId, ct: ct);
     }
 
-    /// <summary>Cancels (supersedes/voids) every outstanding <see cref="ReassignmentStatus.Pending"/>
-    /// request on a chore — called when a newer request is made or the chore is otherwise moved
-    /// (admin reassign, freeze rotation) so a stale acceptance can't resurrect an old owner. Does not
-    /// save; the caller commits.</summary>
-    private async Task CancelPendingReassignmentsAsync(Guid choreId, CancellationToken ct)
+    /// <summary>Takes an offered chore: the chore moves to the claimer, the assignment is logged, and
+    /// the escrowed bounty is paid out to them. Open offers are first come, first served — the status
+    /// flip is a conditional update inside a transaction, so a simultaneous second claim loses cleanly
+    /// with a conflict rather than both claimers being credited.</summary>
+    public async Task<Result<ChoreDto>> ClaimOfferAsync(Guid choreId, Guid userId, CancellationToken ct = default)
     {
-        var pending = await _db.ChoreReassignmentRequests
-            .Where(r => r.ChoreId == choreId && r.Status == ReassignmentStatus.Pending)
+        var offer = await _db.ChoreOffers
+            .FirstOrDefaultAsync(o => o.ChoreId == choreId && o.Status == OfferStatus.Pending, ct);
+        if (offer is null)
+            return Result.Fail<ChoreDto>(Error.NotFound("This chore isn't up for grabs."));
+
+        var chore = await _db.Chores
+            .Include(c => c.Assignees)
+            .FirstOrDefaultAsync(c => c.Id == choreId, ct);
+        if (chore is null)
+            return Result.Fail<ChoreDto>(Error.NotFound("Chore not found."));
+
+        if (offer.FromUserId == userId)
+            return Result.Fail<ChoreDto>(Error.Validation("You can't claim your own offer."));
+        if (offer.ToUserId is { } target && target != userId)
+            return Result.Fail<ChoreDto>(Error.Forbidden("This chore was offered to someone else."));
+        if (chore.Assignees.All(a => a.Id != userId))
+            return Result.Fail<ChoreDto>(Error.Forbidden("Only someone assigned to this chore can claim it."));
+
+        var claimer = await _db.Users.FindAsync([userId], ct);
+        if (claimer is null)
+            return Result.Fail<ChoreDto>(Error.NotFound("User not found."));
+
+        var now = DateTimeOffset.UtcNow;
+        await using var tx = await _db.Database.BeginTransactionAsync(ct);
+
+        // Compare-and-set on Pending: whoever's UPDATE lands first owns the claim.
+        var claimed = await _db.ChoreOffers
+            .Where(o => o.Id == offer.Id && o.Status == OfferStatus.Pending)
+            .ExecuteUpdateAsync(s => s
+                .SetProperty(o => o.Status, OfferStatus.Claimed)
+                .SetProperty(o => o.ClaimedByUserId, userId)
+                .SetProperty(o => o.RespondedAt, now), ct);
+        if (claimed == 0)
+        {
+            await tx.RollbackAsync(ct);
+            return Result.Fail<ChoreDto>(Error.Conflict("Someone else just claimed this chore."));
+        }
+
+        // ExecuteUpdate writes straight to the database, so the tracked copy still says Pending.
+        // Pull the new state back in rather than leaving a stale entity in the context.
+        await _db.Entry(offer).ReloadAsync(ct);
+
+        var previousAssigneeId = chore.CurrentAssigneeId;
+        chore.CurrentAssigneeId = userId;
+        _db.ChoreAssignments.Add(new ChoreAssignment
+        {
+            ChoreId = chore.Id,
+            UserId = userId,
+            PreviousAssigneeId = previousAssigneeId,
+            AssignedByUserId = userId,
+        });
+
+        if (offer.BountyPoints > 0)
+        {
+            claimer.Points += offer.BountyPoints;
+            _db.PointsLog.Add(new PointsLogEntry
+            {
+                UserId = userId,
+                Delta = offer.BountyPoints,
+                Type = PointsLogType.Bounty,
+                Description = $"Bounty claimed on {chore.Name}",
+            });
+        }
+
+        var reward = offer.BountyPoints > 0 ? $" and took your {offer.BountyPoints} points" : "";
+        await _notifications.NotifyUserAsync(offer.FromUserId, NotificationTitle(chore),
+            $"{claimer.DisplayName} claimed this chore{reward}. It's off your plate.", chore.Id, ct);
+
+        await _db.SaveChangesAsync(ct);
+        await tx.CommitAsync(ct);
+        return await GetAsync(chore.Id, viewerId: userId, ct: ct);
+    }
+
+    /// <summary>Turns down an offer aimed at you. The chore stays with the offerer and their bounty is
+    /// refunded. Only meaningful for a targeted offer — an open offer is simply left alone by people
+    /// who don't want it.</summary>
+    public async Task<Result<ChoreDto>> DeclineOfferAsync(Guid choreId, Guid userId, CancellationToken ct = default)
+    {
+        var offer = await _db.ChoreOffers
+            .Include(o => o.Chore)
+            .FirstOrDefaultAsync(o => o.ChoreId == choreId && o.Status == OfferStatus.Pending, ct);
+        if (offer is null || offer.ToUserId != userId)
+            return Result.Fail<ChoreDto>(Error.NotFound("No offer for you on this chore."));
+
+        var chore = offer.Chore;
+        if (chore is null)
+            return Result.Fail<ChoreDto>(Error.NotFound("Chore not found."));
+
+        offer.Status = OfferStatus.Declined;
+        offer.RespondedAt = DateTimeOffset.UtcNow;
+        await RefundOfferAsync(offer, chore.Name, ct);
+
+        var responder = await _db.Users.FindAsync([userId], ct);
+        await _notifications.NotifyUserAsync(offer.FromUserId, NotificationTitle(chore),
+            $"{responder?.DisplayName ?? "Someone"} turned down your offer. It's still your chore.", chore.Id, ct);
+
+        await _db.SaveChangesAsync(ct);
+        return await GetAsync(chore.Id, viewerId: userId, ct: ct);
+    }
+
+    /// <summary>Pulls a live offer back. Only the offerer (or an admin) can; the bounty is refunded and
+    /// a targeted recipient is told it's gone. Open offers withdraw silently rather than notifying
+    /// everyone twice.</summary>
+    public async Task<Result<ChoreDto>> WithdrawOfferAsync(Guid choreId, Guid userId, CancellationToken ct = default)
+    {
+        var offer = await _db.ChoreOffers
+            .Include(o => o.Chore)
+            .FirstOrDefaultAsync(o => o.ChoreId == choreId && o.Status == OfferStatus.Pending, ct);
+        if (offer is null)
+            return Result.Fail<ChoreDto>(Error.NotFound("There's no live offer on this chore."));
+
+        var chore = offer.Chore;
+        if (chore is null)
+            return Result.Fail<ChoreDto>(Error.NotFound("Chore not found."));
+
+        var actor = await _db.Users.FindAsync([userId], ct);
+        if (actor is null)
+            return Result.Fail<ChoreDto>(Error.NotFound("User not found."));
+        if (offer.FromUserId != userId && actor.Role != UserRole.Admin)
+            return Result.Fail<ChoreDto>(Error.Forbidden("Only the person who offered this chore can withdraw it."));
+
+        offer.Status = OfferStatus.Withdrawn;
+        offer.RespondedAt = DateTimeOffset.UtcNow;
+        await RefundOfferAsync(offer, chore.Name, ct);
+
+        if (offer.ToUserId is { } target)
+            await _notifications.NotifyUserAsync(target, NotificationTitle(chore),
+                "That offer was withdrawn, so there's nothing to claim.", chore.Id, ct);
+
+        await _db.SaveChangesAsync(ct);
+        return await GetAsync(chore.Id, viewerId: userId, ct: ct);
+    }
+
+    /// <summary>Voids every live offer on a chore (refunding the escrowed bounty) because the chore has
+    /// moved on without a claim — superseded by a newer offer, placed by an admin, rotated away on
+    /// freeze, completed or skipped by the offerer, or auto-advanced past its occurrence. Does not save;
+    /// the caller commits.</summary>
+    private async Task VoidOffersAsync(Chore chore, OfferStatus status, CancellationToken ct)
+    {
+        var live = await _db.ChoreOffers
+            .Where(o => o.ChoreId == chore.Id && o.Status == OfferStatus.Pending)
             .ToListAsync(ct);
         var now = DateTimeOffset.UtcNow;
-        foreach (var r in pending)
+        foreach (var offer in live)
         {
-            r.Status = ReassignmentStatus.Cancelled;
-            r.RespondedAt = now;
+            offer.Status = status;
+            offer.RespondedAt = now;
+            await RefundOfferAsync(offer, chore.Name, ct);
         }
     }
+
+    /// <summary>Returns an unclaimed offer's escrowed bounty to the offerer. No-op for a bounty-less
+    /// offer. Does not save; the caller commits.</summary>
+    private async Task RefundOfferAsync(ChoreOffer offer, string choreName, CancellationToken ct)
+    {
+        if (offer.BountyPoints <= 0)
+            return;
+
+        var from = await _db.Users.FindAsync([offer.FromUserId], ct);
+        if (from is null)
+            return;
+
+        from.Points += offer.BountyPoints;
+        _db.PointsLog.Add(new PointsLogEntry
+        {
+            UserId = offer.FromUserId,
+            Delta = offer.BountyPoints,
+            Type = PointsLogType.Bounty,
+            Description = $"Bounty refunded on {choreName}",
+        });
+    }
+
+    private static string NotificationTitle(Chore chore) =>
+        string.IsNullOrWhiteSpace(chore.Emoji) ? chore.Name : $"{chore.Emoji} {chore.Name}";
 
     /// <summary>Admin-only manual reschedule of the current occurrence: sets a new due instant (and
     /// matching wall-clock time) without completing, skipping, or rotating. The chore's recurrence
@@ -826,7 +1012,7 @@ public class ChoreService
 
     private static ChoreDto ToDto(Chore chore, List<ChoreCompletion>? completions,
         IReadOnlyList<(Guid UserId, DateTimeOffset AssignedAt)> assignments, DateTimeOffset now, Guid? viewerId = null,
-        ChoreReassignmentRequest? pending = null)
+        ChoreOffer? offer = null)
     {
         var latest = completions?.FirstOrDefault(c => !c.IsExpired);
 
@@ -871,7 +1057,7 @@ public class ChoreService
             progress = completions?.Count(x => x.OccurrenceDueAt == chore.DueAt) ?? 0;
         var next = PredictNextAssignee(chore, completions, assignments, now);
         var streak = StreakCalculator.CurrentStreak(completions ?? []);
-        return ChoreDto.FromEntity(chore, latest, progress, next, currentStreak: streak, pendingReassignment: pending);
+        return ChoreDto.FromEntity(chore, latest, progress, next, currentStreak: streak, openOffer: offer);
     }
 
     /// <summary>Assignment history per chore id, as lightweight (user, when) pairs — for the
@@ -893,24 +1079,24 @@ public class ChoreService
             .ToDictionary(g => g.Key, g => g.Select(a => (a.UserId, a.AssignedAt)).ToList());
     }
 
-    /// <summary>The single outstanding <see cref="ReassignmentStatus.Pending"/> request per chore (if
-    /// any), with both participants loaded for the DTO. At most one pending request exists per chore
-    /// (a newer request supersedes the older), so a first-match per chore is safe.</summary>
-    private async Task<Dictionary<Guid, ChoreReassignmentRequest>> PendingReassignmentsByChoreAsync(
+    /// <summary>The single live <see cref="OfferStatus.Pending"/> offer per chore (if any), with both
+    /// participants loaded for the DTO. At most one live offer exists per chore (a newer offer
+    /// supersedes the older), so a first-match per chore is safe.</summary>
+    private async Task<Dictionary<Guid, ChoreOffer>> OpenOffersByChoreAsync(
         List<Guid> choreIds, CancellationToken ct)
     {
         if (choreIds.Count == 0)
-            return new Dictionary<Guid, ChoreReassignmentRequest>();
+            return new Dictionary<Guid, ChoreOffer>();
 
-        var requests = await _db.ChoreReassignmentRequests
-            .Include(r => r.FromUser)
-            .Include(r => r.ToUser)
-            .Where(r => choreIds.Contains(r.ChoreId) && r.Status == ReassignmentStatus.Pending)
+        var offers = await _db.ChoreOffers
+            .Include(o => o.FromUser)
+            .Include(o => o.ToUser)
+            .Where(o => choreIds.Contains(o.ChoreId) && o.Status == OfferStatus.Pending)
             .AsNoTracking()
             .ToListAsync(ct);
 
-        return requests
-            .GroupBy(r => r.ChoreId)
+        return offers
+            .GroupBy(o => o.ChoreId)
             .ToDictionary(g => g.Key, g => g.First());
     }
 
@@ -1218,6 +1404,8 @@ public class ChoreService
             chore.DueAt = RecurrenceCalculator.NextDue(rule, SchedulingPreference.FromScheduledDate, dueAt, now, now);
             if (chore.CurrentAssigneeId.HasValue && chore.DueAt is not null)
                 await RotateAssigneeAsync(chore, now, chore.CurrentAssigneeId.Value, firstExpired?.Id, ct);
+            // Nobody claimed the occurrence before it expired — refund the offerer's bounty.
+            await VoidOffersAsync(chore, OfferStatus.Cancelled, ct);
             advanced++;
         }
 
@@ -1401,14 +1589,14 @@ public class ChoreService
                 AssignedAt = now,
                 PreviousAssigneeId = previousAssigneeId,
             });
-            // The chore just moved owners; void any pending acceptance so it can't resurrect a stale one.
-            await CancelPendingReassignmentsAsync(chore.Id, ct);
+            // The chore just moved owners; void any live offer so a stale claim can't resurrect it.
+            await VoidOffersAsync(chore, OfferStatus.Cancelled, ct);
         }
 
         foreach (var chore in unassignable)
         {
             chore.CurrentAssigneeId = null;
-            await CancelPendingReassignmentsAsync(chore.Id, ct);
+            await VoidOffersAsync(chore, OfferStatus.Cancelled, ct);
         }
     }
 }

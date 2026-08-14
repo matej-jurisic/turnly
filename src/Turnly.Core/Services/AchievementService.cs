@@ -4,6 +4,7 @@ using Turnly.Core.Common;
 using Turnly.Core.Data;
 using Turnly.Core.Dtos;
 using Turnly.Core.Entities;
+using Turnly.Core.Enums;
 using Turnly.Core.Recurrence;
 
 namespace Turnly.Core.Services;
@@ -117,8 +118,10 @@ public class AchievementService
             .Count();
 
         // Lifetime points earned = sum of the positive points-log deltas (completions + grants).
+        // Bounty rows are excluded: an offer bounty is a zero-sum transfer between two members, so
+        // counting the credit would let the family inflate milestones by passing points back and forth.
         var pointsEarned = (await _db.PointsLog
-                .Where(e => e.UserId == userId)
+                .Where(e => e.UserId == userId && e.Type != PointsLogType.Bounty)
                 .Select(e => e.Delta)
                 .ToListAsync(ct))
             .Where(d => d > 0)

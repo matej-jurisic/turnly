@@ -276,15 +276,21 @@ export interface Chore extends RecurrenceFields {
   unlockedAchievements?: Achievement[]
   /** When true the chore is paused: completions/skips blocked, no auto-advance, no notifications. */
   isFrozen: boolean
-  /** An outstanding member-initiated reassignment awaiting the target's acceptance, or null. */
-  pendingReassignment?: PendingReassignment | null
+  /** A live offer waiting to be claimed, or null when the chore isn't up for grabs. */
+  openOffer?: ChoreOffer | null
 }
 
-/** A pending member reassignment request: the chore stays with `fromUser` until `toUser` accepts. */
-export interface PendingReassignment {
+/**
+ * A chore put up for someone else to take. The chore stays with `fromUser` until someone claims it.
+ * `toUser` null means an open offer any other assignee can claim, first come first served; set, it's
+ * aimed at that one person, who can claim or decline. `bountyPoints` is already escrowed from
+ * `fromUser` and pays out to whoever claims.
+ */
+export interface ChoreOffer {
   id: string
   fromUser: User
-  toUser: User
+  toUser?: User | null
+  bountyPoints: number
 }
 
 export interface ChoreRequest extends RecurrenceFields {
@@ -327,8 +333,16 @@ export interface SkipChoreRequest {
   userId?: string | null
 }
 
+/** Admin-only direct move. Members offer the chore instead. */
 export interface ReassignChoreRequest {
   assigneeId: string
+}
+
+export interface OfferChoreRequest {
+  /** Omit for an open offer any other assignee can claim; set to aim it at one person. */
+  toUserId?: string | null
+  /** Points paid to whoever claims it. Deducted up front, capped at the offerer's balance. */
+  bountyPoints: number
 }
 
 export interface RescheduleChoreRequest {

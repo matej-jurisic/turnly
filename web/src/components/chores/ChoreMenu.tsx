@@ -9,7 +9,7 @@ import {
 export interface ChoreMenuProps {
   chore: Chore
   isAdmin: boolean
-  /** The logged-in user's id, to gate member-only actions (reassign their own chore). */
+  /** The logged-in user's id, to gate member-only actions (offering a chore they hold). */
   meId?: string
   undoPending: boolean
   skipPending: boolean
@@ -19,6 +19,7 @@ export interface ChoreMenuProps {
   onUndo: () => void
   onSkip: () => void
   onReassign: () => void
+  onOffer: () => void
   onReschedule: () => void
   onEdit: () => void
   onCopy: () => void
@@ -27,7 +28,7 @@ export interface ChoreMenuProps {
   onUnfreeze?: () => void
 }
 
-export function ChoreMenu({ chore, isAdmin, meId, undoPending, skipPending, deletePending, freezePending, onDetails, onUndo, onSkip, onReassign, onReschedule, onEdit, onCopy, onDelete, onFreeze, onUnfreeze }: ChoreMenuProps) {
+export function ChoreMenu({ chore, isAdmin, meId, undoPending, skipPending, deletePending, freezePending, onDetails, onUndo, onSkip, onReassign, onOffer, onReschedule, onEdit, onCopy, onDelete, onFreeze, onUnfreeze }: ChoreMenuProps) {
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
 
@@ -36,10 +37,11 @@ export function ChoreMenu({ chore, isAdmin, meId, undoPending, skipPending, dele
   // Skip/reschedule in track mode target a specific person's schedule, so they're handled from the
   // details modal's per-person rows; the card menu only drives them for rotating chores.
   const canSkip = isAdmin && chore.repeatType !== 'OneTime' && Boolean(chore.dueAt) && !isIndependent(chore)
-  // Admins may reassign any rotating chore; a member may only reassign one they currently hold
-  // (their request then needs the target's acceptance).
-  const canReassign = !isIndependent(chore) && chore.assignees.length > 1
-    && (isAdmin || chore.currentAssignee?.id === meId)
+  // Only admins move a chore directly. Anyone holding one can offer it instead, but not while an
+  // offer is already live (they withdraw it from the details modal first) or the chore is paused.
+  const canReassign = isAdmin && !isIndependent(chore) && chore.assignees.length > 1
+  const canOffer = !isIndependent(chore) && chore.assignees.length > 1
+    && chore.currentAssignee?.id === meId && !chore.openOffer && !chore.isFrozen
   const canReschedule = isAdmin && Boolean(chore.dueAt) && !isIndependent(chore)
 
   useEffect(() => {
@@ -92,6 +94,16 @@ export function ChoreMenu({ chore, isAdmin, meId, undoPending, skipPending, dele
             >
               <ReassignIcon />
               Reassign
+            </button>
+          )}
+          {canOffer && (
+            <button
+              type="button"
+              onClick={() => { setOpen(false); onOffer() }}
+              className="flex w-full items-center gap-2 px-3 py-2 text-sm text-foreground transition-colors hover:bg-accent"
+            >
+              <ReassignIcon />
+              Offer
             </button>
           )}
           {hasUndo && (

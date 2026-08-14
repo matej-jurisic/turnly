@@ -242,7 +242,7 @@ public class ChoreManagementTests : IDisposable
     }
 
     [Fact]
-    public async Task Member_reassignment_is_pending_until_target_accepts()
+    public async Task Offered_chore_stays_put_until_someone_claims_it()
     {
         var (admin, adminAuth) = await AdminClientAsync();
         await admin.PostJsonAsync("/api/users",
@@ -256,26 +256,26 @@ public class ChoreManagementTests : IDisposable
         };
         var chore = await (await admin.PostJsonAsync("/api/chores", request)).ReadAsync<ChoreDto>();
 
-        // The member requests a reassignment to the admin: the chore stays with the member, and a
-        // pending request surfaces on the DTO.
-        var requested = await (await member.PostJsonAsync($"/api/chores/{chore.Id}/reassign",
-            new ReassignChoreRequest(adminAuth.User.Id))).ReadAsync<ChoreDto>();
-        Assert.Equal(memberAuth.User.Id, requested.CurrentAssignee!.Id);
-        Assert.Equal(adminAuth.User.Id, requested.PendingReassignment!.ToUser.Id);
+        // The member puts it up for grabs: the chore stays with them, and the offer surfaces on the DTO.
+        var offered = await (await member.PostJsonAsync($"/api/chores/{chore.Id}/offer",
+            new OfferChoreRequest())).ReadAsync<ChoreDto>();
+        Assert.Equal(memberAuth.User.Id, offered.CurrentAssignee!.Id);
+        Assert.Equal(memberAuth.User.Id, offered.OpenOffer!.FromUser.Id);
+        Assert.Null(offered.OpenOffer!.ToUser);
 
-        // The pending request also shows up on a fresh list fetch.
+        // The offer also shows up on a fresh list fetch, which is what the "up for grabs" band reads.
         var listed = await (await admin.GetAsync("/api/chores")).ReadAsync<List<ChoreDto>>();
-        Assert.NotNull(listed.Single(c => c.Id == chore.Id).PendingReassignment);
+        Assert.NotNull(listed.Single(c => c.Id == chore.Id).OpenOffer);
 
-        // The target accepts: now the chore moves.
-        var accepted = await (await admin.PostJsonAsync($"/api/chores/{chore.Id}/reassign/accept", new { }))
+        // Someone claims it: now the chore moves.
+        var claimed = await (await admin.PostJsonAsync($"/api/chores/{chore.Id}/offer/claim", new { }))
             .ReadAsync<ChoreDto>();
-        Assert.Equal(adminAuth.User.Id, accepted.CurrentAssignee!.Id);
-        Assert.Null(accepted.PendingReassignment);
+        Assert.Equal(adminAuth.User.Id, claimed.CurrentAssignee!.Id);
+        Assert.Null(claimed.OpenOffer);
     }
 
     [Fact]
-    public async Task Member_cannot_reassign_a_chore_they_do_not_hold()
+    public async Task Member_cannot_offer_a_chore_they_do_not_hold()
     {
         var (admin, adminAuth) = await AdminClientAsync();
         await admin.PostJsonAsync("/api/users",
@@ -290,8 +290,28 @@ public class ChoreManagementTests : IDisposable
         };
         var chore = await (await admin.PostJsonAsync("/api/chores", request)).ReadAsync<ChoreDto>();
 
+        var response = await member.PostJsonAsync($"/api/chores/{chore.Id}/offer", new OfferChoreRequest());
+        Assert.Equal(System.Net.HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Member_cannot_reassign_directly()
+    {
+        var (admin, adminAuth) = await AdminClientAsync();
+        await admin.PostJsonAsync("/api/users",
+            new CreateUserRequest("kid", "Kid", "kidpass1", UserRole.Member, null));
+        var member = _factory.CreateClient();
+        var memberAuth = await member.LoginAsync("kid", "kidpass1");
+
+        // The member holds the chore, but a direct move is admin-only.
+        var request = NewChore(memberAuth.User.Id) with
+        {
+            AssigneeIds = [adminAuth.User.Id, memberAuth.User.Id],
+        };
+        var chore = await (await admin.PostJsonAsync("/api/chores", request)).ReadAsync<ChoreDto>();
+
         var response = await member.PostJsonAsync($"/api/chores/{chore.Id}/reassign",
-            new ReassignChoreRequest(memberAuth.User.Id));
+            new ReassignChoreRequest(adminAuth.User.Id));
         Assert.Equal(System.Net.HttpStatusCode.Forbidden, response.StatusCode);
     }
 

@@ -20,6 +20,7 @@ export interface ChoreItemProps {
   onUndo: () => void
   onSkip: () => void
   onReassign: () => void
+  onOffer: () => void
   onReschedule: () => void
   onEdit: () => void
   onCopy: () => void
@@ -51,7 +52,12 @@ export function ChoreCompactItem(props: ChoreItemProps) {
   const canComplete = Boolean(chore.dueAt) && !chore.isFrozen
   const status = dueStatus(chore.dueAt, choreHasDueTime(chore))
   const assignee = assigneeLabel(chore)
-  const pending = chore.pendingReassignment
+  const offer = chore.openOffer
+  const offerLabel = !offer ? '' : offer.fromUser.id === meId
+    ? 'You offered this chore'
+    : offer.toUser
+      ? (offer.toUser.id === meId ? 'Offered to you' : 'Offered to someone')
+      : 'Up for grabs'
 
   return (
     <div className="flex items-center gap-3 px-4 py-2.5">
@@ -81,14 +87,10 @@ export function ChoreCompactItem(props: ChoreItemProps) {
         <div className="flex min-w-0 items-center gap-2">
           <Badge tone="violet" className="shrink-0">{chore.points} pts</Badge>
           {assignee && <span className="min-w-0 truncate text-xs text-muted-foreground">{assignee}</span>}
-          {pending && (
-            <Badge
-              tone="amber"
-              className="shrink-0 px-1"
-              title={pending.toUser.id === meId ? 'Reassignment requested for you' : 'Reassignment pending'}
-              aria-label={pending.toUser.id === meId ? 'Reassignment requested for you' : 'Reassignment pending'}
-            >
+          {offer && (
+            <Badge tone="amber" className="shrink-0 gap-1" title={offerLabel} aria-label={offerLabel}>
               <ReassignIcon />
+              {offer.bountyPoints > 0 && <span>+{offer.bountyPoints}</span>}
             </Badge>
           )}
           {chore.isFrozen ? (

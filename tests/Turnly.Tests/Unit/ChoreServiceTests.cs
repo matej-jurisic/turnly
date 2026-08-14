@@ -592,7 +592,7 @@ public class ChoreServiceTests
 
         Assert.True(result.Succeeded);
         Assert.Equal(admin, result.Value!.CurrentAssignee!.Id);
-        Assert.Null(result.Value!.PendingReassignment);
+        Assert.Null(result.Value!.OpenOffer);
         // Initial assignment + the reassignment.
         Assert.Equal(2, await ctx.Db.ChoreAssignments.CountAsync(a => a.ChoreId == chore.Id));
 
@@ -605,127 +605,308 @@ public class ChoreServiceTests
     }
 
     [Fact]
-    public async Task ReassignAsync_member_creates_pending_request_without_moving()
+    public async Task ReassignAsync_rejects_member()
     {
         using var ctx = new TestContext();
         var (admin, member) = await SeedUsersAsync(ctx);
-        // Member currently holds the chore and asks admin to take it.
+        // Even holding the chore, a member can't move it directly — they offer it instead.
         var chore = (await ctx.Chores.CreateAsync(NewChore(member, [admin, member]))).Value!;
 
         var result = await ctx.Chores.ReassignAsync(chore.Id, member, new ReassignChoreRequest(admin));
 
-        Assert.True(result.Succeeded);
-        // Chore does not move until the target accepts.
-        Assert.Equal(member, result.Value!.CurrentAssignee!.Id);
-        Assert.Equal(admin, result.Value!.PendingReassignment!.ToUser.Id);
-        Assert.Equal(member, result.Value!.PendingReassignment!.FromUser.Id);
-        // Only the initial assignment exists; no rotation logged yet.
-        Assert.Equal(1, await ctx.Db.ChoreAssignments.CountAsync(a => a.ChoreId == chore.Id));
-        // The target got an inbox notification.
-        Assert.Equal(1, await ctx.Db.UserNotifications.CountAsync(n => n.UserId == admin && n.ChoreId == chore.Id));
-
-        var request = await ctx.Db.ChoreReassignmentRequests.SingleAsync(r => r.ChoreId == chore.Id);
-        Assert.Equal(ReassignmentStatus.Pending, request.Status);
+        Assert.False(result.Succeeded);
+        Assert.Equal(ErrorType.Forbidden, result.Error!.Type);
+        Assert.Equal(member, (await ctx.Chores.GetAsync(chore.Id)).Value!.CurrentAssignee!.Id);
     }
 
     [Fact]
-    public async Task ReassignAsync_member_rejects_chore_not_assigned_to_them()
+    public async Task OfferAsync_open_offer_notifies_others_without_moving()
+    {
+        using var ctx = new TestContext();
+        var (admin, member) = await SeedUsersAsync(ctx);
+        var chore = (await ctx.Chores.CreateAsync(NewChore(member, [admin, member]))).Value!;
+
+        var result = await ctx.Chores.OfferAsync(chore.Id, member, new OfferChoreRequest());
+
+        Assert.True(result.Succeeded);
+        // The chore doesn't move until someone claims it.
+        Assert.Equal(member, result.Value!.CurrentAssignee!.Id);
+        Assert.Equal(member, result.Value!.OpenOffer!.FromUser.Id);
+        Assert.Null(result.Value!.OpenOffer!.ToUser); // open to anyone
+        Assert.Equal(1, await ctx.Db.ChoreAssignments.CountAsync(a => a.ChoreId == chore.Id));
+        // Every other assignee heard about it.
+        Assert.Equal(1, await ctx.Db.UserNotifications.CountAsync(n => n.UserId == admin && n.ChoreId == chore.Id));
+
+        var offer = await ctx.Db.ChoreOffers.SingleAsync(o => o.ChoreId == chore.Id);
+        Assert.Equal(OfferStatus.Pending, offer.Status);
+    }
+
+    [Fact]
+    public async Task OfferAsync_targeted_offer_records_recipient()
+    {
+        using var ctx = new TestContext();
+        var (admin, member) = await SeedUsersAsync(ctx);
+        var third = (await ctx.Users.CreateAsync(
+            new CreateUserRequest("kid2", "Kid Two", "kidpass2", UserRole.Member, null))).Value!.Id;
+        var chore = (await ctx.Chores.CreateAsync(NewChore(member, [admin, member, third]))).Value!;
+
+        var result = await ctx.Chores.OfferAsync(chore.Id, member, new OfferChoreRequest(ToUserId: admin));
+
+        Assert.True(result.Succeeded);
+        Assert.Equal(admin, result.Value!.OpenOffer!.ToUser!.Id);
+        // Only the target is notified, not the whole assignee list.
+        Assert.Equal(1, await ctx.Db.UserNotifications.CountAsync(n => n.UserId == admin && n.ChoreId == chore.Id));
+        Assert.Equal(0, await ctx.Db.UserNotifications.CountAsync(n => n.UserId == third && n.ChoreId == chore.Id));
+    }
+
+    [Fact]
+    public async Task OfferAsync_rejects_chore_not_assigned_to_them()
     {
         using var ctx = new TestContext();
         var (admin, member) = await SeedUsersAsync(ctx);
         // Admin holds the chore; the member is an assignee but not the current holder.
         var chore = (await ctx.Chores.CreateAsync(NewChore(admin, [admin, member]))).Value!;
 
-        var result = await ctx.Chores.ReassignAsync(chore.Id, member, new ReassignChoreRequest(member));
+        var result = await ctx.Chores.OfferAsync(chore.Id, member, new OfferChoreRequest());
 
         Assert.False(result.Succeeded);
         Assert.Equal(ErrorType.Forbidden, result.Error!.Type);
-        Assert.Empty(ctx.Db.ChoreReassignmentRequests);
+        Assert.Empty(ctx.Db.ChoreOffers);
     }
 
     [Fact]
-    public async Task ReassignAsync_member_supersedes_prior_pending_request()
+    public async Task OfferAsync_escrows_bounty_from_the_offerer()
     {
         using var ctx = new TestContext();
         var (admin, member) = await SeedUsersAsync(ctx);
+        await ctx.Users.AdjustPointsAsync(member, new AdjustPointsRequest(50, "seed"));
+        var chore = (await ctx.Chores.CreateAsync(NewChore(member, [admin, member]))).Value!;
+
+        var result = await ctx.Chores.OfferAsync(chore.Id, member, new OfferChoreRequest(BountyPoints: 20));
+
+        Assert.True(result.Succeeded);
+        Assert.Equal(20, result.Value!.OpenOffer!.BountyPoints);
+        // Deducted up front so the payout can't bounce.
+        Assert.Equal(30, (await ctx.Db.Users.FindAsync(member))!.Points);
+        var entry = await ctx.Db.PointsLog.SingleAsync(e => e.UserId == member && e.Type == PointsLogType.Bounty);
+        Assert.Equal(-20, entry.Delta);
+    }
+
+    [Fact]
+    public async Task OfferAsync_rejects_bounty_above_balance()
+    {
+        using var ctx = new TestContext();
+        var (admin, member) = await SeedUsersAsync(ctx);
+        await ctx.Users.AdjustPointsAsync(member, new AdjustPointsRequest(5, "seed"));
+        var chore = (await ctx.Chores.CreateAsync(NewChore(member, [admin, member]))).Value!;
+
+        var result = await ctx.Chores.OfferAsync(chore.Id, member, new OfferChoreRequest(BountyPoints: 10));
+
+        Assert.False(result.Succeeded);
+        Assert.Equal(ErrorType.Validation, result.Error!.Type);
+        Assert.Equal(5, (await ctx.Db.Users.FindAsync(member))!.Points);
+        Assert.Empty(ctx.Db.ChoreOffers);
+    }
+
+    [Fact]
+    public async Task OfferAsync_supersedes_and_refunds_prior_offer()
+    {
+        using var ctx = new TestContext();
+        var (admin, member) = await SeedUsersAsync(ctx);
+        await ctx.Users.AdjustPointsAsync(member, new AdjustPointsRequest(50, "seed"));
         var third = (await ctx.Users.CreateAsync(
             new CreateUserRequest("kid2", "Kid Two", "kidpass2", UserRole.Member, null))).Value!.Id;
         var chore = (await ctx.Chores.CreateAsync(NewChore(member, [admin, member, third]))).Value!;
 
-        await ctx.Chores.ReassignAsync(chore.Id, member, new ReassignChoreRequest(admin));
-        var result = await ctx.Chores.ReassignAsync(chore.Id, member, new ReassignChoreRequest(third));
+        await ctx.Chores.OfferAsync(chore.Id, member, new OfferChoreRequest(ToUserId: admin, BountyPoints: 20));
+        var result = await ctx.Chores.OfferAsync(chore.Id, member, new OfferChoreRequest(ToUserId: third, BountyPoints: 5));
 
         Assert.True(result.Succeeded);
-        Assert.Equal(third, result.Value!.PendingReassignment!.ToUser.Id);
-        // Exactly one request stays Pending; the first was cancelled.
-        Assert.Equal(1, await ctx.Db.ChoreReassignmentRequests.CountAsync(
-            r => r.ChoreId == chore.Id && r.Status == ReassignmentStatus.Pending));
-        Assert.Equal(1, await ctx.Db.ChoreReassignmentRequests.CountAsync(
-            r => r.ChoreId == chore.Id && r.Status == ReassignmentStatus.Cancelled));
+        Assert.Equal(third, result.Value!.OpenOffer!.ToUser!.Id);
+        // Exactly one offer stays live; the first was cancelled.
+        Assert.Equal(1, await ctx.Db.ChoreOffers.CountAsync(o => o.ChoreId == chore.Id && o.Status == OfferStatus.Pending));
+        Assert.Equal(1, await ctx.Db.ChoreOffers.CountAsync(o => o.ChoreId == chore.Id && o.Status == OfferStatus.Cancelled));
+        // First bounty refunded, second escrowed: 50 - 20 + 20 - 5.
+        Assert.Equal(45, (await ctx.Db.Users.FindAsync(member))!.Points);
     }
 
     [Fact]
-    public async Task RespondToReassignmentAsync_accept_moves_chore_and_logs_assignment()
+    public async Task ClaimOfferAsync_moves_chore_and_pays_the_bounty()
     {
         using var ctx = new TestContext();
         var (admin, member) = await SeedUsersAsync(ctx);
+        await ctx.Users.AdjustPointsAsync(member, new AdjustPointsRequest(50, "seed"));
         var chore = (await ctx.Chores.CreateAsync(NewChore(member, [admin, member]))).Value!;
-        await ctx.Chores.ReassignAsync(chore.Id, member, new ReassignChoreRequest(admin));
+        await ctx.Chores.OfferAsync(chore.Id, member, new OfferChoreRequest(BountyPoints: 20));
 
-        var result = await ctx.Chores.RespondToReassignmentAsync(chore.Id, admin, accept: true);
+        var result = await ctx.Chores.ClaimOfferAsync(chore.Id, admin);
 
         Assert.True(result.Succeeded);
         Assert.Equal(admin, result.Value!.CurrentAssignee!.Id);
-        Assert.Null(result.Value!.PendingReassignment);
+        Assert.Null(result.Value!.OpenOffer);
 
-        var request = await ctx.Db.ChoreReassignmentRequests.SingleAsync(r => r.ChoreId == chore.Id);
-        Assert.Equal(ReassignmentStatus.Accepted, request.Status);
+        var offer = await ctx.Db.ChoreOffers.SingleAsync(o => o.ChoreId == chore.Id);
+        Assert.Equal(OfferStatus.Claimed, offer.Status);
+        Assert.Equal(admin, offer.ClaimedByUserId);
 
-        // Initial assignment + the accepted reassignment, attributed to the accepter.
-        var reassignment = await ctx.Db.ChoreAssignments
+        // The bounty moved: offerer already paid at offer time, claimer credited now.
+        Assert.Equal(30, (await ctx.Db.Users.FindAsync(member))!.Points);
+        Assert.Equal(20, (await ctx.Db.Users.FindAsync(admin))!.Points);
+
+        // Initial assignment + the claim, attributed to the claimer.
+        var assignment = await ctx.Db.ChoreAssignments
             .SingleAsync(a => a.ChoreId == chore.Id && a.AssignedByUserId != null);
-        Assert.Equal(admin, reassignment.AssignedByUserId);
-        Assert.Equal(member, reassignment.PreviousAssigneeId);
-        Assert.Equal(admin, reassignment.UserId);
-        // The requester was notified of the acceptance.
+        Assert.Equal(admin, assignment.AssignedByUserId);
+        Assert.Equal(member, assignment.PreviousAssigneeId);
+        // The offerer was told it's off their plate.
         Assert.Equal(1, await ctx.Db.UserNotifications.CountAsync(n => n.UserId == member && n.ChoreId == chore.Id));
     }
 
     [Fact]
-    public async Task RespondToReassignmentAsync_decline_leaves_chore_with_requester()
-    {
-        using var ctx = new TestContext();
-        var (admin, member) = await SeedUsersAsync(ctx);
-        var chore = (await ctx.Chores.CreateAsync(NewChore(member, [admin, member]))).Value!;
-        await ctx.Chores.ReassignAsync(chore.Id, member, new ReassignChoreRequest(admin));
-
-        var result = await ctx.Chores.RespondToReassignmentAsync(chore.Id, admin, accept: false);
-
-        Assert.True(result.Succeeded);
-        Assert.Equal(member, result.Value!.CurrentAssignee!.Id);
-        Assert.Null(result.Value!.PendingReassignment);
-        Assert.Equal(1, await ctx.Db.ChoreAssignments.CountAsync(a => a.ChoreId == chore.Id)); // no new assignment
-
-        var request = await ctx.Db.ChoreReassignmentRequests.SingleAsync(r => r.ChoreId == chore.Id);
-        Assert.Equal(ReassignmentStatus.Declined, request.Status);
-    }
-
-    [Fact]
-    public async Task RespondToReassignmentAsync_rejects_non_target()
+    public async Task ClaimOfferAsync_rejects_a_second_claim()
     {
         using var ctx = new TestContext();
         var (admin, member) = await SeedUsersAsync(ctx);
         var third = (await ctx.Users.CreateAsync(
             new CreateUserRequest("kid2", "Kid Two", "kidpass2", UserRole.Member, null))).Value!.Id;
         var chore = (await ctx.Chores.CreateAsync(NewChore(member, [admin, member, third]))).Value!;
-        await ctx.Chores.ReassignAsync(chore.Id, member, new ReassignChoreRequest(admin));
+        await ctx.Chores.OfferAsync(chore.Id, member, new OfferChoreRequest());
 
-        // Someone other than the target can't respond.
-        var result = await ctx.Chores.RespondToReassignmentAsync(chore.Id, third, accept: true);
+        Assert.True((await ctx.Chores.ClaimOfferAsync(chore.Id, admin)).Succeeded);
+        var second = await ctx.Chores.ClaimOfferAsync(chore.Id, third);
+
+        // The offer is no longer live, so the loser is told there's nothing to take.
+        Assert.False(second.Succeeded);
+        Assert.Equal(ErrorType.NotFound, second.Error!.Type);
+        Assert.Equal(admin, (await ctx.Chores.GetAsync(chore.Id)).Value!.CurrentAssignee!.Id);
+    }
+
+    [Fact]
+    public async Task ClaimOfferAsync_rejects_someone_elses_targeted_offer()
+    {
+        using var ctx = new TestContext();
+        var (admin, member) = await SeedUsersAsync(ctx);
+        var third = (await ctx.Users.CreateAsync(
+            new CreateUserRequest("kid2", "Kid Two", "kidpass2", UserRole.Member, null))).Value!.Id;
+        var chore = (await ctx.Chores.CreateAsync(NewChore(member, [admin, member, third]))).Value!;
+        await ctx.Chores.OfferAsync(chore.Id, member, new OfferChoreRequest(ToUserId: admin));
+
+        var result = await ctx.Chores.ClaimOfferAsync(chore.Id, third);
+
+        Assert.False(result.Succeeded);
+        Assert.Equal(ErrorType.Forbidden, result.Error!.Type);
+        Assert.Equal(member, (await ctx.Chores.GetAsync(chore.Id)).Value!.CurrentAssignee!.Id);
+    }
+
+    [Fact]
+    public async Task DeclineOfferAsync_refunds_and_leaves_chore_with_offerer()
+    {
+        using var ctx = new TestContext();
+        var (admin, member) = await SeedUsersAsync(ctx);
+        await ctx.Users.AdjustPointsAsync(member, new AdjustPointsRequest(50, "seed"));
+        var chore = (await ctx.Chores.CreateAsync(NewChore(member, [admin, member]))).Value!;
+        await ctx.Chores.OfferAsync(chore.Id, member, new OfferChoreRequest(ToUserId: admin, BountyPoints: 20));
+
+        var result = await ctx.Chores.DeclineOfferAsync(chore.Id, admin);
+
+        Assert.True(result.Succeeded);
+        Assert.Equal(member, result.Value!.CurrentAssignee!.Id);
+        Assert.Null(result.Value!.OpenOffer);
+        Assert.Equal(1, await ctx.Db.ChoreAssignments.CountAsync(a => a.ChoreId == chore.Id)); // no new assignment
+
+        var offer = await ctx.Db.ChoreOffers.SingleAsync(o => o.ChoreId == chore.Id);
+        Assert.Equal(OfferStatus.Declined, offer.Status);
+        Assert.Equal(50, (await ctx.Db.Users.FindAsync(member))!.Points); // fully refunded
+        Assert.Equal(0, (await ctx.Db.Users.FindAsync(admin))!.Points);
+    }
+
+    [Fact]
+    public async Task DeclineOfferAsync_rejects_non_target()
+    {
+        using var ctx = new TestContext();
+        var (admin, member) = await SeedUsersAsync(ctx);
+        var third = (await ctx.Users.CreateAsync(
+            new CreateUserRequest("kid2", "Kid Two", "kidpass2", UserRole.Member, null))).Value!.Id;
+        var chore = (await ctx.Chores.CreateAsync(NewChore(member, [admin, member, third]))).Value!;
+        await ctx.Chores.OfferAsync(chore.Id, member, new OfferChoreRequest(ToUserId: admin));
+
+        var result = await ctx.Chores.DeclineOfferAsync(chore.Id, third);
 
         Assert.False(result.Succeeded);
         Assert.Equal(ErrorType.NotFound, result.Error!.Type);
-        Assert.Equal(member, (await ctx.Chores.GetAsync(chore.Id)).Value!.CurrentAssignee!.Id);
+        Assert.Equal(OfferStatus.Pending, (await ctx.Db.ChoreOffers.SingleAsync(o => o.ChoreId == chore.Id)).Status);
+    }
+
+    [Fact]
+    public async Task WithdrawOfferAsync_refunds_the_bounty()
+    {
+        using var ctx = new TestContext();
+        var (admin, member) = await SeedUsersAsync(ctx);
+        await ctx.Users.AdjustPointsAsync(member, new AdjustPointsRequest(50, "seed"));
+        var chore = (await ctx.Chores.CreateAsync(NewChore(member, [admin, member]))).Value!;
+        await ctx.Chores.OfferAsync(chore.Id, member, new OfferChoreRequest(BountyPoints: 20));
+
+        var result = await ctx.Chores.WithdrawOfferAsync(chore.Id, member);
+
+        Assert.True(result.Succeeded);
+        Assert.Null(result.Value!.OpenOffer);
+        Assert.Equal(OfferStatus.Withdrawn, (await ctx.Db.ChoreOffers.SingleAsync(o => o.ChoreId == chore.Id)).Status);
+        Assert.Equal(50, (await ctx.Db.Users.FindAsync(member))!.Points);
+    }
+
+    [Fact]
+    public async Task WithdrawOfferAsync_rejects_a_bystander()
+    {
+        using var ctx = new TestContext();
+        var (admin, member) = await SeedUsersAsync(ctx);
+        var third = (await ctx.Users.CreateAsync(
+            new CreateUserRequest("kid2", "Kid Two", "kidpass2", UserRole.Member, null))).Value!.Id;
+        var chore = (await ctx.Chores.CreateAsync(NewChore(member, [admin, member, third]))).Value!;
+        await ctx.Chores.OfferAsync(chore.Id, member, new OfferChoreRequest());
+
+        var result = await ctx.Chores.WithdrawOfferAsync(chore.Id, third);
+
+        Assert.False(result.Succeeded);
+        Assert.Equal(ErrorType.Forbidden, result.Error!.Type);
+        Assert.Equal(OfferStatus.Pending, (await ctx.Db.ChoreOffers.SingleAsync(o => o.ChoreId == chore.Id)).Status);
+    }
+
+    [Fact]
+    public async Task CompleteAsync_voids_and_refunds_a_live_offer()
+    {
+        using var ctx = new TestContext();
+        var (admin, member) = await SeedUsersAsync(ctx);
+        await ctx.Users.AdjustPointsAsync(member, new AdjustPointsRequest(50, "seed"));
+        var chore = (await ctx.Chores.CreateAsync(NewChore(member, [admin, member]))).Value!;
+        await ctx.Chores.OfferAsync(chore.Id, member, new OfferChoreRequest(BountyPoints: 20));
+
+        // The offerer gives up waiting and just does it.
+        var result = await ctx.Chores.CompleteAsync(chore.Id, member, new CompleteChoreRequest(null));
+
+        Assert.True(result.Succeeded);
+        Assert.Null(result.Value!.OpenOffer);
+        Assert.Equal(OfferStatus.Cancelled, (await ctx.Db.ChoreOffers.SingleAsync(o => o.ChoreId == chore.Id)).Status);
+        // 50 - 20 escrowed + 20 refunded + 10 for the completion.
+        Assert.Equal(60, (await ctx.Db.Users.FindAsync(member))!.Points);
+    }
+
+    [Fact]
+    public async Task ReassignAsync_admin_voids_and_refunds_a_live_offer()
+    {
+        using var ctx = new TestContext();
+        var (admin, member) = await SeedUsersAsync(ctx);
+        await ctx.Users.AdjustPointsAsync(member, new AdjustPointsRequest(50, "seed"));
+        var chore = (await ctx.Chores.CreateAsync(NewChore(member, [admin, member]))).Value!;
+        await ctx.Chores.OfferAsync(chore.Id, member, new OfferChoreRequest(BountyPoints: 20));
+
+        var result = await ctx.Chores.ReassignAsync(chore.Id, admin, new ReassignChoreRequest(admin));
+
+        Assert.True(result.Succeeded);
+        Assert.Equal(admin, result.Value!.CurrentAssignee!.Id);
+        Assert.Null(result.Value!.OpenOffer);
+        Assert.Equal(50, (await ctx.Db.Users.FindAsync(member))!.Points);
+        // The admin placed the chore; they don't collect the bounty for it.
+        Assert.Equal(0, (await ctx.Db.Users.FindAsync(admin))!.Points);
     }
 
     [Fact]
