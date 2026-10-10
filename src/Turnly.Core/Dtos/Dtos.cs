@@ -101,6 +101,7 @@ public record ChoreDto(
     int[] Months,
     int CompletionsRequired,
     bool RotateOnEachCompletion,
+    RotationPeriod RotationPeriod,
     AssignmentStrategy AssignmentStrategy,
     SchedulingPreference SchedulingPreference,
     int? GraceMinutes,
@@ -127,7 +128,7 @@ public record ChoreDto(
         new(c.Id, c.Name, c.Description, c.Emoji, c.Points, c.RepeatType,
             c.CustomMode, c.IntervalCount, c.IntervalUnit,
             c.Weekdays.ToArray(), c.WeeksOfMonth.ToArray(), c.DaysOfMonth.ToArray(), c.Months.ToArray(),
-            c.CompletionsRequired, c.RotateOnEachCompletion, c.AssignmentStrategy, c.SchedulingPreference,
+            c.CompletionsRequired, c.RotateOnEachCompletion, c.RotationPeriod, c.AssignmentStrategy, c.SchedulingPreference,
             c.GraceMinutes, c.AutoAdvanceIncomplete, c.CompletionWindowMinutes,
             c.StartDate, c.DueTime?.ToString("HH\\:mm"),
             c.TimesOfDay.OrderBy(t => t).Select(t => t.ToString("HH\\:mm")).ToArray(), c.DueAt,
@@ -216,6 +217,10 @@ public interface IChoreInput
     int[]? Months { get; }
     int CompletionsRequired { get; }
     bool RotateOnEachCompletion { get; }
+    /// <summary>How often the assignee hands over; <see cref="Enums.RotationPeriod.Monthly"/> holds
+    /// one person for the whole calendar month. Ignored (stored as every occurrence) where the chore
+    /// doesn't rotate or already repeats monthly or slower.</summary>
+    RotationPeriod RotationPeriod { get; }
     AssignmentStrategy AssignmentStrategy { get; }
     SchedulingPreference SchedulingPreference { get; }
     /// <summary>Grace window in minutes for <see cref="SchedulingPreference.SmartScheduling"/>; null
@@ -277,7 +282,8 @@ public record CreateChoreRequest(
     ChoreNotificationInput[]? Notifications = null,
     string? DueTime = null,
     TrackInput[]? Tracks = null,
-    string[]? TimesOfDay = null) : IChoreInput;
+    string[]? TimesOfDay = null,
+    RotationPeriod RotationPeriod = RotationPeriod.EveryOccurrence) : IChoreInput;
 
 public record UpdateChoreRequest(
     string Name,
@@ -306,7 +312,8 @@ public record UpdateChoreRequest(
     ChoreNotificationInput[]? Notifications = null,
     string? DueTime = null,
     TrackInput[]? Tracks = null,
-    string[]? TimesOfDay = null) : IChoreInput;
+    string[]? TimesOfDay = null,
+    RotationPeriod RotationPeriod = RotationPeriod.EveryOccurrence) : IChoreInput;
 
 public record CopyChoreRequest(string NewName);
 

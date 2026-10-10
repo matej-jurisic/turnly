@@ -12,7 +12,8 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { Input, Label } from '@/components/ui/Field'
 import { Modal, Avatar } from '@/components/ui/Modal'
 
-export function AwardsPage() {
+/** Awards tab of `RewardsPage`: browse and redeem awards, redemption history, admin CRUD. */
+export function AwardsTab() {
   const currentUser = useAuthStore((s) => s.user)
   const isAdmin = currentUser?.role === 'Admin'
   const queryClient = useQueryClient()
@@ -50,13 +51,11 @@ export function AwardsPage() {
 
   return (
     <div className="space-y-8">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold text-foreground">Awards</h1>
-        <div className="flex items-center gap-3">
-          <Badge tone="violet">{balance} pts</Badge>
-          {isAdmin && <Button onClick={() => setCreating(true)}>Add award</Button>}
+      {isAdmin && (
+        <div className="flex justify-end">
+          <Button onClick={() => setCreating(true)}>Add award</Button>
         </div>
-      </div>
+      )}
 
       {awards && awards.length > 0 && <NextGoalCard balance={balance} awards={awards} />}
 

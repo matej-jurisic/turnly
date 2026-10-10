@@ -270,6 +270,9 @@ export function ChoreDetailsModal({ chore, onClose, onComplete }: ChoreDetailsMo
                 {chore.rotateOnEachCompletion && (
                   <span className="block text-xs text-muted-foreground">Rotates each completion</span>
                 )}
+                {chore.rotationPeriod === 'Monthly' && (
+                  <span className="block text-xs text-muted-foreground">Hands over once a month</span>
+                )}
               </dd>
             </div>
           )}

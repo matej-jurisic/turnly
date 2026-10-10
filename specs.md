@@ -40,6 +40,18 @@
       with its own due date and per-person quota. Lets one chore model "everyone does the dishes once a
       week" (all quotas 1) or an uneven split ("Alice 3× / Bob 2×"); each person advances on their own,
       so a late assignee never blocks the others. (Recurring chores only.)
+- **Rotation period** ("Hand over") — how often a rotating chore changes hands:
+    - `Every occurrence` (default) — the strategy picks a new assignee each time an occurrence closes
+    - `Once a month` — the same person keeps the chore for every occurrence in a calendar month, and
+      the strategy only picks the next assignee when the due date crosses into a new month. Models
+      "you do this once a week for the month, then someone else does it" as a Weekly chore with real
+      weekly due dates. The handover follows the calendar however the last occurrence closed
+      (completed, skipped, or auto-expired), so skipping the final week doesn't keep the chore for
+      another month. A manual reassign or claimed offer mid-month just changes who holds it until
+      the month turns. Unfreezing a paused chore doesn't hand over by itself.
+    - Offered for Daily, Weekly and Custom repeats with a rotating strategy (not `Keep Last Assigned`
+      or `Everyone (independent)`); Monthly and Yearly chores already change hands at most once a
+      month. Replaces "rotate after each completion" on multi-completion chores.
 - Chores are visible to all household members
 
 ### Recurrence
@@ -114,7 +126,8 @@ Per-chore notification schedule — a list of notification entries, each with:
 - Admin can fulfill / mark a redemption as delivered
 - Admin can cancel a still-pending redemption (refunds the spent points and removes it), or delete a redemption of **any** status — including an already-fulfilled one — which likewise refunds the points it spent
 - Point balance decreases on redemption
-- **Next-goal progress** — the awards page shows a progress bar toward the cheapest award the user can't yet afford (or a "redeem anything" nudge once everything is affordable)
+- Awards live on the **Awards** tab of the **Rewards** page (the one place points are spent), next to the **Cosmetics** tab
+- **Next-goal progress** — the Awards tab shows a progress bar toward the cheapest award the user can't yet afford (or a "redeem anything" nudge once everything is affordable)
 
 ---
 
@@ -134,9 +147,10 @@ Per-chore notification schedule — a list of notification entries, each with:
 
 ---
 
-## Gacha (Cosmetics)
+## Cosmetics
 
-A points-funded gacha for **cosmetic** rewards. No real money: pulls are paid for with the same
+A points-funded random-pull system for **cosmetic** rewards, shown as the **Cosmetics** tab of the
+**Rewards** page. No real money: pulls are paid for with the same
 chore-earned points used for awards, so it is a reward sink, not gambling.
 
 - **Three cosmetic slots (v1):**
@@ -150,10 +164,10 @@ chore-earned points used for awards, so it is a reward sink, not gambling.
 - **Pulls** — spend points on a single pull or a discounted **10-pull**; each roll picks a rarity by published **drop rates**, then a random cosmetic of that rarity
 - **Pity** — a counter guarantees a Legendary within a fixed number of pulls; it resets whenever a Legendary is obtained
 - **Dust** — a duplicate pull pays out **dust** (scaled by rarity) instead of a second copy; dust is spent to **craft** a specific cosmetic directly (craft cost is higher than the dupe payout)
-- **Published odds** — the drop rates are shown openly on the gacha page
-- **Equip** — handled from a **Customization** option in the account menu (not the gacha page). It is one appearance picker: the base **Light** / **Dark** modes plus any owned **theme palettes** (mutually exclusive: choosing a palette supersedes light/dark, choosing a base mode clears the palette), any owned **avatar frame** (or None), and any owned **avatar color**. Equipping a theme recolors the app immediately and persists across devices and reloads (no flash)
+- **Published odds** — the drop rates are shown openly on the Cosmetics tab
+- **Equip** — handled from a **Customization** option in the account menu (not the Rewards page). It is one appearance picker: the base **Light** / **Dark** modes plus any owned **theme palettes** (mutually exclusive: choosing a palette supersedes light/dark, choosing a base mode clears the palette), any owned **avatar frame** (or None), and any owned **avatar color**. Equipping a theme recolors the app immediately and persists across devices and reloads (no flash)
 - **Reveal** — a pull shows a celebration popup (with confetti) listing what dropped, with new unlocks and dust gained
-- **Gacha page** — balances (points + dust), pull buttons, a pity progress bar, the odds disclosure, and a collection grid grouped by slot and rarity (shows owned vs. locked, with craft on locked items); equipping is done from the account menu Customization picker
+- **Cosmetics tab** — balances (points in the page header, dust on the pull card), pull buttons, a pity progress bar, the odds disclosure, and a collection grid grouped by slot and rarity (shows owned vs. locked, with craft on locked items); equipping is done from the account menu Customization picker
 - **Reversal-safe** — owned cosmetics are permanent; there is no admin revoke in v1
 
 ---
@@ -219,7 +233,7 @@ receives, and an admin cannot set them on someone's behalf.
 ### Fresh start (admin only)
 
 - A **Fresh start** action in Settings (Danger zone) gives a clean slate while **keeping every chore and its schedule**
-- Clears all chore activity (completions, skips, auto-expired slots), assignment history, the points log, award redemptions, achievements, and gacha progress (owned cosmetics, dust, pity)
+- Clears all chore activity (completions, skips, auto-expired slots), assignment history, the points log, award redemptions, achievements, and cosmetics progress (owned cosmetics, dust, pity)
 - Resets every user's points to **0** and their equipped cosmetics (frame, theme, avatar color) back to the free defaults
 - Keeps users, tags, awards, push devices, notification schedules, and each user's personal notification preferences and chore mutes; each chore keeps its current assignee and next due date
 - Irreversible — a confirmation is required before it runs

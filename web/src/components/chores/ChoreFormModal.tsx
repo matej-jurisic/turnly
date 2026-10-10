@@ -8,6 +8,7 @@ import type {
   ChoreRequest,
   RecurrenceFields,
   RepeatType,
+  RotationPeriod,
   SchedulingPreference,
   User,
 } from '@/lib/types'
@@ -18,8 +19,8 @@ import { Modal, Avatar } from '@/components/ui/Modal'
 import { RecurrenceEditor } from '@/components/RecurrenceEditor'
 import { NotificationsEditor } from '@/components/NotificationsEditor'
 import {
-  REPEAT_OPTIONS, STRATEGY_OPTIONS, SCHEDULING_OPTIONS, GRACE_UNITS,
-  isIntervalStyle, splitGrace, toLocalDueInstant, toLocalDateInput,
+  REPEAT_OPTIONS, STRATEGY_OPTIONS, SCHEDULING_OPTIONS, ROTATION_PERIOD_OPTIONS, GRACE_UNITS,
+  isIntervalStyle, supportsRotationPeriod, splitGrace, toLocalDueInstant, toLocalDateInput,
 } from '@/lib/chore-format'
 
 interface ChoreFormModalProps {
@@ -50,6 +51,7 @@ export function ChoreFormModal({ title, chore, onClose, onSaved }: ChoreFormModa
   })
   const [completionsRequired, setCompletionsRequired] = useState(chore?.completionsRequired ?? 1)
   const [rotateOnEachCompletion, setRotateOnEachCompletion] = useState(chore?.rotateOnEachCompletion ?? false)
+  const [rotationPeriod, setRotationPeriod] = useState<RotationPeriod>(chore?.rotationPeriod ?? 'EveryOccurrence')
   const [assignmentStrategy, setAssignmentStrategy] = useState<AssignmentStrategy>(
     chore?.assignmentStrategy ?? 'LeastCompleted',
   )
@@ -106,6 +108,13 @@ export function ChoreFormModal({ title, chore, onClose, onSaved }: ChoreFormModa
   const isCustom = repeatType === 'Custom'
   // Track mode: every assignee gets their own schedule + quota, no rotation, no single current assignee.
   const isIndependent = assignmentStrategy === 'Independent'
+  // A rotation period only applies to chores that rotate and come due more often than monthly; fall
+  // back to the default otherwise so a hidden choice is never submitted.
+  const showRotationPeriod = supportsRotationPeriod(repeatType, assignmentStrategy)
+  const effectiveRotationPeriod: RotationPeriod = showRotationPeriod ? rotationPeriod : 'EveryOccurrence'
+  // Per-completion rotation contradicts a calendar rotation period, so it's only offered without one.
+  const showRotateEach =
+    !isCustom && !isIndependent && completionsRequired > 1 && effectiveRotationPeriod === 'EveryOccurrence'
 
   // Smart scheduling is only offered for interval-style repeats (fixed-slot recurrences always hold
   // their grid). If it was selected and the repeat type is no longer interval-style, fall back.
@@ -142,7 +151,8 @@ export function ChoreFormModal({ title, chore, onClose, onSaved }: ChoreFormModa
         repeatType,
         ...recurrence,
         completionsRequired: isCustom || isIndependent ? 1 : Math.max(1, completionsRequired),
-        rotateOnEachCompletion: !isCustom && !isIndependent && completionsRequired > 1 && rotateOnEachCompletion,
+        rotateOnEachCompletion: showRotateEach && rotateOnEachCompletion,
+        rotationPeriod: effectiveRotationPeriod,
         assignmentStrategy,
         schedulingPreference: effectiveScheduling,
         graceMinutes,
@@ -225,20 +235,22 @@ export function ChoreFormModal({ title, chore, onClose, onSaved }: ChoreFormModa
             <p className="text-xs text-muted-foreground">
               Must be completed {completionsRequired} times before it's due again.
             </p>
-            <label className="flex items-start gap-2 text-sm text-foreground">
-              <input
-                type="checkbox"
-                checked={rotateOnEachCompletion}
-                onChange={(e) => setRotateOnEachCompletion(e.target.checked)}
-                className="mt-0.5 h-4 w-4 rounded border-border text-primary focus:ring-ring"
-              />
-              <span>
-                Rotate assignee after each completion
-                <span className="block text-xs text-muted-foreground">
-                  Otherwise the assignee only changes once all {completionsRequired} are done.
+            {showRotateEach && (
+              <label className="flex items-start gap-2 text-sm text-foreground">
+                <input
+                  type="checkbox"
+                  checked={rotateOnEachCompletion}
+                  onChange={(e) => setRotateOnEachCompletion(e.target.checked)}
+                  className="mt-0.5 h-4 w-4 rounded border-border text-primary focus:ring-ring"
+                />
+                <span>
+                  Rotate assignee after each completion
+                  <span className="block text-xs text-muted-foreground">
+                    Otherwise the assignee only changes once all {completionsRequired} are done.
+                  </span>
                 </span>
-              </span>
-            </label>
+              </label>
+            )}
           </div>
         )}
         {showAutoAdvance && (
@@ -384,6 +396,25 @@ export function ChoreFormModal({ title, chore, onClose, onSaved }: ChoreFormModa
                 ))}
               </Select>
             </div>
+          </div>
+        )}
+        {showRotationPeriod && (
+          <div>
+            <Label htmlFor="rotation">Hand over</Label>
+            <Select
+              id="rotation"
+              value={rotationPeriod}
+              onChange={(e) => setRotationPeriod(e.target.value as RotationPeriod)}
+            >
+              {ROTATION_PERIOD_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>{o.label}</option>
+              ))}
+            </Select>
+            {rotationPeriod === 'Monthly' && (
+              <p className="mt-1 text-xs text-muted-foreground">
+                The same person keeps this chore for the whole calendar month, then it moves to the next person.
+              </p>
+            )}
           </div>
         )}
         {repeatType !== 'OneTime' && effectiveScheduling === 'SmartScheduling' && (

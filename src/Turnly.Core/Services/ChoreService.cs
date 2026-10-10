@@ -114,7 +114,8 @@ public class ChoreService
             src.Notifications.Select(n => new ChoreNotificationInput(n.Type, n.Timing, n.OffsetValue, n.OffsetUnit, n.Recipients)).ToArray(),
             src.DueTime?.ToString("HH\\:mm"),
             src.AssigneeTracks.Select(t => new TrackInput(t.UserId, t.CompletionsRequired)).ToArray(),
-            src.TimesOfDay.Select(t => t.ToString("HH\\:mm")).ToArray());
+            src.TimesOfDay.Select(t => t.ToString("HH\\:mm")).ToArray(),
+            src.RotationPeriod);
 
         return await CreateAsync(req, ct);
     }
@@ -253,8 +254,13 @@ public class ChoreService
             // is what triggers an assignee rotation). With RotateOnEachCompletion, a multi-completion
             // chore also rotates on the in-between completions — but not when the occurrence just closed
             // for good (DueAt null, e.g. a finished one-time chore), where a rotation would be pointless.
+            // A new occurrence only hands over once it crosses the chore's rotation period, so a
+            // monthly-rotating weekly chore stays with the same person until the month turns.
             var advancedToNewOccurrence = await AdvanceScheduleAsync(chore, completion, now, ct);
-            if (advancedToNewOccurrence || (chore.RotateOnEachCompletion && chore.DueAt is not null))
+            var rotates = advancedToNewOccurrence
+                ? CrossedRotationBoundary(chore, completion.OccurrenceDueAt ?? now)
+                : chore.RotateOnEachCompletion && chore.DueAt is not null;
+            if (rotates)
                 await RotateAssigneeAsync(chore, now, completion.CompletedByUserId!.Value, completion.Id, ct);
 
             // The occurrence someone was being offered is done, so nobody can claim it any more —
@@ -276,7 +282,8 @@ public class ChoreService
     }
 
     /// <summary>Skips the current occurrence of a recurring chore: advances the schedule to the
-    /// next due date without awarding points or rotating the assignee. Logged as a points-less
+    /// next due date without awarding points or rotating the assignee (except across a calendar
+    /// <see cref="RotationPeriod"/> boundary, which hands over however the occurrence closed). Logged as a points-less
     /// <see cref="ChoreCompletion"/> (<c>IsSkip</c>) so it shares the undo path. One-time chores,
     /// and chores with nothing scheduled, cannot be skipped.</summary>
     public async Task<Result<ChoreDto>> SkipAsync(Guid id, Guid userId, SkipChoreRequest req, CancellationToken ct = default)
@@ -328,7 +335,14 @@ public class ChoreService
         }
         else
         {
-            await AdvanceScheduleAsync(chore, skip, now, ct);
+            var advancedToNewOccurrence = await AdvanceScheduleAsync(chore, skip, now, ct);
+            // The one exception to "a skip never rotates": a calendar rotation period hands over on
+            // its boundary no matter how the last occurrence closed, otherwise skipping the final week
+            // of the month would leave the same person holding the whole next month too.
+            if (advancedToNewOccurrence
+                && chore.RotationPeriod != RotationPeriod.EveryOccurrence
+                && CrossedRotationBoundary(chore, skip.OccurrenceDueAt ?? now))
+                await RotateAssigneeAsync(chore, now, chore.CurrentAssigneeId ?? skippedUserId, skip.Id, ct);
             // Same as a completion: the offered occurrence is gone, so refund and void.
             await VoidOffersAsync(chore, OfferStatus.Cancelled, ct);
         }
@@ -909,6 +923,13 @@ public class ChoreService
         return chore.DueAt is not null;
     }
 
+    /// <summary>Whether the occurrence that just closed (due <paramref name="closedDue"/>) and the one
+    /// <c>chore.DueAt</c> now points at sit on opposite sides of the chore's <see cref="RotationPeriod"/>
+    /// boundary. Always true for <see cref="RotationPeriod.EveryOccurrence"/>; false when nothing is
+    /// scheduled next.</summary>
+    private static bool CrossedRotationBoundary(Chore chore, DateTimeOffset closedDue) =>
+        chore.DueAt is { } nextDue && RotationBoundary.Crossed(chore.RotationPeriod, closedDue, nextDue);
+
     /// <summary>Picks the next current assignee per the chore's strategy and records the assignment.
     /// <paramref name="completedBy"/> is folded in as a virtual completion so strategies that count
     /// completions (LeastCompleted) treat the just-closed occurrence as that user's turn.
@@ -1150,6 +1171,8 @@ public class ChoreService
             return Result.Fail<List<User>>(dueTimeError);
         if (Validators.TimesOfDay(req.TimesOfDay, req.RepeatType, req.CustomMode, out _) is { } timesError)
             return Result.Fail<List<User>>(timesError);
+        if (!Enum.IsDefined(req.RotationPeriod))
+            return Result.Fail<List<User>>(Error.Validation("Unknown rotation period."));
 
         if (req.Notifications is { } notifications)
         {
@@ -1255,7 +1278,15 @@ public class ChoreService
         chore.CompletionsRequired = isCustom || isIndependent ? 1 : Math.Max(1, req.CompletionsRequired);
         // Per-completion rotation only means anything when more than one completion is required, and
         // never applies in track mode (no rotation at all).
-        chore.RotateOnEachCompletion = !isIndependent && chore.CompletionsRequired > 1 && req.RotateOnEachCompletion;
+        // A rotation period only means something on a chore that rotates and comes due more often than
+        // the period itself; everywhere else it's stored as the default so it can't linger unseen.
+        var supportsRotationPeriod = !isIndependent
+            && req.AssignmentStrategy != AssignmentStrategy.KeepLastAssigned
+            && req.RepeatType is RepeatType.Daily or RepeatType.Weekly or RepeatType.Custom;
+        chore.RotationPeriod = supportsRotationPeriod ? req.RotationPeriod : RotationPeriod.EveryOccurrence;
+        // A calendar rotation period and per-completion rotation contradict each other; the period wins.
+        chore.RotateOnEachCompletion = !isIndependent && chore.CompletionsRequired > 1 && req.RotateOnEachCompletion
+            && chore.RotationPeriod == RotationPeriod.EveryOccurrence;
 
         Validators.DueTime(req.DueTime, out var dueTime); // format already checked in ValidateAsync
         // Fixed times only ride on day-resolution schedules (Daily / DaysOfWeek / DaysOfMonth); clear
@@ -1435,10 +1466,11 @@ public class ChoreService
             }
 
             // Advance and rotate — treat the current assignee's missed occurrence as their "turn used"
-            // so the same person doesn't stay on duty after an expired occurrence.
+            // so the same person doesn't stay on duty after an expired occurrence. A calendar rotation
+            // period still holds them until its boundary, same as a completion would.
             var rule = RecurrenceRule.FromChore(chore);
             chore.DueAt = RecurrenceCalculator.NextDue(rule, SchedulingPreference.FromScheduledDate, dueAt, now, now);
-            if (chore.CurrentAssigneeId.HasValue && chore.DueAt is not null)
+            if (chore.CurrentAssigneeId.HasValue && CrossedRotationBoundary(chore, dueAt))
                 await RotateAssigneeAsync(chore, now, chore.CurrentAssigneeId.Value, firstExpired?.Id, ct);
             // Nobody claimed the occurrence before it expired — refund the offerer's bounty.
             await VoidOffersAsync(chore, OfferStatus.Cancelled, ct);

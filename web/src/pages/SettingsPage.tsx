@@ -733,7 +733,7 @@ function DangerZoneCard() {
     const ok = await confirm({
       title: 'Fresh start',
       message:
-        'Deletes all activity, points, redemptions, achievements, and gacha progress for everyone. Chores and schedules are kept. This cannot be undone.',
+        'Deletes all activity, points, redemptions, achievements, and cosmetics progress for everyone. Chores and schedules are kept. This cannot be undone.',
       confirmLabel: 'Reset everything',
     })
     if (!ok) return

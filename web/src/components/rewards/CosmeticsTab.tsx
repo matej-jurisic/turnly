@@ -12,7 +12,8 @@ import { useAuthStore } from '@/store/auth'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useState } from 'react'
 
-export function GachaPage() {
+/** Cosmetics tab of `RewardsPage`: spend points on pulls, craft with dust, browse the collection. */
+export function CosmeticsTab() {
   const user = useAuthStore((s) => s.user)
   const queryClient = useQueryClient()
   const [reveal, setReveal] = useState<PullResult[] | null>(null)
@@ -53,18 +54,11 @@ export function GachaPage() {
 
   return (
     <div className="space-y-8">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-2xl font-semibold text-foreground">Gacha</h1>
-        <div className="flex items-center gap-2">
-          <Badge tone="violet">{state.points} pts</Badge>
-          <Badge tone="amber">{state.dust} dust</Badge>
-        </div>
-      </div>
-
       {/* Pull panel */}
       <Card>
-        <CardHeader>
+        <CardHeader className="flex items-center justify-between gap-3">
           <CardTitle>Pull</CardTitle>
+          <Badge tone="amber">{state.dust} dust</Badge>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="flex gap-3">

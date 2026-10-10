@@ -13,7 +13,7 @@ import { Modal, Avatar } from '@/components/ui/Modal'
 /**
  * Appearance picker opened from the account menu. One place to choose how the app looks: the base
  * Light/Dark modes plus any owned theme palettes (mutually exclusive — a palette supersedes
- * light/dark), and any owned avatar frame. Equipping happens here, not on the gacha page.
+ * light/dark), and any owned avatar frame. Equipping happens here, not on the Rewards page.
  */
 export function CustomizationModal({ onClose }: { onClose: () => void }) {
   const user = useAuthStore((s) => s.user)
@@ -275,7 +275,7 @@ function SwatchTile({
 }
 
 /** A compact rarity pill in fixed rarity colors (not theme tokens) so tiers stay distinct under any
- * palette. Mirrors the gacha page's RarityBadge at a smaller size. */
+ * palette. Mirrors the Cosmetics tab's RarityBadge at a smaller size. */
 function RarityTag({ rarity }: { rarity: CosmeticRarity }) {
   const color = RARITY_COLOR[rarity]
   return (

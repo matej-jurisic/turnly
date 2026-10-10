@@ -1095,7 +1095,8 @@ public class ChoreServiceTests
             c.IntervalUnit, c.Weekdays, c.WeeksOfMonth, c.DaysOfMonth, c.Months, c.CompletionsRequired,
             c.RotateOnEachCompletion, c.AssignmentStrategy, c.SchedulingPreference, c.GraceMinutes,
             c.AutoAdvanceIncomplete, c.CompletionWindowMinutes,
-            c.StartDate, c.AssigneeIds, c.CurrentAssigneeId, c.TagNames, c.Notifications, c.DueTime);
+            c.StartDate, c.AssigneeIds, c.CurrentAssigneeId, c.TagNames, c.Notifications, c.DueTime,
+            RotationPeriod: c.RotationPeriod);
 
     [Fact]
     public async Task UpdateAsync_rebuilds_notifications_after_a_delivery_was_recorded()
@@ -1397,6 +1398,137 @@ public class ChoreServiceTests
         // Complete Mon 20:00 → roll to next Monday 08:00.
         var afterEvening = await ctx.Chores.CompleteAsync(chore.Id, member, new CompleteChoreRequest(null));
         Assert.Equal(new DateTimeOffset(2026, 6, 29, 8, 0, 0, TimeSpan.Zero), afterEvening.Value!.DueAt);
+    }
+
+    // ── Rotation period ───────────────────────────────────────────────────────────────────────
+
+    // Start is Wed 2026-06-17, so a weekly chore comes due Jun 17, Jun 24, then Jul 1.
+    private static CreateChoreRequest MonthlyRotating(Guid current, Guid[] assignees) =>
+        NewChore(current, assignees, RepeatType.Weekly, strategy: AssignmentStrategy.RoundRobin)
+            with { RotationPeriod = RotationPeriod.Monthly };
+
+    [Fact]
+    public async Task CompleteAsync_monthly_rotation_keeps_assignee_until_the_month_turns()
+    {
+        using var ctx = new TestContext();
+        var (admin, member) = await SeedUsersAsync(ctx);
+        var chore = (await ctx.Chores.CreateAsync(MonthlyRotating(admin, [admin, member]))).Value!;
+        Assert.Equal(RotationPeriod.Monthly, chore.RotationPeriod);
+
+        // Jun 17 → Jun 24: same month, so admin keeps it.
+        var afterFirst = (await ctx.Chores.CompleteAsync(chore.Id, admin, new CompleteChoreRequest(null))).Value!;
+        Assert.Equal(Start.AddDays(7), afterFirst.DueAt);
+        Assert.Equal(admin, afterFirst.CurrentAssignee!.Id);
+        Assert.Equal(member, afterFirst.NextAssignee!.Id); // still previews who takes over
+
+        // Jun 24 → Jul 1: crosses into July, so it hands over.
+        var afterSecond = (await ctx.Chores.CompleteAsync(chore.Id, admin, new CompleteChoreRequest(null))).Value!;
+        Assert.Equal(Start.AddDays(14), afterSecond.DueAt);
+        Assert.Equal(member, afterSecond.CurrentAssignee!.Id);
+
+        // Jul 1 → Jul 8: member holds July.
+        var afterThird = (await ctx.Chores.CompleteAsync(chore.Id, member, new CompleteChoreRequest(null))).Value!;
+        Assert.Equal(member, afterThird.CurrentAssignee!.Id);
+    }
+
+    [Fact]
+    public async Task UndoCompletionAsync_reverses_a_monthly_handover()
+    {
+        using var ctx = new TestContext();
+        var (admin, member) = await SeedUsersAsync(ctx);
+        var chore = (await ctx.Chores.CreateAsync(MonthlyRotating(admin, [admin, member]))).Value!;
+        await ctx.Chores.CompleteAsync(chore.Id, admin, new CompleteChoreRequest(null));
+        var handover = (await ctx.Chores.CompleteAsync(chore.Id, admin, new CompleteChoreRequest(null))).Value!;
+        Assert.Equal(member, handover.CurrentAssignee!.Id);
+
+        var undo = await ctx.Chores.UndoCompletionAsync(handover.LastCompletion!.Id, admin);
+
+        Assert.True(undo.Succeeded);
+        var stored = await ctx.Db.Chores.FindAsync(chore.Id);
+        Assert.Equal(admin, stored!.CurrentAssigneeId);
+        Assert.Equal(Start.AddDays(7), stored.DueAt);
+    }
+
+    [Fact]
+    public async Task SkipAsync_monthly_rotation_hands_over_only_across_the_month_boundary()
+    {
+        using var ctx = new TestContext();
+        var (admin, member) = await SeedUsersAsync(ctx);
+        var chore = (await ctx.Chores.CreateAsync(MonthlyRotating(admin, [admin, member]))).Value!;
+
+        // A skip inside the month keeps the assignee, as skips always do.
+        var afterFirst = (await ctx.Chores.SkipAsync(chore.Id, admin, new SkipChoreRequest(null))).Value!;
+        Assert.Equal(admin, afterFirst.CurrentAssignee!.Id);
+
+        // Skipping the last June occurrence must not leave admin holding July as well.
+        var afterSecond = (await ctx.Chores.SkipAsync(chore.Id, admin, new SkipChoreRequest(null))).Value!;
+        Assert.Equal(Start.AddDays(14), afterSecond.DueAt);
+        Assert.Equal(member, afterSecond.CurrentAssignee!.Id);
+    }
+
+    [Fact]
+    public async Task AutoAdvanceAsync_monthly_rotation_keeps_assignee_until_the_month_turns()
+    {
+        using var ctx = new TestContext();
+        var (admin, member) = await SeedUsersAsync(ctx);
+        var chore = (await ctx.Chores.CreateAsync(
+            MonthlyRotating(admin, [admin, member]) with { AutoAdvanceIncomplete = true })).Value!;
+
+        // Jun 17 expires → Jun 24: admin missed it but still holds June.
+        Assert.Equal(1, await ctx.Chores.AutoAdvanceAsync(Start.AddHours(1)));
+        var stored = await ctx.Db.Chores.FindAsync(chore.Id);
+        Assert.Equal(Start.AddDays(7), stored!.DueAt);
+        Assert.Equal(admin, stored.CurrentAssigneeId);
+
+        // Jun 24 expires → Jul 1: hands over.
+        Assert.Equal(1, await ctx.Chores.AutoAdvanceAsync(Start.AddDays(7).AddHours(1)));
+        Assert.Equal(Start.AddDays(14), stored.DueAt);
+        Assert.Equal(member, stored.CurrentAssigneeId);
+    }
+
+    [Theory]
+    [InlineData(RepeatType.Weekly, AssignmentStrategy.KeepLastAssigned)] // never rotates
+    [InlineData(RepeatType.Monthly, AssignmentStrategy.RoundRobin)]      // already hands over monthly
+    [InlineData(RepeatType.OneTime, AssignmentStrategy.RoundRobin)]
+    public async Task CreateAsync_drops_rotation_period_where_it_cannot_apply(RepeatType repeat, AssignmentStrategy strategy)
+    {
+        using var ctx = new TestContext();
+        var (admin, member) = await SeedUsersAsync(ctx);
+
+        var chore = (await ctx.Chores.CreateAsync(
+            NewChore(admin, [admin, member], repeat, strategy: strategy)
+            with { RotationPeriod = RotationPeriod.Monthly })).Value!;
+
+        Assert.Equal(RotationPeriod.EveryOccurrence, chore.RotationPeriod);
+    }
+
+    [Fact]
+    public async Task CreateAsync_monthly_rotation_overrides_rotate_on_each_completion()
+    {
+        using var ctx = new TestContext();
+        var (admin, member) = await SeedUsersAsync(ctx);
+
+        var chore = (await ctx.Chores.CreateAsync(
+            NewChore(admin, [admin, member], RepeatType.Weekly, completionsRequired: 2,
+                rotateOnEachCompletion: true, strategy: AssignmentStrategy.RoundRobin)
+            with { RotationPeriod = RotationPeriod.Monthly })).Value!;
+
+        Assert.False(chore.RotateOnEachCompletion);
+        // The first of two completions leaves the occurrence open and the assignee in place.
+        var afterFirst = (await ctx.Chores.CompleteAsync(chore.Id, admin, new CompleteChoreRequest(null))).Value!;
+        Assert.Equal(admin, afterFirst.CurrentAssignee!.Id);
+    }
+
+    [Fact]
+    public async Task CopyAsync_carries_over_rotation_period()
+    {
+        using var ctx = new TestContext();
+        var (admin, member) = await SeedUsersAsync(ctx);
+        var chore = (await ctx.Chores.CreateAsync(MonthlyRotating(admin, [admin, member]))).Value!;
+
+        var copy = (await ctx.Chores.CopyAsync(chore.Id, "Dishes copy")).Value!;
+
+        Assert.Equal(RotationPeriod.Monthly, copy.RotationPeriod);
     }
 
     // ── AutoAdvanceAsync ──────────────────────────────────────────────────────────────────────

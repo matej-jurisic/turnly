@@ -174,6 +174,11 @@ namespace Turnly.Core.Migrations
                     b.Property<bool>("RotateOnEachCompletion")
                         .HasColumnType("INTEGER");
 
+                    b.Property<string>("RotationPeriod")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("SchedulingPreference")
                         .IsRequired()
                         .HasMaxLength(32)

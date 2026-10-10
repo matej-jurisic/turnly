@@ -51,6 +51,12 @@ public class Chore
     /// Ignored (and stored false) when only one completion is required. Skips never rotate either way.</summary>
     public bool RotateOnEachCompletion { get; set; }
 
+    /// <summary>How often the assignee hands over. <see cref="RotationPeriod.Monthly"/> keeps the same
+    /// person across every occurrence in a calendar month and only rotates when the due date crosses
+    /// into the next one. Stored as <see cref="RotationPeriod.EveryOccurrence"/> wherever it can't mean
+    /// anything (one-time, independent, keep-last-assigned, and monthly/yearly repeats).</summary>
+    public RotationPeriod RotationPeriod { get; set; } = RotationPeriod.EveryOccurrence;
+
     /// <summary>How the next assignee is chosen when the chore advances to a new occurrence.</summary>
     public AssignmentStrategy AssignmentStrategy { get; set; } = AssignmentStrategy.KeepLastAssigned;
 

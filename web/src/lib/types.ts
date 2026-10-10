@@ -120,6 +120,8 @@ export type CustomRecurrenceMode = 'Interval' | 'DaysOfWeek' | 'DaysOfMonth'
 
 export type RecurrenceUnit = 'Day' | 'Week' | 'Month' | 'Year'
 
+export type RotationPeriod = 'EveryOccurrence' | 'Monthly'
+
 export type AssignmentStrategy =
   | 'Random'
   | 'LeastAssigned'
@@ -237,6 +239,8 @@ export interface Chore extends RecurrenceFields {
   /** For multi-completion chores: rotate the assignee after each completion rather than only when
    * the occurrence is fully complete. */
   rotateOnEachCompletion: boolean
+  /** How often the assignee hands over. 'Monthly' keeps one person for the whole calendar month. */
+  rotationPeriod: RotationPeriod
   assignmentStrategy: AssignmentStrategy
   schedulingPreference: SchedulingPreference
   /** Grace window (minutes) for SmartScheduling; null = no grace. */
@@ -325,6 +329,7 @@ export interface ChoreRequest extends RecurrenceFields {
   repeatType: RepeatType
   completionsRequired: number
   rotateOnEachCompletion: boolean
+  rotationPeriod: RotationPeriod
   assignmentStrategy: AssignmentStrategy
   schedulingPreference: SchedulingPreference
   graceMinutes?: number | null

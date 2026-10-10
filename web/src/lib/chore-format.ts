@@ -6,6 +6,7 @@ import type {
   ChoreTrack,
   CustomRecurrenceMode,
   RepeatType,
+  RotationPeriod,
   SchedulingPreference,
   Weekday,
 } from '@/lib/types'
@@ -30,6 +31,20 @@ export const STRATEGY_OPTIONS: { value: AssignmentStrategy; label: string }[] = 
   { value: 'LeastCompleted', label: 'Least completed' },
   { value: 'Independent', label: 'Everyone (independent)' },
 ]
+
+export const ROTATION_PERIOD_OPTIONS: { value: RotationPeriod; label: string }[] = [
+  { value: 'EveryOccurrence', label: 'Every occurrence' },
+  { value: 'Monthly', label: 'Once a month' },
+]
+
+/** Whether a rotation period can apply: the chore has to rotate, and come due more often than monthly. */
+export function supportsRotationPeriod(repeatType: RepeatType, strategy: AssignmentStrategy): boolean {
+  return (
+    (repeatType === 'Daily' || repeatType === 'Weekly' || repeatType === 'Custom') &&
+    strategy !== 'Independent' &&
+    strategy !== 'KeepLastAssigned'
+  )
+}
 
 export const SCHEDULING_OPTIONS: { value: SchedulingPreference; label: string }[] = [
   { value: 'FromScheduledDate', label: 'From scheduled date' },

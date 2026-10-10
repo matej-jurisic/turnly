@@ -5,7 +5,7 @@ Family chore management web app (PWA). Self-hosted, simple, actually works.
 Turnly is feature-complete. It provides foundation
 (auth, users, roles, Docker), chore CRUD with recurrence and assignment strategies, a dashboard
 with today/overdue/upcoming views (list, compact, and calendar layouts), per-user point totals,
-filtering, and global search, a history/stats view, awards and point redemption (with next-goal
+filtering, and global search, a history/stats view, a Rewards page with awards and point redemption (with next-goal
 progress), per-occurrence skip, admin reassignment, and chore offers (put a chore you're holding up for anyone
 to take, optionally with a points bounty), Web Push notifications (per-chore
 reminder/due/follow-up schedule via self-hosted VAPID keys, with per-user quiet hours and
@@ -13,7 +13,8 @@ per-category delivery controls), and UX
 polish (swipe actions, completion confetti, admin complete-on-behalf and activity-entry deletion).
 **Shared chores** can also be set to "Everyone (independent)", giving each assignee their own
 schedule and per-person quota — one chore for "everyone does the dishes once a week" without anyone
-blocking anyone else. Chores can also fire **multiple times a day**, **auto-advance** past missed
+blocking anyone else. Rotating chores can **hand over once a month** instead of every occurrence
+(one person does the weekly chore all month, then the next person takes over). Chores can also fire **multiple times a day**, **auto-advance** past missed
 occurrences, track an **on-time streak**, and be **copied**; admins can **adjust points** manually,
 **delete a redemption of any status** (refunding its points), and set the instance's **family
 timezone**. Members also earn **achievements** — collectible, permanently-earned badges for
@@ -22,13 +23,13 @@ the moment they're earned and shown on a dedicated page where admins can view an
 revoke them. Admins can also **pause individual chores** (blocks completions, hides from the active
 list, suppresses notifications — unpausing steps overdue chores forward to the next future
 occurrence) and **freeze users** (marks them as "Away": excluded from rotation, independent tracks
-paused, no notifications — with a preview of affected chores before confirming). There's also a
-points-funded **gacha** for cosmetics (no real money): spend points on pulls to collect rarity-tiered
+paused, no notifications — with a preview of affected chores before confirming). The Rewards page
+also has a points-funded **Cosmetics** tab (no real money): spend points on random pulls to collect rarity-tiered
 **avatar frames** (shown on every avatar) and **app theme palettes** (recolor your own app), with a
 pity counter that guarantees a Legendary, a dust economy that turns duplicates into a specific
 crafted item, published drop rates, and one-per-slot equipping. For a clean slate, admins can run a
 **fresh start** (Settings → Danger zone) that wipes all activity, point history, redemptions,
-achievements, and gacha progress and resets everyone's points to 0, while keeping every chore and its
+achievements, and cosmetics progress and resets everyone's points to 0, while keeping every chore and its
 schedule intact. See [`specs.md`](./specs.md) for the full product spec and feature list.
 
 ## Stack
@@ -118,6 +119,12 @@ control. Generate a keystore once (`keytool -genkey -v -keystore turnly.jks -key
 2048 -validity 10000 -alias turnly`), then set `TURNLY_KEYSTORE` (path), `TURNLY_KEYSTORE_PASSWORD`,
 `TURNLY_KEY_ALIAS`, and `TURNLY_KEY_PASSWORD` before running `android:apk`. Without them the release
 build is left unsigned (fine for local testing).
+
+**One-step server build.** `./turnly-build.sh` builds and signs the APK inside Docker (no local JDK or
+Android SDK needed), bumps the version, publishes it to `/data/turnly/releases`, and redeploys the web
+app. `--no-web` builds the APK only, `--web-only` only redeploys. It expects the keystore at
+`~/.turnly/turnly-release.jks`, its password in `~/.turnly/keystore.pass` (alias `turnly`, override
+with `TURNLY_KEY_ALIAS`), and `web/android/app/google-services.json`.
 
 **Push notifications (FCM).** The app builds and runs without Firebase (push is simply disabled; the
 in-app inbox still works). To enable native push:

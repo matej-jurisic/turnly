@@ -19,9 +19,8 @@ import { ChoresPage } from '@/pages/ChoresPage'
 import { SettingsPage } from '@/pages/SettingsPage'
 import { PointsPage } from '@/pages/PointsPage'
 import { HistoryPage } from '@/pages/HistoryPage'
-import { AwardsPage } from '@/pages/AwardsPage'
+import { RewardsPage } from '@/pages/RewardsPage'
 import { AchievementsPage } from '@/pages/AchievementsPage'
-import { GachaPage } from '@/pages/GachaPage'
 
 export default function App() {
   return (
@@ -119,9 +118,11 @@ function AppRoutes() {
             element={user?.role === 'Admin' ? <UsersPage /> : <Navigate to="/chores" replace />}
           />
           <Route path="/points" element={<PointsPage />} />
-          <Route path="/awards" element={<AwardsPage />} />
+          <Route path="/rewards" element={<RewardsPage />} />
+          {/* Old standalone pages, kept so bookmarks and installed-PWA shortcuts still land. */}
+          <Route path="/awards" element={<Navigate to="/rewards" replace />} />
+          <Route path="/gacha" element={<Navigate to="/rewards?tab=cosmetics" replace />} />
           <Route path="/achievements" element={<AchievementsPage />} />
-          <Route path="/gacha" element={<GachaPage />} />
           <Route path="/history" element={<HistoryPage />} />
           <Route path="/settings" element={<SettingsPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />
