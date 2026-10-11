@@ -163,6 +163,10 @@ namespace Turnly.Core.Migrations
                         .HasMaxLength(128)
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("Pairs")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
                     b.Property<int>("Points")
                         .HasColumnType("INTEGER");
 
@@ -185,6 +189,10 @@ namespace Turnly.Core.Migrations
                         .HasColumnType("TEXT");
 
                     b.Property<DateTimeOffset>("StartDate")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("TimeLabels")
+                        .IsRequired()
                         .HasColumnType("TEXT");
 
                     b.Property<string>("TimesOfDay")
@@ -301,6 +309,9 @@ namespace Turnly.Core.Migrations
                     b.Property<DateTimeOffset?>("OccurrenceDueAt")
                         .HasColumnType("TEXT");
 
+                    b.Property<Guid?>("PartnerUserId")
+                        .HasColumnType("TEXT");
+
                     b.Property<int>("PointsAwarded")
                         .HasColumnType("INTEGER");
 
@@ -312,6 +323,8 @@ namespace Turnly.Core.Migrations
                     b.HasIndex("ChoreId");
 
                     b.HasIndex("CompletedByUserId");
+
+                    b.HasIndex("PartnerUserId");
 
                     b.ToTable("ChoreCompletions");
                 });
@@ -961,9 +974,16 @@ namespace Turnly.Core.Migrations
                         .HasForeignKey("CompletedByUserId")
                         .OnDelete(DeleteBehavior.Restrict);
 
+                    b.HasOne("Turnly.Core.Entities.User", "Partner")
+                        .WithMany()
+                        .HasForeignKey("PartnerUserId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.Navigation("Chore");
 
                     b.Navigation("CompletedBy");
+
+                    b.Navigation("Partner");
                 });
 
             modelBuilder.Entity("Turnly.Core.Entities.ChoreMute", b =>

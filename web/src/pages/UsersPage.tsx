@@ -12,6 +12,7 @@ import { Input, Label, Select } from '@/components/ui/Field'
 import { Modal, Avatar } from '@/components/ui/Modal'
 import { FreezeUserModal } from '@/components/FreezeUserModal'
 import { UserMenu } from '@/components/users/UserMenu'
+import { t } from '@/lib/i18n'
 
 export function UsersPage() {
   const currentUser = useAuthStore((s) => s.user)
@@ -34,23 +35,23 @@ export function UsersPage() {
   const deleteMutation = useMutation({
     mutationFn: (id: string) => usersApi.remove(id),
     onSuccess: invalidate,
-    onError: (err) => toast.error(err instanceof ApiError ? err.message : 'Delete failed'),
+    onError: (err) => toast.error(err instanceof ApiError ? err.message : t('chores.deleteFailed')),
   })
 
   const unfreezeMutation = useMutation({
     mutationFn: (id: string) => usersApi.unfreeze(id),
     onSuccess: invalidateAll,
-    onError: (err) => toast.error(err instanceof ApiError ? err.message : 'Unfreeze failed'),
+    onError: (err) => toast.error(err instanceof ApiError ? err.message : t('users.unfreezeFailed')),
   })
 
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold text-foreground">Users</h1>
-        <Button onClick={() => setCreating(true)}>Add user</Button>
+        <h1 className="text-2xl font-semibold text-foreground">{t('nav.users')}</h1>
+        <Button onClick={() => setCreating(true)}>{t('users.add')}</Button>
       </div>
 
-      {isLoading && <p className="text-muted-foreground">Loading…</p>}
+      {isLoading && <p className="text-muted-foreground">{t('common.loading')}</p>}
       {error && <p className="text-destructive">{(error as ApiError).message}</p>}
 
       <Card className="divide-y divide-border">
@@ -61,12 +62,12 @@ export function UsersPage() {
               <div className="min-w-0">
                 <p className="truncate text-foreground">
                   {user.displayName}
-                  {user.id === currentUser?.id && <span className="ml-2 text-xs text-muted-foreground">(you)</span>}
+                  {user.id === currentUser?.id && <span className="ml-2 text-xs text-muted-foreground">{t('users.you')}</span>}
                 </p>
                 <div className="mt-0.5 flex items-center gap-2">
                   <span className="truncate text-sm text-muted-foreground">@{user.username}</span>
-                  <Badge tone={user.role === 'Admin' ? 'violet' : 'neutral'}>{user.role}</Badge>
-                  {user.isFrozen && <Badge tone="amber">Away</Badge>}
+                  <Badge tone={user.role === 'Admin' ? 'violet' : 'neutral'}>{t(`role.${user.role}`)}</Badge>
+                  {user.isFrozen && <Badge tone="amber">{t('users.away')}</Badge>}
                 </div>
               </div>
             </div>
@@ -84,9 +85,9 @@ export function UsersPage() {
                 onDelete={async () => {
                   if (
                     await confirm({
-                      title: 'Delete user',
-                      message: `Delete ${user.displayName}? This wipes their history.`,
-                      confirmLabel: 'Delete',
+                      title: t('users.deleteTitle'),
+                      message: t('users.deleteMessage', { name: user.displayName }),
+                      confirmLabel: t('common.delete'),
                     })
                   ) {
                     deleteMutation.mutate(user.id)
@@ -100,7 +101,7 @@ export function UsersPage() {
 
       {creating && (
         <UserFormModal
-          title="Add user"
+          title={t('users.add')}
           onClose={() => setCreating(false)}
           onSaved={() => {
             setCreating(false)
@@ -111,7 +112,7 @@ export function UsersPage() {
 
       {editing && (
         <UserFormModal
-          title="Edit user"
+          title={t('users.editTitle')}
           user={editing}
           onClose={() => setEditing(null)}
           onSaved={() => {
@@ -177,7 +178,7 @@ function UserFormModal({ title, user, onClose, onSaved }: UserFormModalProps) {
       return usersApi.create(body)
     },
     onSuccess: onSaved,
-    onError: (err) => setError(err instanceof ApiError ? err.message : 'Save failed'),
+    onError: (err) => setError(err instanceof ApiError ? err.message : t('form.saveFailed')),
   })
 
   return (
@@ -191,33 +192,33 @@ function UserFormModal({ title, user, onClose, onSaved }: UserFormModalProps) {
         className="space-y-4"
       >
         <div>
-          <Label htmlFor="displayName">Display name</Label>
+          <Label htmlFor="displayName">{t('setup.displayName')}</Label>
           <Input id="displayName" value={displayName} onChange={(e) => setDisplayName(e.target.value)} required />
         </div>
         {!isEdit && (
           <div>
-            <Label htmlFor="username">Username</Label>
+            <Label htmlFor="username">{t('auth.username')}</Label>
             <Input id="username" value={username} onChange={(e) => setUsername(e.target.value)} required />
           </div>
         )}
         {!isEdit && (
           <div>
-            <Label htmlFor="password">Password</Label>
+            <Label htmlFor="password">{t('auth.password')}</Label>
             <Input id="password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} required />
           </div>
         )}
         <div>
-          <Label htmlFor="role">Role</Label>
+          <Label htmlFor="role">{t('users.role')}</Label>
           <Select id="role" value={role} onChange={(e) => setRole(e.target.value as UserRole)}>
-            <option value="Member">Member</option>
-            <option value="Admin">Admin</option>
+            <option value="Member">{t('role.Member')}</option>
+            <option value="Admin">{t('role.Admin')}</option>
           </Select>
         </div>
         {error && <p className="text-sm text-destructive">{error}</p>}
         <div className="flex justify-end gap-2">
-          <Button type="button" variant="secondary" onClick={onClose}>Cancel</Button>
+          <Button type="button" variant="secondary" onClick={onClose}>{t('common.cancel')}</Button>
           <Button type="submit" disabled={mutation.isPending}>
-            {mutation.isPending ? 'Saving…' : 'Save'}
+            {mutation.isPending ? t('common.saving') : t('common.save')}
           </Button>
         </div>
       </form>
@@ -233,11 +234,11 @@ function AdjustPointsModal({ user, onClose, onSaved }: { user: User; onClose: ()
   const mutation = useMutation({
     mutationFn: () => usersApi.adjustPoints(user.id, { delta: Number(delta), description: description || undefined }),
     onSuccess: onSaved,
-    onError: (err) => setError(err instanceof ApiError ? err.message : 'Failed'),
+    onError: (err) => setError(err instanceof ApiError ? err.message : t('common.failed')),
   })
 
   return (
-    <Modal title={`Adjust points for ${user.displayName}`} onClose={onClose}>
+    <Modal title={t('users.adjustTitle', { name: user.displayName })} onClose={onClose}>
       <form
         onSubmit={(e) => {
           e.preventDefault()
@@ -247,33 +248,33 @@ function AdjustPointsModal({ user, onClose, onSaved }: { user: User; onClose: ()
         className="space-y-4"
       >
         <div>
-          <Label htmlFor="delta">Points adjustment</Label>
+          <Label htmlFor="delta">{t('users.adjustLabel')}</Label>
           <Input
             id="delta"
             type="number"
-            placeholder="e.g. 10 or -5"
+            placeholder={t('users.adjustPlaceholder')}
             value={delta}
             onChange={(e) => setDelta(e.target.value)}
             required
           />
           <p className="mt-1 text-xs text-muted-foreground">
-            Current balance: {user.points} pts. Use a negative number to deduct.
+            {t('users.adjustHint', { count: user.points })}
           </p>
         </div>
         <div>
-          <Label htmlFor="reason">Reason (optional)</Label>
+          <Label htmlFor="reason">{t('users.reason')}</Label>
           <Input
             id="reason"
             value={description}
             onChange={(e) => setDescription(e.target.value)}
-            placeholder="e.g. Bonus for helping out"
+            placeholder={t('users.reasonPlaceholder')}
           />
         </div>
         {error && <p className="text-sm text-destructive">{error}</p>}
         <div className="flex justify-end gap-2">
-          <Button type="button" variant="secondary" onClick={onClose}>Cancel</Button>
+          <Button type="button" variant="secondary" onClick={onClose}>{t('common.cancel')}</Button>
           <Button type="submit" disabled={mutation.isPending || !delta || Number(delta) === 0}>
-            {mutation.isPending ? 'Saving…' : 'Apply'}
+            {mutation.isPending ? t('common.saving') : t('common.apply')}
           </Button>
         </div>
       </form>
@@ -289,16 +290,16 @@ function PasswordModal({ user, onClose }: { user: User; onClose: () => void }) {
   const mutation = useMutation({
     mutationFn: () => usersApi.setPassword(user.id, newPassword),
     onSuccess: () => setDone(true),
-    onError: (err) => setError(err instanceof ApiError ? err.message : 'Failed'),
+    onError: (err) => setError(err instanceof ApiError ? err.message : t('common.failed')),
   })
 
   return (
-    <Modal title={`Set password for ${user.displayName}`} onClose={onClose}>
+    <Modal title={t('users.setPasswordTitle', { name: user.displayName })} onClose={onClose}>
       {done ? (
         <div className="space-y-4">
-          <p className="text-sm text-success">Password updated.</p>
+          <p className="text-sm text-success">{t('settings.passwordUpdated')}</p>
           <div className="flex justify-end">
-            <Button onClick={onClose}>Close</Button>
+            <Button onClick={onClose}>{t('common.close')}</Button>
           </div>
         </div>
       ) : (
@@ -311,14 +312,14 @@ function PasswordModal({ user, onClose }: { user: User; onClose: () => void }) {
           className="space-y-4"
         >
           <div>
-            <Label htmlFor="newPassword">New password</Label>
+            <Label htmlFor="newPassword">{t('settings.newPassword')}</Label>
             <Input id="newPassword" type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} required />
           </div>
           {error && <p className="text-sm text-destructive">{error}</p>}
           <div className="flex justify-end gap-2">
-            <Button type="button" variant="secondary" onClick={onClose}>Cancel</Button>
+            <Button type="button" variant="secondary" onClick={onClose}>{t('common.cancel')}</Button>
             <Button type="submit" disabled={mutation.isPending}>
-              {mutation.isPending ? 'Saving…' : 'Set password'}
+              {mutation.isPending ? t('common.saving') : t('users.setPassword')}
             </Button>
           </div>
         </form>

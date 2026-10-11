@@ -11,6 +11,7 @@ import { Badge } from '@/components/ui/Badge'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { Input, Label } from '@/components/ui/Field'
 import { Modal, Avatar } from '@/components/ui/Modal'
+import { locale, plural, t } from '@/lib/i18n'
 
 /** Awards tab of `RewardsPage`: browse and redeem awards, redemption history, admin CRUD. */
 export function AwardsTab() {
@@ -35,7 +36,7 @@ export function AwardsTab() {
   const deleteMutation = useMutation({
     mutationFn: (id: string) => awardsApi.remove(id),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['awards'] }),
-    onError: (err) => toast.error(err instanceof ApiError ? err.message : 'Delete failed'),
+    onError: (err) => toast.error(err instanceof ApiError ? err.message : t('chores.deleteFailed')),
   })
 
   const redeemMutation = useMutation({
@@ -44,7 +45,7 @@ export function AwardsTab() {
       refreshAfterSpend()
       celebrateAchievements(redemption.unlockedAchievements)
     },
-    onError: (err) => toast.error(err instanceof ApiError ? err.message : 'Redeem failed'),
+    onError: (err) => toast.error(err instanceof ApiError ? err.message : t('awards.redeemFailed')),
   })
 
   const balance = me?.points ?? 0
@@ -53,18 +54,18 @@ export function AwardsTab() {
     <div className="space-y-8">
       {isAdmin && (
         <div className="flex justify-end">
-          <Button onClick={() => setCreating(true)}>Add award</Button>
+          <Button onClick={() => setCreating(true)}>{t('awards.add')}</Button>
         </div>
       )}
 
       {awards && awards.length > 0 && <NextGoalCard balance={balance} awards={awards} />}
 
-      {isLoading && <p className="text-muted-foreground">Loading…</p>}
+      {isLoading && <p className="text-muted-foreground">{t('common.loading')}</p>}
       {error && <p className="text-destructive">{(error as ApiError).message}</p>}
 
       {awards && awards.length === 0 && (
         <p className="text-sm text-muted-foreground">
-          No awards yet.{isAdmin ? ' Add one to get started.' : ''}
+          {isAdmin ? t('awards.emptyAdmin') : t('awards.empty')}
         </p>
       )}
 
@@ -85,11 +86,11 @@ export function AwardsTab() {
                     </div>
                   </div>
                   <div className="mt-auto flex items-center justify-between pt-2">
-                    <Badge tone="violet">{award.cost} pts</Badge>
+                    <Badge tone="violet">{t('common.pts', { count: award.cost })}</Badge>
                     <div className="flex gap-1">
                       {isAdmin && (
                         <>
-                          <Button size="sm" variant="ghost" onClick={() => setEditing(award)}>Edit</Button>
+                          <Button size="sm" variant="ghost" onClick={() => setEditing(award)}>{t('common.edit')}</Button>
                           <Button
                             size="sm"
                             variant="ghost"
@@ -98,29 +99,29 @@ export function AwardsTab() {
                             onClick={async () => {
                               if (
                                 await confirm({
-                                  title: 'Delete award',
-                                  message: `Delete ${award.name}? Past redemptions are kept.`,
-                                  confirmLabel: 'Delete',
+                                  title: t('awards.deleteTitle'),
+                                  message: t('awards.deleteMessage', { name: award.name }),
+                                  confirmLabel: t('common.delete'),
                                 })
                               ) {
                                 deleteMutation.mutate(award.id)
                               }
                             }}
                           >
-                            Delete
+                            {t('common.delete')}
                           </Button>
                         </>
                       )}
                       <Button
                         size="sm"
                         disabled={!affordable || redeemMutation.isPending}
-                        title={affordable ? undefined : 'Not enough points'}
+                        title={affordable ? undefined : t('awards.notEnough')}
                         onClick={async () => {
                           if (
                             await confirm({
-                              title: 'Redeem award',
-                              message: `Redeem ${award.name} for ${award.cost} points?`,
-                              confirmLabel: 'Redeem',
+                              title: t('awards.redeemTitle'),
+                              message: plural('awards.redeemMessage', award.cost, { name: award.name }),
+                              confirmLabel: t('awards.redeem'),
                               variant: 'primary',
                             })
                           ) {
@@ -128,7 +129,7 @@ export function AwardsTab() {
                           }
                         }}
                       >
-                        Redeem
+                        {t('awards.redeem')}
                       </Button>
                     </div>
                   </div>
@@ -143,7 +144,7 @@ export function AwardsTab() {
 
       {creating && (
         <AwardFormModal
-          title="Add award"
+          title={t('awards.add')}
           onClose={() => setCreating(false)}
           onSaved={() => {
             setCreating(false)
@@ -154,7 +155,7 @@ export function AwardsTab() {
 
       {editing && (
         <AwardFormModal
-          title="Edit award"
+          title={t('awards.editTitle')}
           award={editing}
           onClose={() => setEditing(null)}
           onSaved={() => {
@@ -181,7 +182,7 @@ function NextGoalCard({ balance, awards }: { balance: number; awards: Award[] })
         <CardContent className="flex items-center gap-3 py-4">
           <span className="text-2xl leading-none">🎉</span>
           <p className="text-sm text-foreground">
-            You have enough points to redeem any award. Treat yourself!
+            {t('awards.allAffordable')}
           </p>
         </CardContent>
       </Card>
@@ -198,17 +199,17 @@ function NextGoalCard({ balance, awards }: { balance: number; awards: Award[] })
           <div className="flex min-w-0 items-center gap-2">
             <span className="text-2xl leading-none">{goal.emoji ?? '🎁'}</span>
             <div className="min-w-0">
-              <p className="text-xs text-muted-foreground">Next goal</p>
+              <p className="text-xs text-muted-foreground">{t('awards.nextGoal')}</p>
               <p className="truncate font-semibold text-foreground">{goal.name}</p>
             </div>
           </div>
-          <Badge tone="amber">{remaining} pts to go</Badge>
+          <Badge tone="amber">{t('awards.toGo', { count: remaining })}</Badge>
         </div>
         <div className="h-2 overflow-hidden rounded-full bg-accent">
           <div className="h-full rounded-full bg-primary transition-all" style={{ width: `${pct}%` }} />
         </div>
         <p className="text-xs text-muted-foreground">
-          {balance} / {goal.cost} pts ({pct}%)
+          {t('awards.progress', { balance, cost: goal.cost, pct })}
         </p>
       </CardContent>
     </Card>
@@ -221,29 +222,29 @@ function RedemptionsSection({ isAdmin, onChange }: { isAdmin: boolean; onChange:
   const fulfillMutation = useMutation({
     mutationFn: (id: string) => redemptionsApi.fulfill(id),
     onSuccess: onChange,
-    onError: (err) => toast.error(err instanceof ApiError ? err.message : 'Fulfill failed'),
+    onError: (err) => toast.error(err instanceof ApiError ? err.message : t('awards.fulfillFailed')),
   })
 
   const cancelMutation = useMutation({
     mutationFn: (id: string) => redemptionsApi.cancel(id),
     onSuccess: onChange,
-    onError: (err) => toast.error(err instanceof ApiError ? err.message : 'Cancel failed'),
+    onError: (err) => toast.error(err instanceof ApiError ? err.message : t('awards.cancelFailed')),
   })
 
   const deleteMutation = useMutation({
     mutationFn: (id: string) => redemptionsApi.remove(id),
     onSuccess: onChange,
-    onError: (err) => toast.error(err instanceof ApiError ? err.message : 'Delete failed'),
+    onError: (err) => toast.error(err instanceof ApiError ? err.message : t('chores.deleteFailed')),
   })
 
   return (
     <Card>
       <CardHeader>
-        <CardTitle>{isAdmin ? 'Redemptions' : 'My redemptions'}</CardTitle>
+        <CardTitle>{isAdmin ? t('awards.redemptions') : t('awards.myRedemptions')}</CardTitle>
       </CardHeader>
       <CardContent className="px-0 py-0">
         {!redemptions || redemptions.length === 0 ? (
-          <p className="px-6 py-4 text-sm text-muted-foreground">No redemptions yet.</p>
+          <p className="px-6 py-4 text-sm text-muted-foreground">{t('awards.noRedemptions')}</p>
         ) : (
           <ul className="divide-y divide-border">
             {redemptions.map((r) => (
@@ -255,10 +256,10 @@ function RedemptionsSection({ isAdmin, onChange }: { isAdmin: boolean; onChange:
                 onCancel={async () => {
                   if (
                     await confirm({
-                      title: 'Cancel redemption',
-                      message: `Cancel this redemption and refund ${r.pointsSpent} points?`,
-                      confirmLabel: 'Cancel redemption',
-                      cancelLabel: 'Keep',
+                      title: t('awards.cancelTitle'),
+                      message: plural('awards.cancelMessage', r.pointsSpent),
+                      confirmLabel: t('awards.cancelTitle'),
+                      cancelLabel: t('awards.keep'),
                     })
                   ) {
                     cancelMutation.mutate(r.id)
@@ -267,9 +268,9 @@ function RedemptionsSection({ isAdmin, onChange }: { isAdmin: boolean; onChange:
                 onDelete={async () => {
                   if (
                     await confirm({
-                      title: 'Delete redemption',
-                      message: `Delete this redemption and refund ${r.pointsSpent} points? This removes it from the history.`,
-                      confirmLabel: 'Delete',
+                      title: t('awards.deleteRedemptionTitle'),
+                      message: plural('awards.deleteRedemptionMessage', r.pointsSpent),
+                      confirmLabel: t('common.delete'),
                     })
                   ) {
                     deleteMutation.mutate(r.id)
@@ -301,14 +302,14 @@ function RedemptionRow({
   busy: boolean
 }) {
   const statusBadge = (
-    <Badge tone={r.status === 'Fulfilled' ? 'green' : 'amber'}>{r.status}</Badge>
+    <Badge tone={r.status === 'Fulfilled' ? 'green' : 'amber'}>{t(`redemptionStatus.${r.status}`)}</Badge>
   )
 
   const actions = isAdmin ? (
     <div className="flex gap-1">
       {r.status === 'Pending' && (
         <>
-          <Button size="sm" variant="ghost" disabled={busy} onClick={onFulfill}>Fulfill</Button>
+          <Button size="sm" variant="ghost" disabled={busy} onClick={onFulfill}>{t('awards.fulfill')}</Button>
           <Button
             size="sm"
             variant="ghost"
@@ -316,7 +317,7 @@ function RedemptionRow({
             disabled={busy}
             onClick={onCancel}
           >
-            Cancel
+            {t('awards.cancel')}
           </Button>
         </>
       )}
@@ -327,7 +328,7 @@ function RedemptionRow({
         disabled={busy}
         onClick={onDelete}
       >
-        Delete
+        {t('common.delete')}
       </Button>
     </div>
   ) : null
@@ -343,7 +344,7 @@ function RedemptionRow({
             {r.awardName}
             {isAdmin && <span className="ml-2 text-xs text-muted-foreground">{r.user.displayName}</span>}
           </p>
-          <p className="text-xs text-muted-foreground">{new Date(r.redeemedAt).toLocaleDateString()}</p>
+          <p className="text-xs text-muted-foreground">{new Date(r.redeemedAt).toLocaleDateString(locale())}</p>
         </div>
         <div className="ml-auto flex items-center gap-3">
           <span className="text-sm text-destructive">−{r.pointsSpent}</span>
@@ -363,7 +364,7 @@ function RedemptionRow({
         {/* 2: date, points spent, avatar, username */}
         <div className="flex items-center gap-3">
           <span className="text-xs text-muted-foreground">
-            {new Date(r.redeemedAt).toLocaleDateString()}
+            {new Date(r.redeemedAt).toLocaleDateString(locale())}
           </span>
           <span className="text-sm text-destructive">−{r.pointsSpent}</span>
           {isAdmin && (
@@ -406,7 +407,7 @@ function AwardFormModal({ title, award, onClose, onSaved }: AwardFormModalProps)
       return isEdit && award ? awardsApi.update(award.id, body) : awardsApi.create(body)
     },
     onSuccess: onSaved,
-    onError: (err) => setError(err instanceof ApiError ? err.message : 'Save failed'),
+    onError: (err) => setError(err instanceof ApiError ? err.message : t('form.saveFailed')),
   })
 
   return (
@@ -420,20 +421,20 @@ function AwardFormModal({ title, award, onClose, onSaved }: AwardFormModalProps)
         className="space-y-4"
       >
         <div>
-          <Label htmlFor="name">Name</Label>
+          <Label htmlFor="name">{t('form.name')}</Label>
           <Input id="name" value={name} onChange={(e) => setName(e.target.value)} required />
         </div>
         <div>
-          <Label htmlFor="description">Description</Label>
+          <Label htmlFor="description">{t('form.description')}</Label>
           <Input id="description" value={description} onChange={(e) => setDescription(e.target.value)} />
         </div>
         <div className="flex gap-3">
           <div className="w-24">
-            <Label htmlFor="emoji">Emoji</Label>
+            <Label htmlFor="emoji">{t('slot.Emoji')}</Label>
             <Input id="emoji" value={emoji} onChange={(e) => setEmoji(e.target.value)} placeholder="🎁" />
           </div>
           <div className="flex-1">
-            <Label htmlFor="cost">Cost (points)</Label>
+            <Label htmlFor="cost">{t('awards.cost')}</Label>
             <Input
               id="cost"
               type="number"
@@ -446,9 +447,9 @@ function AwardFormModal({ title, award, onClose, onSaved }: AwardFormModalProps)
         </div>
         {error && <p className="text-sm text-destructive">{error}</p>}
         <div className="flex justify-end gap-2">
-          <Button type="button" variant="secondary" onClick={onClose}>Cancel</Button>
+          <Button type="button" variant="secondary" onClick={onClose}>{t('common.cancel')}</Button>
           <Button type="submit" disabled={mutation.isPending}>
-            {mutation.isPending ? 'Saving…' : 'Save'}
+            {mutation.isPending ? t('common.saving') : t('common.save')}
           </Button>
         </div>
       </form>

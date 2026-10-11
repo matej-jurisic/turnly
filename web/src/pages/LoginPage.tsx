@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/Button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { Input, Label } from '@/components/ui/Field'
 import { ThemeToggle } from '@/components/ThemeToggle'
+import { t } from '@/lib/i18n'
 
 export function LoginPage() {
   const setAuth = useAuthStore((s) => s.setAuth)
@@ -22,7 +23,7 @@ export function LoginPage() {
       const auth = await authApi.login(username, password)
       setAuth(auth.accessToken, auth.user)
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Something went wrong')
+      setError(err instanceof ApiError ? err.message : t('common.error'))
       setSubmitting(false)
     }
   }
@@ -34,21 +35,21 @@ export function LoginPage() {
       </div>
       <Card className="w-full max-w-sm">
         <CardHeader>
-          <CardTitle>Sign in to Turnly</CardTitle>
+          <CardTitle>{t('auth.signInTitle')}</CardTitle>
         </CardHeader>
         <CardContent>
           <form onSubmit={onSubmit} className="space-y-4">
             <div>
-              <Label htmlFor="username">Username</Label>
+              <Label htmlFor="username">{t('auth.username')}</Label>
               <Input id="username" value={username} onChange={(e) => setUsername(e.target.value)} autoComplete="username" required />
             </div>
             <div>
-              <Label htmlFor="password">Password</Label>
+              <Label htmlFor="password">{t('auth.password')}</Label>
               <Input id="password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" required />
             </div>
             {error && <p className="text-sm text-destructive">{error}</p>}
             <Button type="submit" className="w-full" disabled={submitting}>
-              {submitting ? 'Signing in…' : 'Sign in'}
+              {submitting ? t('auth.signingIn') : t('auth.signIn')}
             </Button>
           </form>
         </CardContent>

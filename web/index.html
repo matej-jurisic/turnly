@@ -23,6 +23,9 @@
           // Apply the cached gacha theme palette (if any) before paint, same as dark mode.
           var p = localStorage.getItem('turnly-palette')
           if (p) document.documentElement.setAttribute('data-palette', p)
+          // Same for the chosen UI language (see src/lib/i18n.ts).
+          var l = localStorage.getItem('turnly-language')
+          if (l === 'en' || l === 'hr') document.documentElement.lang = l
         } catch (e) {}
       })()
     </script>

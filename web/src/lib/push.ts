@@ -1,4 +1,5 @@
 import { notificationsApi } from '@/lib/api'
+import { t } from '@/lib/i18n'
 
 /** Whether this browser can do Web Push at all. */
 export function pushSupported(): boolean {
@@ -28,14 +29,14 @@ function subscriptionToRequest(sub: PushSubscription) {
 
 /** Requests permission, subscribes via the push manager, and registers the subscription server-side. */
 export async function enablePush(): Promise<void> {
-  if (!pushSupported()) throw new Error('Push notifications are not supported in this browser.')
+  if (!pushSupported()) throw new Error(t('push.unsupported'))
 
   const permission = await Notification.requestPermission()
-  if (permission !== 'granted') throw new Error('Notification permission was not granted.')
+  if (permission !== 'granted') throw new Error(t('push.denied'))
 
   const registration = await navigator.serviceWorker.ready
   const { publicKey } = await notificationsApi.vapidKey()
-  if (!publicKey) throw new Error('The server is not configured for push notifications (no VAPID key).')
+  if (!publicKey) throw new Error(t('push.noVapid'))
 
   const existing = await registration.pushManager.getSubscription()
   const subscription =

@@ -6,6 +6,7 @@ import type { Chore } from '@/lib/types'
 import { Button } from '@/components/ui/Button'
 import { Input, Label } from '@/components/ui/Field'
 import { Modal } from '@/components/ui/Modal'
+import { t, tRich } from '@/lib/i18n'
 
 export function CopyChoreModal({ chore, onClose, onDone }: { chore: Chore; onClose: () => void; onDone: () => void }) {
   const [newName, setNewName] = useState(chore.name)
@@ -13,24 +14,25 @@ export function CopyChoreModal({ chore, onClose, onDone }: { chore: Chore; onClo
   const mutation = useMutation({
     mutationFn: () => choresApi.copy(chore.id, { newName: newName.trim() }),
     onSuccess: () => {
-      toast.success('Chore copied')
+      toast.success(t('copy.done'))
       onDone()
     },
-    onError: (err) => toast.error(err instanceof ApiError ? err.message : 'Copy failed'),
+    onError: (err) => toast.error(err instanceof ApiError ? err.message : t('copy.failed')),
   })
 
   return (
-    <Modal title="Copy chore" onClose={onClose}>
+    <Modal title={t('copy.title')} onClose={onClose}>
       <form
         className="space-y-4"
         onSubmit={(e) => { e.preventDefault(); mutation.mutate() }}
       >
         <p className="text-sm text-muted-foreground">
-          Create a copy of <span className="font-semibold text-foreground">{chore.name}</span> with all the
-          same settings. The copy starts fresh, with no completion history carried over.
+          {tRich('copy.intro', {
+            name: <span className="font-semibold text-foreground">{chore.name}</span>,
+          })}
         </p>
         <div className="space-y-1.5">
-          <Label htmlFor="copy-name">Name</Label>
+          <Label htmlFor="copy-name">{t('form.name')}</Label>
           <Input
             id="copy-name"
             value={newName}
@@ -40,9 +42,9 @@ export function CopyChoreModal({ chore, onClose, onDone }: { chore: Chore; onClo
           />
         </div>
         <div className="flex justify-end gap-2">
-          <Button type="button" variant="secondary" onClick={onClose}>Cancel</Button>
+          <Button type="button" variant="secondary" onClick={onClose}>{t('common.cancel')}</Button>
           <Button type="submit" disabled={mutation.isPending || !newName.trim()}>
-            {mutation.isPending ? 'Copying…' : 'Copy'}
+            {mutation.isPending ? t('copy.copying') : t('menu.copy')}
           </Button>
         </div>
       </form>

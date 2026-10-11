@@ -1,3 +1,4 @@
+using Turnly.Core.Entities;
 using Turnly.Core.Enums;
 
 namespace Turnly.Core.Common;
@@ -16,6 +17,7 @@ public static class Validators
     public const int MaxNotificationsPerChore = 20;
     public const int MaxNotificationOffset = 365;
     public const int MaxTimesOfDay = 24;
+    public const int MaxTimeLabelLength = 32;
 
     public static Error? Username(string? username)
     {
@@ -216,6 +218,53 @@ public static class Validators
                 return Error.Validation("Times of day must be distinct.");
         }
         parsed = set.OrderBy(t => t).ToList();
+        return null;
+    }
+
+    /// <summary>Validates the optional per-slot labels ("HH:mm" → name) and returns them trimmed and
+    /// keyed by time via <paramref name="parsed"/>. Blank labels are dropped rather than rejected, so
+    /// clearing a label is just sending it empty. Whether each key is an actual slot of the chore is
+    /// the service's call (it prunes labels whose time isn't in the schedule).</summary>
+    public static Error? TimeLabels(Dictionary<string, string>? values, out Dictionary<TimeOnly, string> parsed)
+    {
+        parsed = new Dictionary<TimeOnly, string>();
+        if (values is null)
+            return null;
+
+        foreach (var (key, value) in values)
+        {
+            if (!TimeOnly.TryParseExact(key.Trim(), "HH:mm", out var time))
+                return Error.Validation("Each time label must be keyed by a time in HH:mm format.");
+            var label = value?.Trim() ?? string.Empty;
+            if (label.Length == 0)
+                continue;
+            if (label.Length > MaxTimeLabelLength)
+                return Error.Validation($"A time label must be at most {MaxTimeLabelLength} characters.");
+            parsed[time] = label;
+        }
+        return null;
+    }
+
+    /// <summary>Validates the fixed pairs of a chore and returns them via <paramref name="parsed"/>:
+    /// each pair is two different assignees of the chore, and nobody sits in more than one pair (so a
+    /// person's partner is never ambiguous).</summary>
+    public static Error? Pairs(Guid[][]? values, IReadOnlyCollection<Guid> assigneeIds, out List<ChorePair> parsed)
+    {
+        parsed = new List<ChorePair>();
+        if (values is null)
+            return null;
+
+        var seen = new HashSet<Guid>();
+        foreach (var pair in values)
+        {
+            if (pair is not { Length: 2 } || pair[0] == pair[1])
+                return Error.Validation("Each pair must be two different people.");
+            if (!assigneeIds.Contains(pair[0]) || !assigneeIds.Contains(pair[1]))
+                return Error.Validation("Both people in a pair must be assignees of the chore.");
+            if (!seen.Add(pair[0]) || !seen.Add(pair[1]))
+                return Error.Validation("A person can only be in one pair.");
+            parsed.Add(new ChorePair(pair[0], pair[1]));
+        }
         return null;
     }
 

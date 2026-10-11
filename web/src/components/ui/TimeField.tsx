@@ -1,11 +1,14 @@
 import { useEffect, useState } from 'react'
 import { Input } from '@/components/ui/Field'
+import { t } from '@/lib/i18n'
 
 interface TimeFieldProps {
   /** "HH:mm" (24-hour) or "" for no specific time. */
   value: string
   onChange: (value: string) => void
   id?: string
+  /** Accessible name; defaults to the due-time wording most callers want. */
+  ariaLabel?: string
 }
 
 const pad = (n: number) => String(n).padStart(2, '0')
@@ -46,7 +49,7 @@ function normalize(raw: string): string | null {
  * and shows AM/PM for some users, so this is a plain text field that accepts typed times and
  * normalizes them to "HH:mm" on blur. Empty means "no specific time" (due at end of day).
  */
-export function TimeField({ value, onChange, id }: TimeFieldProps) {
+export function TimeField({ value, onChange, id, ariaLabel = t('timeField.label') }: TimeFieldProps) {
   const [draft, setDraft] = useState(value)
 
   // Re-sync when the value changes from outside (e.g. switching between chores).
@@ -70,7 +73,7 @@ export function TimeField({ value, onChange, id }: TimeFieldProps) {
       placeholder="HH:mm"
       maxLength={5}
       value={draft}
-      aria-label="Due time (24-hour)"
+      aria-label={ariaLabel}
       onChange={(e) => {
         // Mask digit-only input into "HH:mm" so the numeric mobile keyboard (no colon key)
         // still produces a colon. Backspacing the colon just drops back to "HH".

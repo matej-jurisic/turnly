@@ -21,14 +21,17 @@ import { PointsPage } from '@/pages/PointsPage'
 import { HistoryPage } from '@/pages/HistoryPage'
 import { RewardsPage } from '@/pages/RewardsPage'
 import { AchievementsPage } from '@/pages/AchievementsPage'
+import { t, useLanguageStore } from '@/lib/i18n'
 
 export default function App() {
+  // `t` reads the language imperatively, so a switch remounts everything that renders text.
+  const language = useLanguageStore((s) => s.language)
   return (
     <>
       <AppRoutes />
-      <Toaster />
-      <ConfirmHost />
-      <AchievementCelebration />
+      <Toaster key={`toaster-${language}`} />
+      <ConfirmHost key={`confirm-${language}`} />
+      <AchievementCelebration key={`celebration-${language}`} />
     </>
   )
 }
@@ -38,6 +41,7 @@ function AppRoutes() {
   const user = useAuthStore((s) => s.user)
   const setStatus = useAuthStore((s) => s.setStatus)
   const navigate = useNavigate()
+  const language = useLanguageStore((s) => s.language)
   const [needsSetup, setNeedsSetup] = useState(false)
   const [needsServer, setNeedsServer] = useState(false)
   // Bumped after the native server picker connects, to re-run the bootstrap below.
@@ -97,18 +101,18 @@ function AppRoutes() {
 
   if (status === 'loading') {
     return (
-      <div className="flex min-h-screen items-center justify-center text-muted-foreground">Loading…</div>
+      <div className="flex min-h-screen items-center justify-center text-muted-foreground">{t('common.loading')}</div>
     )
   }
 
   // Native app with no server chosen yet: gate everything behind the server picker.
   if (needsServer) {
-    return <ServerSetupPage onConnected={() => setBootKey((k) => k + 1)} />
+    return <ServerSetupPage key={language} onConnected={() => setBootKey((k) => k + 1)} />
   }
 
   if (status === 'authenticated') {
     return (
-      <Routes>
+      <Routes key={language}>
         <Route element={<Layout />}>
           <Route index element={<Navigate to="/chores" replace />} />
           <Route path="/dashboard" element={<Navigate to="/chores" replace />} />
@@ -133,7 +137,7 @@ function AppRoutes() {
 
   if (needsSetup) {
     return (
-      <Routes>
+      <Routes key={language}>
         <Route path="/setup" element={<SetupPage />} />
         <Route path="*" element={<Navigate to="/setup" replace />} />
       </Routes>
@@ -141,7 +145,7 @@ function AppRoutes() {
   }
 
   return (
-    <Routes>
+    <Routes key={language}>
       <Route path="/login" element={<LoginPage />} />
       <Route path="*" element={<Navigate to="/login" replace />} />
     </Routes>

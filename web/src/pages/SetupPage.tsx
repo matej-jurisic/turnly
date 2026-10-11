@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/Button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { Input, Label } from '@/components/ui/Field'
 import { ThemeToggle } from '@/components/ThemeToggle'
+import { t } from '@/lib/i18n'
 
 export function SetupPage() {
   const setAuth = useAuthStore((s) => s.setAuth)
@@ -23,7 +24,7 @@ export function SetupPage() {
       const auth = await authApi.setup({ username, displayName, password })
       setAuth(auth.accessToken, auth.user)
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Something went wrong')
+      setError(err instanceof ApiError ? err.message : t('common.error'))
       setSubmitting(false)
     }
   }
@@ -35,26 +36,26 @@ export function SetupPage() {
       </div>
       <Card className="w-full max-w-md">
         <CardHeader>
-          <CardTitle>Welcome to Turnly</CardTitle>
-          <p className="mt-1 text-sm text-muted-foreground">Create the first administrator account.</p>
+          <CardTitle>{t('setup.title')}</CardTitle>
+          <p className="mt-1 text-sm text-muted-foreground">{t('setup.subtitle')}</p>
         </CardHeader>
         <CardContent>
           <form onSubmit={onSubmit} className="space-y-4">
             <div>
-              <Label htmlFor="displayName">Display name</Label>
+              <Label htmlFor="displayName">{t('setup.displayName')}</Label>
               <Input id="displayName" value={displayName} onChange={(e) => setDisplayName(e.target.value)} required />
             </div>
             <div>
-              <Label htmlFor="username">Username</Label>
+              <Label htmlFor="username">{t('auth.username')}</Label>
               <Input id="username" value={username} onChange={(e) => setUsername(e.target.value)} autoComplete="username" required />
             </div>
             <div>
-              <Label htmlFor="password">Password</Label>
+              <Label htmlFor="password">{t('auth.password')}</Label>
               <Input id="password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="new-password" required />
             </div>
             {error && <p className="text-sm text-destructive">{error}</p>}
             <Button type="submit" className="w-full" disabled={submitting}>
-              {submitting ? 'Creating…' : 'Create account'}
+              {submitting ? t('setup.creating') : t('setup.create')}
             </Button>
           </form>
         </CardContent>

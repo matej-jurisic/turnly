@@ -4,6 +4,7 @@ import { usersApi, ApiError } from '@/lib/api'
 import { Modal, Avatar } from '@/components/ui/Modal'
 import { Button } from '@/components/ui/Button'
 import { toast } from '@/lib/toast'
+import { t, tRich } from '@/lib/i18n'
 
 interface FreezeUserModalProps {
   user: User
@@ -20,26 +21,25 @@ export function FreezeUserModal({ user, onClose, onDone }: FreezeUserModalProps)
   const freezeMutation = useMutation({
     mutationFn: () => usersApi.freeze(user.id),
     onSuccess: onDone,
-    onError: (err) => toast.error(err instanceof ApiError ? err.message : 'Freeze failed'),
+    onError: (err) => toast.error(err instanceof ApiError ? err.message : t('freeze.failed')),
   })
 
   return (
-    <Modal title={`Freeze ${user.displayName}`} onClose={onClose}>
+    <Modal title={t('freeze.title', { name: user.displayName })} onClose={onClose}>
       <div className="space-y-4">
         <p className="text-sm text-muted-foreground">
-          While frozen, <strong className="text-foreground">{user.displayName}</strong> will be
-          excluded from rotation and their independent chore tracks will be paused.
+          {tRich('freeze.intro', { name: <strong className="text-foreground">{user.displayName}</strong> })}
         </p>
 
-        {isLoading && <p className="text-sm text-muted-foreground">Checking affected chores…</p>}
-        {error && <p className="text-sm text-destructive">Could not load preview: {(error as ApiError).message}</p>}
+        {isLoading && <p className="text-sm text-muted-foreground">{t('freeze.checking')}</p>}
+        {error && <p className="text-sm text-destructive">{t('freeze.previewFailed', { error: (error as ApiError).message })}</p>}
 
         {preview && (
           <div className="space-y-3">
             {preview.reassignments.length > 0 && (
               <div>
                 <p className="mb-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                  Chores that will be reassigned
+                  {t('freeze.reassigned')}
                 </p>
                 <div className="space-y-1.5">
                   {preview.reassignments.map((r) => (
@@ -65,7 +65,7 @@ export function FreezeUserModal({ user, onClose, onDone }: FreezeUserModalProps)
             {preview.unassignable.length > 0 && (
               <div>
                 <p className="mb-1.5 text-xs font-medium uppercase tracking-wide text-warning">
-                  Chores with no other eligible assignee
+                  {t('freeze.unassignable')}
                 </p>
                 <div className="space-y-1.5">
                   {preview.unassignable.map((u) => (
@@ -77,7 +77,7 @@ export function FreezeUserModal({ user, onClose, onDone }: FreezeUserModalProps)
                         {u.choreEmoji && <span className="mr-1">{u.choreEmoji}</span>}
                         {u.choreName}
                       </span>
-                      <span className="ml-auto text-xs text-warning">will be unassigned</span>
+                      <span className="ml-auto text-xs text-warning">{t('freeze.willUnassign')}</span>
                     </div>
                   ))}
                 </div>
@@ -85,18 +85,18 @@ export function FreezeUserModal({ user, onClose, onDone }: FreezeUserModalProps)
             )}
 
             {preview.reassignments.length === 0 && preview.unassignable.length === 0 && (
-              <p className="text-sm text-muted-foreground">No rotating chores are currently assigned to this user.</p>
+              <p className="text-sm text-muted-foreground">{t('freeze.none')}</p>
             )}
           </div>
         )}
 
         <div className="flex justify-end gap-2 border-t border-border pt-4">
-          <Button variant="ghost" onClick={onClose}>Cancel</Button>
+          <Button variant="ghost" onClick={onClose}>{t('common.cancel')}</Button>
           <Button
             onClick={() => freezeMutation.mutate()}
             disabled={isLoading || freezeMutation.isPending}
           >
-            {freezeMutation.isPending ? 'Freezing…' : 'Freeze user'}
+            {freezeMutation.isPending ? t('freeze.freezing') : t('freeze.submit')}
           </Button>
         </div>
       </div>

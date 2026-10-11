@@ -5,6 +5,8 @@ import { choresApi, usersApi } from '@/lib/api'
 import type { Chore, LeaderboardEntry } from '@/lib/types'
 import { Avatar } from '@/components/ui/Modal'
 import { cn } from '@/lib/utils'
+import { pairLabel } from '@/lib/chore-format'
+import { t } from '@/lib/i18n'
 
 interface SearchBarProps {
   open: boolean
@@ -111,7 +113,7 @@ export function SearchBar({ open, onClose, onSelectChore, onSelectUser }: Search
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="Search chores, people…"
+            placeholder={t('search.placeholder')}
             className="flex-1 bg-transparent text-sm text-foreground placeholder:text-muted-foreground focus:outline-none"
           />
           {query && (
@@ -119,7 +121,7 @@ export function SearchBar({ open, onClose, onSelectChore, onSelectUser }: Search
               type="button"
               onClick={() => setQuery('')}
               className="text-muted-foreground hover:text-foreground"
-              aria-label="Clear"
+              aria-label={t('history.clear')}
             >
               <CloseIcon />
             </button>
@@ -136,7 +138,7 @@ export function SearchBar({ open, onClose, onSelectChore, onSelectUser }: Search
               {choreResults.length > 0 && (
                 <li>
                   <p className="px-4 py-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                    Chores
+                    {t('nav.chores')}
                   </p>
                   <ul>
                     {choreResults.map((chore, i) => {
@@ -158,7 +160,7 @@ export function SearchBar({ open, onClose, onSelectChore, onSelectUser }: Search
                             <span className="flex-1 font-medium text-foreground">{chore.name}</span>
                             {chore.currentAssignee && (
                               <span className="text-xs text-muted-foreground">
-                                {chore.currentAssignee.displayName}
+                                {pairLabel(chore.currentAssignee, chore.currentPartner)}
                               </span>
                             )}
                           </button>
@@ -172,7 +174,7 @@ export function SearchBar({ open, onClose, onSelectChore, onSelectUser }: Search
               {userResults.length > 0 && (
                 <li>
                   <p className="px-4 py-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                    People
+                    {t('search.people')}
                   </p>
                   <ul>
                     {userResults.map((user, i) => {
@@ -190,7 +192,7 @@ export function SearchBar({ open, onClose, onSelectChore, onSelectUser }: Search
                           >
                             <Avatar color={user.avatarColor} name={user.displayName} size={24} frame={user.equippedFrameKey} emoji={user.avatarEmoji} />
                             <span className="flex-1 font-medium text-foreground">{user.displayName}</span>
-                            <span className="text-xs text-muted-foreground">{user.points} pts</span>
+                            <span className="text-xs text-muted-foreground">{t('common.pts', { count: user.points })}</span>
                           </button>
                         </li>
                       )
@@ -201,20 +203,20 @@ export function SearchBar({ open, onClose, onSelectChore, onSelectUser }: Search
             </ul>
           ) : (
             <p className="px-4 py-6 text-center text-sm text-muted-foreground">
-              No results for &ldquo;{query}&rdquo;
+              {t('search.noResults', { query })}
             </p>
           )
         ) : (
           <p className="px-4 py-6 text-center text-sm text-muted-foreground">
-            Type to search chores and people…
+            {t('search.hint')}
           </p>
         )}
 
         {/* Footer hints */}
         <div className="flex items-center gap-4 border-t border-border px-4 py-2 text-xs text-muted-foreground">
-          <span><kbd className="font-sans">↑↓</kbd> navigate</span>
-          <span><kbd className="font-sans">↵</kbd> open</span>
-          <span><kbd className="font-sans">esc</kbd> close</span>
+          <span><kbd className="font-sans">↑↓</kbd> {t('search.navigate')}</span>
+          <span><kbd className="font-sans">↵</kbd> {t('search.open')}</span>
+          <span><kbd className="font-sans">esc</kbd> {t('search.close')}</span>
         </div>
       </div>
     </div>

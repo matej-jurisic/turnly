@@ -23,6 +23,13 @@ public class ChoreCompletion
     public Guid? CompletedByUserId { get; set; }
     public User? CompletedBy { get; set; }
 
+    /// <summary>On a paired chore, the completer's partner: credited with the same points and counted
+    /// in their stats as if they had logged it themselves. On an auto-expired row it's the partner of
+    /// the responsible assignee (<see cref="PreviousAssigneeId"/>), who shares the miss. Null otherwise
+    /// (skips included).</summary>
+    public Guid? PartnerUserId { get; set; }
+    public User? Partner { get; set; }
+
     public DateTimeOffset CompletedAt { get; set; } = DateTimeOffset.UtcNow;
     public string? Notes { get; set; }
 

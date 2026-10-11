@@ -8,6 +8,27 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { Avatar } from '@/components/ui/Modal'
 import { UserDetailsModal } from '@/components/UserDetailsModal'
 import { cn } from '@/lib/utils'
+import { locale, t, tServer } from '@/lib/i18n'
+import type { TKey } from '@/lib/i18n'
+
+// The points log stores the server's English description. These are the shapes the server writes;
+// anything else (a chore name, an admin's own reason) is shown as stored.
+const DESCRIPTION_PATTERNS: [RegExp, TKey][] = [
+  [/^Redeemed: (.*)$/, 'pointsDesc.redeemed'],
+  [/^Gacha pull$/, 'pointsDesc.pull'],
+  [/^Gacha pull x10$/, 'pointsDesc.pull10'],
+  [/^Bounty offered on (.*)$/, 'pointsDesc.bountyOffered'],
+  [/^Bounty claimed on (.*)$/, 'pointsDesc.bountyClaimed'],
+  [/^Bounty refunded on (.*)$/, 'pointsDesc.bountyRefunded'],
+]
+
+function localizeDescription(description: string): string {
+  for (const [pattern, key] of DESCRIPTION_PATTERNS) {
+    const match = pattern.exec(description)
+    if (match) return t(key, { name: match[1] ?? '' })
+  }
+  return description
+}
 
 export function PointsPage() {
   const user = useAuthStore((s) => s.user)
@@ -20,7 +41,7 @@ export function PointsPage() {
   if (!user) return null
   return (
     <div className="space-y-8">
-      <h1 className="text-2xl font-semibold text-foreground">Points</h1>
+      <h1 className="text-2xl font-semibold text-foreground">{t('nav.points')}</h1>
       {leaderboard.length > 0 && (
         <LeaderboardSection entries={leaderboard} onSelect={setSelectedUser} />
       )}
@@ -49,20 +70,20 @@ function PointsCard({ userId }: { userId: string }) {
   return (
     <Card>
       <CardHeader className="flex items-center justify-between">
-        <CardTitle>My points log</CardTitle>
-        <Badge tone="violet">{me?.points ?? 0} pts</Badge>
+        <CardTitle>{t('points.myLog')}</CardTitle>
+        <Badge tone="violet">{t('common.pts', { count: me?.points ?? 0 })}</Badge>
       </CardHeader>
       <CardContent>
         {!log || log.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No points activity yet.</p>
+          <p className="text-sm text-muted-foreground">{t('points.empty')}</p>
         ) : (
           <ul className="divide-y divide-border">
             {log.map((entry) => (
               <li key={entry.id} className="flex items-center justify-between py-2 text-sm">
                 <span className="text-muted-foreground">
-                  {entry.description ?? entry.type}
+                  {entry.description ? localizeDescription(entry.description) : tServer(`pointsType.${entry.type}`, entry.type)}
                   <span className="ml-2 text-xs">
-                    {new Date(entry.createdAt).toLocaleDateString()}
+                    {new Date(entry.createdAt).toLocaleDateString(locale())}
                   </span>
                 </span>
                 <span className={entry.delta >= 0 ? 'text-success' : 'text-destructive'}>
@@ -92,7 +113,7 @@ function LeaderboardSection({
   return (
     <section className="space-y-3">
       <div className="flex items-center justify-between">
-        <h2 className="text-base font-semibold text-foreground">Leaderboard</h2>
+        <h2 className="text-base font-semibold text-foreground">{t('points.leaderboard')}</h2>
         <div className="flex rounded-lg border border-border text-sm">
           <button
             type="button"
@@ -102,7 +123,7 @@ function LeaderboardSection({
               !showWeekly ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-accent',
             )}
           >
-            All time
+            {t('history.allTime')}
           </button>
           <button
             type="button"
@@ -112,7 +133,7 @@ function LeaderboardSection({
               showWeekly ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-accent',
             )}
           >
-            This week
+            {t('due.upcoming')}
           </button>
         </div>
       </div>
@@ -131,7 +152,7 @@ function LeaderboardSection({
               <Avatar color={entry.avatarColor} name={entry.displayName} size={32} frame={entry.equippedFrameKey} emoji={entry.avatarEmoji} />
               <span className="flex-1 text-sm font-medium text-foreground">{entry.displayName}</span>
               <Badge tone="violet">
-                {showWeekly ? entry.weeklyPoints : entry.points} pts
+                {t('common.pts', { count: showWeekly ? entry.weeklyPoints : entry.points })}
               </Badge>
             </li>
           ))}

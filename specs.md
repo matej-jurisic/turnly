@@ -23,12 +23,18 @@
 - Create chores with: name, description (optional), icon/emoji
 - **Tags** — freeform labels for grouping/filtering chores
 - **Assignees** — list of users eligible to be assigned this chore; must include at least one user
-- **Current assignee** — the specific user currently assigned to this chore instance; must be selected from the assignees list on creation
+- **Current assignee** — the specific user currently assigned to this chore instance; must be selected from the assignees list on creation (a `Manual` chore may instead be left unassigned)
 - **Reassign occurrence** — the current assignee for a single occurrence can be manually overridden (e.g. "you take today's") without changing the chore's assignment strategy; the override applies only to the current occurrence and the strategy resumes on the next recurrence. Reassigning directly is **admin-only** and takes effect immediately.
 - **Offer a chore** — anyone holding a chore can put its current occurrence up for someone else to take, optionally attaching a **points bounty**. An offer is either **open** (every other assignee is notified, first to claim it gets it) or **targeted** at one person, who can claim or decline. The chore does not move until someone claims it. Offers you can take appear in an "Up for grabs" band at the top of the chore list, on every screen size. A chore with a live offer carries a badge naming who it is waiting on ("To Alice", "To you", or "Up for grabs") with its bounty, so the offerer can see where the chore went.
     - The bounty is deducted from the offerer when the offer is made and paid to whoever claims it, so a payout can never bounce. It is refunded in full if the offer is declined, withdrawn, superseded by a newer offer, or if the occurrence goes away (the offerer completes or skips it, an admin reassigns, freeze rotation moves it, or it auto-advances unclaimed).
     - A bounty can't exceed the offerer's balance. Bounties are transfers between members, so they don't count toward lifetime-points achievements.
     - Only one live offer exists per chore at a time (a newer offer supersedes the older). The offerer, or an admin, can withdraw one.
+- **Pairs** — for a job two people have to do together, an admin can set fixed pairs on the chore (e.g. Ana & Ben, Cy & Dee). Optional, set in the chore form from the chore's assignees.
+    - A pair is one unit: it holds the turn together and the assignment strategy rotates between whole pairs, so partners never mix. Assignees left out of every pair still take their turn alone, and a person can only be in one pair per chore.
+    - Either partner marks it done and the occurrence closes for both: each gets the chore's full points, and the completion counts toward both partners' stats, streaks and achievements. Either of them (or an admin) can undo it, which takes the points back from both.
+    - Both partners get the chore's notifications, and both names show wherever the current assignee does. A missed (auto-expired) occurrence counts as missed for both.
+    - A frozen partner is treated as away: the other carries the turn alone and is the only one credited. Freezing the person nominally holding the chore leaves it with their partner rather than rotating it away.
+    - Paired chores can't be offered (one partner can't hand over a joint turn, and a claim would commit the claimer's partner); an admin can still reassign one to another pair. Not available on `Everyone (independent)` chores, which have no shared turn.
 - **Assignment strategy** — determines how the next assignee is picked on each recurrence:
     - `Random` — pick any assignee at random
     - `Least Assigned` — pick the assignee who has been assigned this chore fewest times
@@ -40,18 +46,30 @@
       with its own due date and per-person quota. Lets one chore model "everyone does the dishes once a
       week" (all quotas 1) or an uneven split ("Alice 3× / Bob 2×"); each person advances on their own,
       so a late assignee never blocks the others. (Recurring chores only.)
+    - `Manual (admin assigns)` — nobody is picked automatically: whenever the chore would hand over
+      it goes back to **Unassigned** and stays there until an admin assigns it (the chore menu's
+      "Assign" action). It can also be created or edited to start unassigned. Anyone can still
+      complete an unassigned chore; members can't claim it for themselves. Freezing the person
+      holding one leaves it unassigned rather than picking a replacement. Combined with a calendar
+      rotation period it returns to unassigned once per period instead of after every occurrence.
 - **Rotation period** ("Hand over") — how often a rotating chore changes hands:
     - `Every occurrence` (default) — the strategy picks a new assignee each time an occurrence closes
-    - `Once a month` — the same person keeps the chore for every occurrence in a calendar month, and
-      the strategy only picks the next assignee when the due date crosses into a new month. Models
-      "you do this once a week for the month, then someone else does it" as a Weekly chore with real
-      weekly due dates. The handover follows the calendar however the last occurrence closed
-      (completed, skipped, or auto-expired), so skipping the final week doesn't keep the chore for
-      another month. A manual reassign or claimed offer mid-month just changes who holds it until
-      the month turns. Unfreezing a paused chore doesn't hand over by itself.
-    - Offered for Daily, Weekly and Custom repeats with a rotating strategy (not `Keep Last Assigned`
-      or `Everyone (independent)`); Monthly and Yearly chores already change hands at most once a
-      month. Replaces "rotate after each completion" on multi-completion chores.
+    - `Once a day` / `Once a week` / `Once a month` / `Once a quarter` / `Once a year` — the same
+      person keeps the chore for every occurrence in that calendar period, and the strategy only
+      picks the next assignee when the due date crosses into a new one. Periods follow the calendar
+      (the day, the Monday-to-Sunday week, the month, Jan-Mar/Apr-Jun/Jul-Sep/Oct-Dec, the year), not
+      a rolling window from when the person took over. `Once a month` models "you do this once a
+      week for the month, then someone else does it" as a Weekly chore with real weekly due dates;
+      `Once a day` keeps a morning-and-evening chore with one person all day. The handover follows
+      the calendar however the last occurrence closed (completed, skipped, or auto-expired), so
+      skipping the final occurrence doesn't keep the chore for another period. A manual reassign or
+      claimed offer mid-period just changes who holds it until the period turns. Unfreezing a paused
+      chore doesn't hand over by itself.
+    - Offered with a rotating strategy (not `Keep Last Assigned` or `Everyone (independent)`), and
+      only where the chore can come due more than once inside the period: day and week for Daily and
+      Custom repeats; month for Daily, Weekly and Custom; quarter and year for those plus Monthly.
+      Yearly chores always hand over every occurrence. Replaces "rotate after each completion" on
+      multi-completion chores.
 - Chores are visible to all household members
 
 ### Recurrence
@@ -72,6 +90,11 @@
 - **Multiple times of day** — a day-resolution chore (Daily, or the custom Days-of-week / Days-of-month
   modes) can list several fixed times of day (e.g. 08:00 and 20:00 for "twice a day"); each time is a
   distinct occurrence. Empty = a single daily slot at the chore's due time.
+    - **Slot labels** — each time can optionally be given a name (e.g. 08:00 = "Morning", 20:00 =
+      "Evening", up to 32 characters). The label of the occurrence that is currently due is shown next
+      to the due time on the chore, in the chore details, and in the push notification title
+      ("Feed the dog (Morning)"). Labels are display-only and don't affect scheduling; removing a time
+      removes its label.
 - **Auto-advance incomplete** — for multi-completion chores, the schedule can roll forward
   automatically once the completion window closes: any unfilled slots are recorded as **missed
   (expired)** and the chore advances to the next occurrence (and rotates the assignee) without waiting
@@ -107,6 +130,7 @@ Per-chore notification schedule — a list of notification entries, each with:
 
 - Any household member can mark a chore complete
 - Completing a chore logs: who, when, notes (optional)
+- **Completed at (optional)** - a chore that was done earlier but couldn't be logged at the time can be given the time it was actually done. That time is what the log shows and what decides on-time vs late, the streak, and (for the completion-based scheduling preferences) the next due date. It can't be in the future or earlier than the chore's last logged entry. Left unset, the completion is stamped with the current time.
 - Completions can be undone; points are reversed on undo
 - **Skip occurrence** — a recurring chore's current occurrence can be skipped instead of completed: it advances the recurrence to the next due date (per the chore's scheduling preference) without awarding points or flagging it overdue; skips are logged and can be undone (one-time chores cannot be skipped)
 - **Missed / expired occurrence** — when a chore has **auto-advance** on, the background service closes an unfilled occurrence after its completion window passes: the missing slots are logged as expired (no points, no actor, not undoable) and the schedule advances. Expired occurrences appear in history and break the on-time streak.
@@ -153,13 +177,18 @@ A points-funded random-pull system for **cosmetic** rewards, shown as the **Cosm
 **Rewards** page. No real money: pulls are paid for with the same
 chore-earned points used for awards, so it is a reward sink, not gambling.
 
-- **Three cosmetic slots (v1):**
+- **Four cosmetic slots:**
     - **Avatar frames** — a decorative ring around your avatar, visible to everyone on every avatar
       (leaderboard, chore assignees, account menu, user list)
     - **App theme palettes** — recolor your own app (e.g. Midnight, Sakura, Galaxy); only you see your palette
-    - **Avatar colors** — the fill color of your avatar, visible to everyone. The default purple is free
-      and owned by everyone; other colors are collectible. (Avatar color is no longer set from the profile
-      or the admin user form - it is chosen by equipping a color, and new users start on the default purple.)
+    - **Avatar colors** — the fill color of your avatar, visible to everyone. Three starter colors
+      (the default purple, green and blue) are free and owned by everyone; other colors are collectible.
+      (Avatar color is no longer set from the profile or the admin user form - it is chosen by equipping
+      a color, and new users start on the default purple.)
+    - **Avatar emojis** — shown on your avatar in place of your initials, visible to everyone. Three
+      starter emojis (star, heart, paw) are free and owned by everyone; the rest are collectible. None is
+      equipped to begin with, so a new avatar shows initials.
+    - Free starters are never rolled in a pull.
 - **Built-in catalog** — a predefined set defined by the app (not admin-configurable), each item tagged with a **rarity**: Common / Rare / Epic / Legendary
 - **Pulls** — spend points on a single pull or a discounted **10-pull**; each roll picks a rarity by published **drop rates**, then a random cosmetic of that rarity
 - **Pity** — a counter guarantees a Legendary within a fixed number of pulls; it resets whenever a Legendary is obtained
@@ -246,7 +275,7 @@ receives, and an admin cannot set them on someone's behalf.
 - Overdue chores clearly flagged
 - Upcoming chores (next 7 days)
 - Filterable by tag and assignee
-- **Chore views** — list, compact, and calendar layouts (the chosen view persists per browser)
+- **Chore views** — list, compact, and calendar layouts (the chosen view persists per browser). Admins get a fourth **Config** view: one table of every chore's settings (points, schedule, assignment, completion rules, reminders) with an edit button per row
 
 ---
 
@@ -266,6 +295,15 @@ receives, and an admin cannot set them on someone's behalf.
 - Per-user completion count (weekly / monthly / all time)
 - Per-chore completion history
 - Simple bar chart: completions per user per week
+
+---
+
+## Language
+
+- The interface is available in **English** and **Croatian** (Hrvatski), chosen under **Settings → Language**
+- The choice is **per device** (like light/dark mode), applies immediately, and survives reloads; a device that has never chosen follows the browser language
+- Covers the whole interface: navigation, chores, forms, dialogs, toasts, dates, plural forms, and the names of achievements
+- Not translated: cosmetic names and rarity tiers (they stay as proper names), text the server composes or stores (error messages, push and inbox notification text) and anything a user typed (chore names, tags, awards, notes)
 
 ---
 
@@ -319,6 +357,7 @@ receives, and an admin cannot set them on someone's behalf.
 - **Server state:** TanStack Query (fetching, caching, invalidation)
 - **Styling:** Tailwind CSS + shadcn/ui
 - **Communication:** REST API (JSON)
+- **Localization:** English and Croatian, client-side dictionaries with a small typed `t()` helper (no i18n library)
 
 ### Design Language
 

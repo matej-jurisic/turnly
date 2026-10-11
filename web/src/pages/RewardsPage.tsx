@@ -5,12 +5,13 @@ import { cn } from '@/lib/utils'
 import { Badge } from '@/components/ui/Badge'
 import { AwardsTab } from '@/components/rewards/AwardsTab'
 import { CosmeticsTab } from '@/components/rewards/CosmeticsTab'
+import { localized, t } from '@/lib/i18n'
 
 type RewardsTab = 'awards' | 'cosmetics'
 
 const TABS: { value: RewardsTab; label: string }[] = [
-  { value: 'awards', label: 'Awards' },
-  { value: 'cosmetics', label: 'Cosmetics' },
+  localized({ value: 'awards' as const }, { label: 'rewards.tab.awards' }),
+  localized({ value: 'cosmetics' as const }, { label: 'rewards.tab.cosmetics' }),
 ]
 
 /** Everything points can be spent on: admin-defined awards and the cosmetic pulls. The active tab
@@ -24,11 +25,11 @@ export function RewardsPage() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between gap-3">
-        <h1 className="text-2xl font-semibold text-foreground">Rewards</h1>
-        <Badge tone="violet">{me?.points ?? 0} pts</Badge>
+        <h1 className="text-2xl font-semibold text-foreground">{t('rewards.title')}</h1>
+        <Badge tone="violet">{t('common.pts', { count: me?.points ?? 0 })}</Badge>
       </div>
 
-      <div role="tablist" aria-label="Rewards" className="flex gap-1 border-b border-border">
+      <div role="tablist" aria-label={t('rewards.title')} className="flex gap-1 border-b border-border">
         {TABS.map((t) => {
           const active = t.value === tab
           return (

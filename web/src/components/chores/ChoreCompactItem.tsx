@@ -1,10 +1,11 @@
 import type { Chore } from '@/lib/types'
 import { Badge } from '@/components/ui/Badge'
 import {
-  choreHasDueTime, dueStatus, formatDate, isIndependent, nextDueTimeLabel,
-  offerBadgeText, offerSentence, showStreak,
+  choreHasDueTime, dueStatus, formatDueDate, isIndependent, nextDueTimeLabel,
+  offerBadgeText, offerSentence, showStreak, pairLabel,
 } from '@/lib/chore-format'
 import { BellOffIcon, CheckIcon, ReassignIcon } from '@/components/chores/icons'
+import { t } from '@/lib/i18n'
 
 /** Actions shared by every chore-row layout (list / compact). Mirrors the object built by
  * `ChoresPage.itemProps`. */
@@ -45,10 +46,10 @@ function assigneeLabel(chore: Chore): string {
     if (names.length === 1) return names[0]
     return `${names[0]} +${names.length - 1}`
   }
-  return chore.currentAssignee?.displayName ?? ''
+  return chore.currentAssignee ? pairLabel(chore.currentAssignee, chore.currentPartner) : t('chore.unassigned')
 }
 
-/** A dense two-row chore layout for the compact view: name + due date on top, points + assignee
+/** A dense two-row chore layout for the compact view: name + points on top, assignee + due date
  * below. Same actions as `ChoreListItem`, less chrome. */
 export function ChoreCompactItem(props: ChoreItemProps) {
   const { chore, meId, onComplete, onDetails } = props
@@ -64,7 +65,7 @@ export function ChoreCompactItem(props: ChoreItemProps) {
         type="button"
         onClick={onComplete}
         disabled={!canComplete}
-        aria-label="Mark complete"
+        aria-label={t('chore.markComplete')}
         className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-30"
       >
         <CheckIcon />
@@ -75,25 +76,25 @@ export function ChoreCompactItem(props: ChoreItemProps) {
         onClick={onDetails}
         className="flex min-w-0 flex-1 flex-col gap-1 text-left"
       >
-        {/* Row 1: name */}
+        {/* Row 1: name + points (far right) */}
         <div className="flex min-w-0 items-center gap-2">
           {chore.emoji && <span className="shrink-0 text-base leading-none">{chore.emoji}</span>}
           <span className="truncate text-sm font-medium text-foreground">{chore.name}</span>
           {chore.isMuted && (
             <span
               className="shrink-0 text-muted-foreground"
-              title="You muted this chore's notifications"
-              aria-label="Notifications muted"
+              title={t('chore.mutedTitle')}
+              aria-label={t('chore.mutedLabel')}
             >
               <BellOffIcon />
             </span>
           )}
           {showStreak(chore) && <span className="shrink-0 text-xs text-success">🔥 {chore.currentStreak}</span>}
+          <Badge tone="violet" className="ml-auto shrink-0">{t('common.pts', { count: chore.points })}</Badge>
         </div>
 
-        {/* Row 2: points + assignee name + due date (far right) */}
+        {/* Row 2: assignee name + due date (far right) */}
         <div className="flex min-w-0 items-center gap-2">
-          <Badge tone="violet" className="shrink-0">{chore.points} pts</Badge>
           {assignee && <span className="min-w-0 truncate text-xs text-muted-foreground">{assignee}</span>}
           {offer && (
             <Badge tone="amber" className="min-w-0 gap-1" title={offerLabel} aria-label={offerLabel}>
@@ -103,10 +104,10 @@ export function ChoreCompactItem(props: ChoreItemProps) {
             </Badge>
           )}
           {chore.isFrozen ? (
-            <Badge tone="neutral" className="ml-auto shrink-0">Paused</Badge>
+            <Badge tone="neutral" className="ml-auto shrink-0">{t('chores.paused')}</Badge>
           ) : chore.dueAt ? (
             <Badge tone={DUE_TONE[status]} className="ml-auto shrink-0">
-              {formatDate(chore.dueAt)}{nextDueTimeLabel(chore) && ` · ${nextDueTimeLabel(chore)}`}
+              {formatDueDate(chore.dueAt)}{nextDueTimeLabel(chore) && ` · ${nextDueTimeLabel(chore)}`}
             </Badge>
           ) : null}
         </div>

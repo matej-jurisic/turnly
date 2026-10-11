@@ -11,8 +11,9 @@ import { SkipIcon, TrashIcon } from '@/components/chores/icons'
 import {
   calendarDaysAgo, choreDueStatus, choreHasDueTime, completionProgressLabel, dueStatus, formatDate, formatGrace,
   isIndependent, notificationRecipientsLabel, notificationTimingLabel, notificationTypeLabel,
-  relativeDayLabel, repeatLabel, showStreak, trackIsDone, trackStatusText, STRATEGY_LABELS, SCHEDULING_LABELS,
+  relativeDayLabel, repeatLabel, showStreak, trackIsDone, trackStatusText, strategyLabel, schedulingLabel, rotationPeriodLabel, holdsChore, pairLabel,
 } from '@/lib/chore-format'
+import { plural, t, tRich } from '@/lib/i18n'
 
 interface ChoreDetailsModalProps {
   chore: Chore
@@ -31,7 +32,7 @@ export function ChoreDetailsModal({ chore, onClose, onComplete }: ChoreDetailsMo
       void queryClient.invalidateQueries({ queryKey: ['chores'] })
       void queryClient.invalidateQueries({ queryKey: ['history'] })
     },
-    onError: (err) => toast.error(err instanceof ApiError ? err.message : 'Skip failed'),
+    onError: (err) => toast.error(err instanceof ApiError ? err.message : t('chores.skipFailed')),
   })
 
   const offer = chore.openOffer
@@ -51,39 +52,39 @@ export function ChoreDetailsModal({ chore, onClose, onComplete }: ChoreDetailsMo
   const claimMutation = useMutation({
     mutationFn: () => choresApi.claimOffer(chore.id),
     onSuccess: () => {
-      toast.success(offer?.bountyPoints ? `Claimed for ${offer.bountyPoints} points.` : 'Chore claimed.')
+      toast.success(offer?.bountyPoints ? plural('details.claimedFor', offer.bountyPoints) : t('details.claimed'))
       invalidateOffer()
       onClose()
     },
-    onError: (err) => toast.error(err instanceof ApiError ? err.message : 'Claim failed'),
+    onError: (err) => toast.error(err instanceof ApiError ? err.message : t('offer.claimFailed')),
   })
 
   const declineOfferMutation = useMutation({
     mutationFn: () => choresApi.declineOffer(chore.id),
     onSuccess: () => {
-      toast.success('Offer declined.')
+      toast.success(t('details.offerDeclined'))
       invalidateOffer()
       onClose()
     },
-    onError: (err) => toast.error(err instanceof ApiError ? err.message : 'Action failed'),
+    onError: (err) => toast.error(err instanceof ApiError ? err.message : t('common.actionFailed')),
   })
 
   const withdrawMutation = useMutation({
     mutationFn: () => choresApi.withdrawOffer(chore.id),
     onSuccess: () => {
-      toast.success('Offer withdrawn.')
+      toast.success(t('details.offerWithdrawn'))
       invalidateOffer()
     },
-    onError: (err) => toast.error(err instanceof ApiError ? err.message : 'Withdraw failed'),
+    onError: (err) => toast.error(err instanceof ApiError ? err.message : t('details.withdrawFailed')),
   })
 
   const offerBusy = claimMutation.isPending || declineOfferMutation.isPending || withdrawMutation.isPending
 
   const onSkipTrack = async (userId: string, name: string) => {
     if (await confirm({
-      title: 'Skip occurrence',
-      message: `Skip ${name}'s current occurrence? It advances their schedule with no points.`,
-      confirmLabel: 'Skip',
+      title: t('chores.skipTitle'),
+      message: t('details.skipTrackMessage', { name }),
+      confirmLabel: t('common.skip'),
     })) {
       skipMutation.mutate(userId)
     }
@@ -113,33 +114,35 @@ export function ChoreDetailsModal({ chore, onClose, onComplete }: ChoreDetailsMo
           <div>
             <div className="rounded-lg border border-border bg-accent/50 px-3 py-2.5 text-sm">
               <p className="text-muted-foreground">
-                {isMyOffer ? (
-                  offer.toUser
-                    ? <>You offered this chore to <strong className="text-foreground">{offer.toUser.displayName}</strong>.</>
-                    : <>You put this chore up for grabs.</>
-                ) : isOfferTarget ? (
-                  <><strong className="text-foreground">{offer.fromUser.displayName}</strong> offered you this chore.</>
-                ) : offer.toUser ? (
-                  <><strong className="text-foreground">{offer.fromUser.displayName}</strong> offered this chore to <strong className="text-foreground">{offer.toUser.displayName}</strong>.</>
-                ) : (
-                  <><strong className="text-foreground">{offer.fromUser.displayName}</strong> put this chore up for grabs.</>
-                )}
+                {tRich(
+                  isMyOffer
+                    ? (offer.toUser ? 'offer.sentence.youToName' : 'offer.sentence.youOpen')
+                    : isOfferTarget ? 'offer.sentence.nameToYou'
+                    : offer.toUser ? 'offer.sentence.nameToName'
+                    : 'offer.sentence.nameOpen',
+                  {
+                    from: <strong className="text-foreground">{offer.fromUser.displayName}</strong>,
+                    to: <strong className="text-foreground">{offer.toUser?.displayName}</strong>,
+                  },
+                )}.
                 {offer.bountyPoints > 0 && (
-                  <> Whoever takes it earns <strong className="text-foreground">{offer.bountyPoints} points</strong>.</>
+                  <> {tRich('offer.bountyEarns', {
+                    points: <strong className="text-foreground">{plural('points', offer.bountyPoints)}</strong>,
+                  })}</>
                 )}
               </p>
               {(canClaim || isMyOffer || isAdmin) && (
                 <div className="mt-2.5 flex gap-2">
                   {canClaim && (
                     <Button size="sm" onClick={() => claimMutation.mutate()} disabled={offerBusy}>
-                      {offer.bountyPoints > 0 ? `Claim for ${offer.bountyPoints}` : 'Claim'}
+                      {offer.bountyPoints > 0 ? t('offer.claimFor', { count: offer.bountyPoints }) : t('offer.claim')}
                     </Button>
                   )}
                   {isOfferTarget && (
-                    <Button size="sm" variant="secondary" onClick={() => declineOfferMutation.mutate()} disabled={offerBusy}>Decline</Button>
+                    <Button size="sm" variant="secondary" onClick={() => declineOfferMutation.mutate()} disabled={offerBusy}>{t('offer.decline')}</Button>
                   )}
                   {(isMyOffer || isAdmin) && (
-                    <Button size="sm" variant="secondary" onClick={() => withdrawMutation.mutate()} disabled={offerBusy}>Withdraw</Button>
+                    <Button size="sm" variant="secondary" onClick={() => withdrawMutation.mutate()} disabled={offerBusy}>{t('offer.withdraw')}</Button>
                   )}
                 </div>
               )}
@@ -150,8 +153,9 @@ export function ChoreDetailsModal({ chore, onClose, onComplete }: ChoreDetailsMo
         {chore.isFrozen && (
           <div>
             <div className="rounded-lg border border-border bg-accent/50 px-3 py-2 text-sm text-muted-foreground">
-              This chore is <strong className="text-foreground">paused</strong>. Completions and skips are
-              disabled until an admin unpauses it.
+              {tRich('details.pausedNote', {
+                paused: <strong className="text-foreground">{t('details.pausedWord')}</strong>,
+              })}
             </div>
           </div>
         )}
@@ -159,18 +163,18 @@ export function ChoreDetailsModal({ chore, onClose, onComplete }: ChoreDetailsMo
         {/* Schedule + points */}
         <div className="flex flex-wrap gap-2">
           <Badge tone="blue">{repeatLabel(chore)}</Badge>
-          {chore.isFrozen && <Badge tone="neutral">Paused</Badge>}
+          {chore.isFrozen && <Badge tone="neutral">{t('chores.paused')}</Badge>}
           {!chore.isFrozen && chore.dueAt && (
             overdueDays > 0
-              ? <Badge tone="red">Overdue by {overdueDays} {overdueDays === 1 ? 'day' : 'days'}</Badge>
-              : <Badge tone="amber">Due {formatDate(chore.dueAt)}</Badge>
+              ? <Badge tone="red">{plural('details.overdueBy', overdueDays)}</Badge>
+              : <Badge tone="amber">{t('details.due', { date: formatDate(chore.dueAt) })}{chore.dueLabel && ` · ${chore.dueLabel}`}</Badge>
           )}
-          <Badge tone="violet">{chore.points} pts</Badge>
+          <Badge tone="violet">{t('common.pts', { count: chore.points })}</Badge>
           {chore.completionsRequired > 1 && (
             <Badge tone="neutral">{completionProgressLabel(chore)}</Badge>
           )}
           {!isIndependent(chore) && showStreak(chore) && (
-            <Badge tone="green">🔥 {chore.currentStreak} streak</Badge>
+            <Badge tone="green">{t('details.streak', { count: chore.currentStreak })}</Badge>
           )}
         </div>
 
@@ -178,39 +182,39 @@ export function ChoreDetailsModal({ chore, onClose, onComplete }: ChoreDetailsMo
         {isIndependent(chore) ? (
           <div>
             <p className="mb-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-              Per-person schedule
+              {t('details.perPerson')}
             </p>
             <div className="space-y-1.5">
-              {chore.tracks.map((t) => {
-                const overdue = dueStatus(t.dueAt, choreHasDueTime(chore)) === 'overdue'
+              {chore.tracks.map((track) => {
+                const overdue = dueStatus(track.dueAt, choreHasDueTime(chore)) === 'overdue'
                 return (
                   <div
-                    key={t.user.id}
+                    key={track.user.id}
                     className="flex items-center justify-between gap-2 rounded-lg border border-border bg-accent/50 px-3 py-2"
                   >
                     <div className="flex min-w-0 items-center gap-2">
-                      <Avatar color={t.user.avatarColor} name={t.user.displayName} size={20} frame={t.user.equippedFrameKey} emoji={t.user.avatarEmoji} />
+                      <Avatar color={track.user.avatarColor} name={track.user.displayName} size={20} frame={track.user.equippedFrameKey} emoji={track.user.avatarEmoji} />
                       <div className="min-w-0">
                         <span className="flex items-center gap-1.5 truncate text-sm text-foreground">
-                          {t.user.displayName}
-                          {t.streak >= 2 && <span className="text-xs text-success">🔥 {t.streak}</span>}
+                          {track.user.displayName}
+                          {track.streak >= 2 && <span className="text-xs text-success">🔥 {track.streak}</span>}
                         </span>
                         <span
                           className={
                             'block text-xs ' +
-                            (overdue ? 'text-warning' : trackIsDone(chore, t) ? 'text-success' : 'text-muted-foreground')
+                            (overdue ? 'text-warning' : trackIsDone(chore, track) ? 'text-success' : 'text-muted-foreground')
                           }
                         >
-                          {trackStatusText(chore, t)}
+                          {trackStatusText(chore, track)}
                         </span>
                       </div>
                     </div>
-                    {isAdmin && t.dueAt && (
+                    {isAdmin && track.dueAt && (
                       <button
                         type="button"
-                        onClick={() => onSkipTrack(t.user.id, t.user.displayName)}
+                        onClick={() => onSkipTrack(track.user.id, track.user.displayName)}
                         disabled={skipMutation.isPending}
-                        aria-label={`Skip ${t.user.displayName}'s occurrence`}
+                        aria-label={t('details.skipTrackLabel', { name: track.user.displayName })}
                         className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
                       >
                         <SkipIcon />
@@ -223,31 +227,40 @@ export function ChoreDetailsModal({ chore, onClose, onComplete }: ChoreDetailsMo
           </div>
         ) : chore.assignees.length > 0 && (
           <div>
-            <p className="mb-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">Assignees</p>
+            <p className="mb-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">{t('details.assignees')}</p>
             <div className="flex flex-wrap gap-2">
               {chore.assignees.map((u) => (
                 <span
                   key={u.id}
                   className={
                     'flex items-center gap-1.5 rounded-md px-2 py-1 text-xs ' +
-                    (u.id === chore.currentAssignee?.id
+                    (holdsChore(chore, u.id)
                       ? 'bg-primary/10 text-primary ring-1 ring-primary'
-                      : u.id === chore.nextAssignee?.id
+                      : (u.id === chore.nextAssignee?.id || u.id === chore.nextPartner?.id)
                         ? 'bg-accent text-muted-foreground ring-1 ring-border'
                         : 'bg-accent text-muted-foreground')
                   }
                 >
                   <Avatar color={u.avatarColor} name={u.displayName} size={16} frame={u.equippedFrameKey} emoji={u.avatarEmoji} />
                   {u.displayName}
-                  {u.id === chore.currentAssignee?.id && (
-                    <span className="ml-0.5 opacity-70">· current</span>
+                  {holdsChore(chore, u.id) && (
+                    <span className="ml-0.5 opacity-70">· {t('details.current')}</span>
                   )}
-                  {u.id === chore.nextAssignee?.id && u.id !== chore.currentAssignee?.id && (
-                    <span className="ml-0.5 opacity-70">· next</span>
+                  {(u.id === chore.nextAssignee?.id || u.id === chore.nextPartner?.id) && !holdsChore(chore, u.id) && (
+                    <span className="ml-0.5 opacity-70">· {t('details.nextTag')}</span>
                   )}
                 </span>
               ))}
             </div>
+            {chore.pairs.length > 0 && (
+              <p className="mt-1.5 text-xs text-muted-foreground">
+                {t('details.pairs', {
+                  pairs: chore.pairs
+                    .map((pair) => pair.map((id) => chore.assignees.find((u) => u.id === id)?.displayName ?? '?').join(' & '))
+                    .join(', '),
+                })}
+              </p>
+            )}
           </div>
         )}
 
@@ -264,46 +277,48 @@ export function ChoreDetailsModal({ chore, onClose, onComplete }: ChoreDetailsMo
         <dl className="grid grid-cols-2 gap-x-4 gap-y-3 text-sm">
           {chore.repeatType !== 'OneTime' && (
             <div>
-              <dt className="text-xs text-muted-foreground">Assignment</dt>
+              <dt className="text-xs text-muted-foreground">{t('details.assignment')}</dt>
               <dd className="text-foreground">
-                {STRATEGY_LABELS[chore.assignmentStrategy] ?? chore.assignmentStrategy}
+                {strategyLabel(chore.assignmentStrategy)}
                 {chore.rotateOnEachCompletion && (
-                  <span className="block text-xs text-muted-foreground">Rotates each completion</span>
+                  <span className="block text-xs text-muted-foreground">{t('details.rotatesEach')}</span>
                 )}
-                {chore.rotationPeriod === 'Monthly' && (
-                  <span className="block text-xs text-muted-foreground">Hands over once a month</span>
+                {chore.rotationPeriod !== 'EveryOccurrence' && (
+                  <span className="block text-xs text-muted-foreground">
+                    {t('details.handsOver', { period: rotationPeriodLabel(chore.rotationPeriod).toLowerCase() })}
+                  </span>
                 )}
               </dd>
             </div>
           )}
           {showSchedulingPref && (
             <div>
-              <dt className="text-xs text-muted-foreground">Next due</dt>
-              <dd className="text-foreground">{SCHEDULING_LABELS[chore.schedulingPreference] ?? chore.schedulingPreference}</dd>
+              <dt className="text-xs text-muted-foreground">{t('details.nextDue')}</dt>
+              <dd className="text-foreground">{schedulingLabel(chore.schedulingPreference)}</dd>
               {chore.schedulingPreference === 'SmartScheduling' && chore.graceMinutes ? (
                 <span className="block text-xs text-muted-foreground">
-                  Resets if done &gt;{formatGrace(chore.graceMinutes)} early
+                  {t('details.resetsIfEarly', { grace: formatGrace(chore.graceMinutes) })}
                 </span>
               ) : null}
             </div>
           )}
           {chore.repeatType !== 'OneTime' && (
             <div>
-              <dt className="text-xs text-muted-foreground">Auto-advance</dt>
-              <dd className="text-foreground">{chore.autoAdvanceIncomplete ? 'On' : 'Off'}</dd>
+              <dt className="text-xs text-muted-foreground">{t('details.autoAdvance')}</dt>
+              <dd className="text-foreground">{chore.autoAdvanceIncomplete ? t('common.on') : t('common.off')}</dd>
               {chore.autoAdvanceIncomplete && chore.completionWindowMinutes ? (
                 <span className="block text-xs text-muted-foreground">
-                  Expires {formatGrace(chore.completionWindowMinutes)} after due
+                  {t('details.expiresAfter', { window: formatGrace(chore.completionWindowMinutes) })}
                 </span>
               ) : null}
             </div>
           )}
           <div>
-            <dt className="text-xs text-muted-foreground">Start date</dt>
+            <dt className="text-xs text-muted-foreground">{t('details.startDate')}</dt>
             <dd className="text-foreground">{formatDate(chore.startDate)}</dd>
           </div>
           <div>
-            <dt className="text-xs text-muted-foreground">Added</dt>
+            <dt className="text-xs text-muted-foreground">{t('details.added')}</dt>
             <dd className="text-foreground">{formatDate(chore.createdAt)}</dd>
           </div>
         </dl>
@@ -311,7 +326,7 @@ export function ChoreDetailsModal({ chore, onClose, onComplete }: ChoreDetailsMo
         {/* Reminders */}
         {chore.notifications.length > 0 && (
           <div>
-            <p className="mb-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">Reminders</p>
+            <p className="mb-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">{t('details.reminders')}</p>
             <div className="space-y-1.5">
               {chore.notifications.map((n) => (
                 <div key={n.id} className="flex flex-wrap items-center gap-1.5 text-sm">
@@ -335,7 +350,7 @@ export function ChoreDetailsModal({ chore, onClose, onComplete }: ChoreDetailsMo
             type="button"
             onClick={onComplete}
             disabled={!chore.dueAt}
-            aria-label="Mark complete"
+            aria-label={t('chore.markComplete')}
             className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-primary text-primary-foreground transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-30"
           >
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -364,44 +379,47 @@ function ChoreStats({ choreId }: { choreId: string }) {
   // Activity is newest-first, so the first completion is the most recent.
   const lastCompletedAt = completions[0]?.at
 
-  // Tally completions per actor, keeping the actor for avatar/name, sorted by count desc.
+  // Tally completions per actor, keeping the actor for avatar/name, sorted by count desc. A paired
+  // completion counts for the partner as well.
   const byActor = new Map<string, { actor: ChoreHistoryEntry['actor']; count: number }>()
   for (const e of completions) {
-    if (!e.actor) continue
-    const existing = byActor.get(e.actor.id)
-    if (existing) existing.count += 1
-    else byActor.set(e.actor.id, { actor: e.actor, count: 1 })
+    for (const person of [e.actor, e.partner]) {
+      if (!person) continue
+      const existing = byActor.get(person.id)
+      if (existing) existing.count += 1
+      else byActor.set(person.id, { actor: person, count: 1 })
+    }
   }
   const contributors = [...byActor.values()].sort((a, b) => b.count - a.count)
 
   return (
     <div>
-      <p className="mb-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">Stats</p>
+      <p className="mb-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">{t('details.stats')}</p>
       <dl className="grid grid-cols-2 gap-x-4 gap-y-3 text-sm">
         <div>
-          <dt className="text-xs text-muted-foreground">Completed</dt>
-          <dd className="text-foreground">{completions.length}{completions.length === 1 ? ' time' : ' times'}</dd>
+          <dt className="text-xs text-muted-foreground">{t('details.completed')}</dt>
+          <dd className="text-foreground">{plural('count.times', completions.length)}</dd>
         </div>
         <div>
-          <dt className="text-xs text-muted-foreground">Points earned</dt>
+          <dt className="text-xs text-muted-foreground">{t('details.pointsEarned')}</dt>
           <dd className="text-foreground">{totalPoints}</dd>
         </div>
         {lastCompletedAt && (
           <div>
-            <dt className="text-xs text-muted-foreground">Last completed</dt>
+            <dt className="text-xs text-muted-foreground">{t('details.lastCompleted')}</dt>
             <dd className="text-foreground">{relativeDayLabel(lastCompletedAt)}</dd>
           </div>
         )}
         {skips.length > 0 && (
           <div>
-            <dt className="text-xs text-muted-foreground">Skipped</dt>
-            <dd className="text-foreground">{skips.length}{skips.length === 1 ? ' time' : ' times'}</dd>
+            <dt className="text-xs text-muted-foreground">{t('details.skipped')}</dt>
+            <dd className="text-foreground">{plural('count.times', skips.length)}</dd>
           </div>
         )}
         {expired.length > 0 && (
           <div>
-            <dt className="text-xs text-muted-foreground">Expired</dt>
-            <dd className="text-foreground">{expired.length}{expired.length === 1 ? ' slot' : ' slots'}</dd>
+            <dt className="text-xs text-muted-foreground">{t('details.expired')}</dt>
+            <dd className="text-foreground">{plural('count.slots', expired.length)}</dd>
           </div>
         )}
       </dl>
@@ -443,57 +461,61 @@ function ActivityList({ choreId }: { choreId: string }) {
       void queryClient.invalidateQueries({ queryKey: ['me'] })
       void queryClient.invalidateQueries({ queryKey: ['leaderboard'] })
     },
-    onError: (err) => toast.error(err instanceof ApiError ? err.message : 'Delete failed'),
+    onError: (err) => toast.error(err instanceof ApiError ? err.message : t('chores.deleteFailed')),
   })
 
   const onDelete = async (entry: ChoreHistoryEntry) => {
     const { title, message } =
       entry.kind === 'skip'
-        ? { title: 'Delete skip', message: 'Delete this skip from the log? The chore schedule is not changed.' }
+        ? { title: t('activity.deleteSkipTitle'), message: t('activity.deleteSkipMessage') }
         : entry.kind === 'expired'
-          ? { title: 'Delete expired entry', message: 'Delete this auto-expired entry from the log? The chore schedule is not changed.' }
-          : { title: 'Delete completion', message: `Delete this completion? ${entry.pointsAwarded} points will be reversed and the chore schedule is not changed.` }
-    if (await confirm({ title, message, confirmLabel: 'Delete' })) {
+          ? { title: t('activity.deleteExpiredTitle'), message: t('activity.deleteExpiredMessage') }
+          : { title: t('activity.deleteCompletionTitle'), message: plural('activity.deleteCompletionMessage', entry.pointsAwarded) }
+    if (await confirm({ title, message, confirmLabel: t('common.delete') })) {
       deleteMutation.mutate(entry.id)
     }
   }
 
   return (
     <div>
-      <p className="mb-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">Activity</p>
-      {isLoading && <p className="text-sm text-muted-foreground">Loading…</p>}
+      <p className="mb-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">{t('activity.title')}</p>
+      {isLoading && <p className="text-sm text-muted-foreground">{t('common.loading')}</p>}
       {!isLoading && (activity?.length ?? 0) === 0 && (
-        <p className="text-sm text-muted-foreground">No activity yet.</p>
+        <p className="text-sm text-muted-foreground">{t('activity.empty')}</p>
       )}
       <div className="space-y-2">
         {(activity ?? []).map((entry) => (
           <div key={entry.id} className="rounded-lg border border-border bg-accent/50 px-3 py-2.5 text-sm">
             <div className="flex items-center justify-between gap-2">
-              <div className="flex min-w-0 items-center gap-1.5">
-                <Avatar
-                  color={entry.actor?.avatarColor ?? 'var(--muted)'}
-                  name={entry.actor?.displayName ?? '-'}
-                  size={20}
-                />
-                <span className="truncate text-foreground">
-                  {entry.kind === 'expired' ? 'Auto-expired' : entry.actor?.displayName}
+              <div className="flex min-w-0 items-center gap-2">
+                <span className="shrink-0">
+                  <Avatar
+                    color={entry.actor?.avatarColor ?? 'var(--muted)'}
+                    name={entry.actor?.displayName ?? '-'}
+                    size={20}
+                  />
                 </span>
-                <span className="shrink-0 text-muted-foreground">· {formatDate(entry.at)}</span>
+                <div className="min-w-0">
+                  <p className="break-words text-foreground">
+                    {entry.kind === 'expired' ? t('activity.autoExpired') : entry.actor && pairLabel(entry.actor, entry.partner)}
+                  </p>
+                  <p className="text-xs text-muted-foreground">{formatDate(entry.at)}</p>
+                </div>
               </div>
               <div className="flex shrink-0 items-center gap-2">
                 {entry.kind === 'expired' ? (
-                  <Badge tone="amber">Expired</Badge>
+                  <Badge tone="amber">{t('details.expired')}</Badge>
                 ) : entry.kind === 'skip' ? (
-                  <Badge tone="neutral">Skipped</Badge>
+                  <Badge tone="neutral">{t('details.skipped')}</Badge>
                 ) : (
-                  <Badge tone="violet">+{entry.pointsAwarded} pts</Badge>
+                  <Badge tone="violet">{t('common.ptsPlus', { count: entry.pointsAwarded })}</Badge>
                 )}
                 {isAdmin && (
                   <button
                     type="button"
                     onClick={() => onDelete(entry)}
                     disabled={deleteMutation.isPending}
-                    aria-label="Delete entry"
+                    aria-label={t('activity.deleteEntry')}
                     className="inline-flex h-7 w-7 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
                   >
                     <TrashIcon />

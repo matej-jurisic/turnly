@@ -3,6 +3,7 @@ import type { User } from '@/lib/types'
 import {
   DotsIcon, EditIcon, TrashIcon, PauseIcon, PlayIcon,
 } from '@/components/chores/icons'
+import { t } from '@/lib/i18n'
 
 function KeyIcon() {
   return (
@@ -59,7 +60,7 @@ export function UserMenu({ user, isSelf, unfreezePending, deletePending, onEdit,
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        aria-label="More options"
+        aria-label={t('menu.more')}
         aria-expanded={open}
         className="inline-flex h-9 w-9 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       >
@@ -70,15 +71,15 @@ export function UserMenu({ user, isSelf, unfreezePending, deletePending, onEdit,
         <div className="absolute right-0 top-full z-20 mt-1 min-w-[160px] rounded-lg border border-border bg-card py-1 shadow-pop">
           <button type="button" onClick={() => { setOpen(false); onEdit() }} className={itemClass}>
             <EditIcon />
-            Edit
+            {t('common.edit')}
           </button>
           <button type="button" onClick={() => { setOpen(false); onPassword() }} className={itemClass}>
             <KeyIcon />
-            Password
+            {t('auth.password')}
           </button>
           <button type="button" onClick={() => { setOpen(false); onPoints() }} className={itemClass}>
             <CoinsIcon />
-            Points
+            {t('nav.points')}
           </button>
           {user.isFrozen ? (
             <button
@@ -88,7 +89,7 @@ export function UserMenu({ user, isSelf, unfreezePending, deletePending, onEdit,
               className={itemClass}
             >
               <PlayIcon />
-              Unfreeze
+              {t('users.unfreeze')}
             </button>
           ) : (
             <button
@@ -98,7 +99,7 @@ export function UserMenu({ user, isSelf, unfreezePending, deletePending, onEdit,
               className={itemClass}
             >
               <PauseIcon />
-              Freeze
+              {t('users.freeze')}
             </button>
           )}
           <button
@@ -108,7 +109,7 @@ export function UserMenu({ user, isSelf, unfreezePending, deletePending, onEdit,
             className="flex w-full items-center gap-2 px-3 py-2 text-sm text-destructive transition-colors hover:bg-destructive/10 disabled:opacity-50"
           >
             <TrashIcon />
-            Delete
+            {t('common.delete')}
           </button>
         </div>
       )}

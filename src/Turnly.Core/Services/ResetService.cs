@@ -23,8 +23,8 @@ public class ResetService
     /// Runs as one transaction so a failure leaves the data untouched.</summary>
     public async Task<Result> FreshStartAsync(CancellationToken ct = default)
     {
-        // The default avatar color everyone owns for free (the one Default cosmetic).
-        var defaultColor = CosmeticCatalog.All.First(c => c.Default).Value ?? "#6366f1";
+        // The avatar color everyone starts on (one of the free Default colors).
+        var defaultColor = CosmeticCatalog.Find(CosmeticCatalog.StarterColorKey)?.Value ?? "#6366f1";
 
         await using var tx = await _db.Database.BeginTransactionAsync(ct);
 

@@ -15,6 +15,7 @@ import { ChoreSection } from '@/components/chores/ChoreSection'
 import { ChoreListItem } from '@/components/chores/ChoreListItem'
 import { ChoreCompactItem } from '@/components/chores/ChoreCompactItem'
 import { ChoreCalendar } from '@/components/chores/ChoreCalendar'
+import { ChoreConfigTable } from '@/components/chores/ChoreConfigTable'
 import { Card } from '@/components/ui/Card'
 import { ChoreFormModal } from '@/components/chores/ChoreFormModal'
 import { ReassignModal } from '@/components/chores/ReassignModal'
@@ -26,6 +27,8 @@ import {
   ChoreFilters, emptyFilters, type ChoreFilterState, type ChoreView,
 } from '@/components/chores/ChoreFilters'
 import { choreDueStatus } from '@/lib/chore-format'
+import { cn } from '@/lib/utils'
+import { t } from '@/lib/i18n'
 
 const VIEW_KEY = 'turnly:chore-view'
 
@@ -49,9 +52,14 @@ export function ChoresPage() {
   const [details, setDetails] = useState<Chore | null>(null)
   const [railUser, setRailUser] = useState<LeaderboardEntry | null>(null)
   const [filters, setFilters] = useState<ChoreFilterState>(emptyFilters)
-  const [view, setView] = useState<ChoreView>(
+  const [storedView, setView] = useState<ChoreView>(
     () => (localStorage.getItem(VIEW_KEY) as ChoreView | null) ?? 'list',
   )
+  // The config table is admin-only; a stored 'config' (e.g. from before a demotion, or another
+  // account on this browser) falls back to the list.
+  const view: ChoreView = storedView === 'config' && !isAdmin ? 'list' : storedView
+  // Due-bucketed row layouts, as opposed to the calendar grid and the config table.
+  const sectioned = view === 'list' || view === 'compact'
   const changeView = (v: ChoreView) => {
     setView(v)
     localStorage.setItem(VIEW_KEY, v)
@@ -78,31 +86,31 @@ export function ChoresPage() {
   const deleteMutation = useMutation({
     mutationFn: (id: string) => choresApi.remove(id),
     onSuccess: invalidate,
-    onError: (err) => toast.error(err instanceof ApiError ? err.message : 'Delete failed'),
+    onError: (err) => toast.error(err instanceof ApiError ? err.message : t('chores.deleteFailed')),
   })
 
   const undoMutation = useMutation({
     mutationFn: (completionId: string) => choresApi.undoCompletion(completionId),
     onSuccess: invalidate,
-    onError: (err) => toast.error(err instanceof ApiError ? err.message : 'Undo failed'),
+    onError: (err) => toast.error(err instanceof ApiError ? err.message : t('chores.undoFailed')),
   })
 
   const skipMutation = useMutation({
     mutationFn: (id: string) => choresApi.skip(id, { notes: null }),
     onSuccess: invalidate,
-    onError: (err) => toast.error(err instanceof ApiError ? err.message : 'Skip failed'),
+    onError: (err) => toast.error(err instanceof ApiError ? err.message : t('chores.skipFailed')),
   })
 
   const freezeMutation = useMutation({
     mutationFn: (id: string) => choresApi.freeze(id),
     onSuccess: invalidate,
-    onError: (err) => toast.error(err instanceof ApiError ? err.message : 'Pause failed'),
+    onError: (err) => toast.error(err instanceof ApiError ? err.message : t('chores.pauseFailed')),
   })
 
   const unfreezeMutation = useMutation({
     mutationFn: (id: string) => choresApi.unfreeze(id),
     onSuccess: invalidate,
-    onError: (err) => toast.error(err instanceof ApiError ? err.message : 'Unpause failed'),
+    onError: (err) => toast.error(err instanceof ApiError ? err.message : t('chores.unpauseFailed')),
   })
 
   // A mute is personal, so it only changes this viewer's chore list — no leaderboard/points to sync.
@@ -111,9 +119,9 @@ export function ChoresPage() {
       muted ? notificationsApi.unmuteChore(id) : notificationsApi.muteChore(id),
     onSuccess: (_data, { muted }) => {
       queryClient.invalidateQueries({ queryKey: ['chores'] })
-      toast.success(muted ? 'Notifications unmuted.' : 'Notifications muted for this chore.')
+      toast.success(muted ? t('chores.unmuted') : t('chores.muted'))
     },
-    onError: (err) => toast.error(err instanceof ApiError ? err.message : 'Something went wrong'),
+    onError: (err) => toast.error(err instanceof ApiError ? err.message : t('common.error')),
   })
 
   const allTags = useMemo(
@@ -123,8 +131,8 @@ export function ChoresPage() {
   const allAssignees = useMemo(() => {
     const map = new Map<string, User>()
     for (const c of chores ?? []) {
-      if (c.currentAssignee) map.set(c.currentAssignee.id, c.currentAssignee)
-      if (c.nextAssignee) map.set(c.nextAssignee.id, c.nextAssignee)
+      for (const u of [c.currentAssignee, c.currentPartner, c.nextAssignee, c.nextPartner])
+        if (u) map.set(u.id, u)
       for (const t of c.tracks) map.set(t.user.id, t.user)
     }
     return [...map.values()].sort((a, b) => a.displayName.localeCompare(b.displayName))
@@ -138,7 +146,8 @@ export function ChoresPage() {
         // Track-mode chores have no single current assignee — match any of their track owners.
         const ids = c.tracks.length
           ? c.tracks.map((t) => t.user.id as string | undefined)
-          : [c.currentAssignee?.id, ...(filters.includeNext ? [c.nextAssignee?.id] : [])]
+          : [c.currentAssignee?.id, c.currentPartner?.id,
+              ...(filters.includeNext ? [c.nextAssignee?.id, c.nextPartner?.id] : [])]
         if (!filters.assignees.some((a) => ids.includes(a))) return false
       }
       if (filters.repeat.length && !filters.repeat.includes(c.repeatType)) return false
@@ -166,11 +175,9 @@ export function ChoresPage() {
       const wasSkip = chore.lastCompletion?.isSkip
       if (
         await confirm({
-          title: wasSkip ? 'Undo skip' : 'Undo completion',
-          message: wasSkip
-            ? 'Undo the last skip? The chore returns to its previous due date.'
-            : 'Undo the last completion? Points will be reversed.',
-          confirmLabel: 'Undo',
+          title: wasSkip ? t('chores.undoSkipTitle') : t('chores.undoCompletionTitle'),
+          message: wasSkip ? t('chores.undoSkipMessage') : t('chores.undoCompletionMessage'),
+          confirmLabel: t('common.undo'),
         })
       ) {
         undoMutation.mutate(chore.lastCompletion!.id)
@@ -179,9 +186,9 @@ export function ChoresPage() {
     onSkip: async () => {
       if (
         await confirm({
-          title: 'Skip occurrence',
-          message: `Skip this occurrence of "${chore.name}"? It advances to the next due date without awarding points.`,
-          confirmLabel: 'Skip',
+          title: t('chores.skipTitle'),
+          message: t('chores.skipMessage', { name: chore.name }),
+          confirmLabel: t('common.skip'),
           variant: 'primary',
         })
       ) {
@@ -196,9 +203,9 @@ export function ChoresPage() {
     onDelete: async () => {
       if (
         await confirm({
-          title: 'Delete chore',
-          message: `Delete "${chore.name}"? This wipes its completion history.`,
-          confirmLabel: 'Delete',
+          title: t('chores.deleteTitle'),
+          message: t('chores.deleteMessage', { name: chore.name }),
+          confirmLabel: t('common.delete'),
         })
       ) {
         deleteMutation.mutate(chore.id)
@@ -219,7 +226,7 @@ export function ChoresPage() {
         {/* Main column grows to fill the space left of the rail; its content is centered within
             that space (capped width + side gutters) so it doesn't hug the left edge. */}
         <div className="min-w-0 flex-1">
-          <div className="w-full space-y-4 md:space-y-6 xl:mx-auto xl:max-w-2xl">
+          <div className={cn('w-full space-y-4 md:space-y-6', view !== 'config' && 'xl:mx-auto xl:max-w-2xl')}>
             {/* Quick views + view switcher + filters (round icon toolbar) */}
             {(chores ?? []).length > 0 && (
               <ChoreFilters
@@ -230,6 +237,7 @@ export function ChoresPage() {
                 currentUserId={currentUser?.id}
                 view={view}
                 onViewChange={changeView}
+                isAdmin={isAdmin}
               />
             )}
 
@@ -237,27 +245,31 @@ export function ChoresPage() {
                 they're discoverable on a phone. Hidden when there's nothing to claim. */}
             <OfferBoard chores={chores ?? []} meId={currentUser?.id} onSelect={setDetails} />
 
-            {isLoading && <p className="text-muted-foreground">Loading…</p>}
+            {isLoading && <p className="text-muted-foreground">{t('common.loading')}</p>}
             {error && <p className="text-destructive">{(error as ApiError).message}</p>}
 
             {!isLoading && (chores ?? []).length === 0 && (
-              <p className="text-muted-foreground">No chores yet{isAdmin ? ', add one to get started.' : '.'}</p>
+              <p className="text-muted-foreground">{isAdmin ? t('chores.emptyAdmin') : t('chores.empty')}</p>
             )}
             {!isLoading && (chores ?? []).length > 0 && view !== 'calendar' && filtered.length === 0 && (
-              <p className="text-muted-foreground">No chores match the current filters.</p>
+              <p className="text-muted-foreground">{t('chores.noMatch')}</p>
             )}
 
             {view === 'calendar' && (chores ?? []).length > 0 && (
               <ChoreCalendar chores={filtered} itemProps={itemProps} />
             )}
 
-            {view !== 'calendar' &&
+            {view === 'config' && filtered.length > 0 && (
+              <ChoreConfigTable chores={filtered} onEdit={setEditing} />
+            )}
+
+            {sectioned &&
               ([
-                { title: 'Overdue', tone: 'destructive' as const, items: overdue },
-                { title: 'Today', tone: undefined, items: today },
-                { title: 'This week', tone: undefined, items: upcoming },
-                { title: 'Later', tone: undefined, items: later },
-                { title: 'Paused', tone: 'neutral' as const, items: paused },
+                { title: t('due.overdue'), tone: 'destructive' as const, items: overdue },
+                { title: t('due.today'), tone: undefined, items: today },
+                { title: t('due.upcoming'), tone: undefined, items: upcoming },
+                { title: t('due.later'), tone: undefined, items: later },
+                { title: t('chores.paused'), tone: 'neutral' as const, items: paused },
               ])
                 .filter((s) => s.items.length > 0)
                 .map((s) => (
@@ -276,8 +288,8 @@ export function ChoresPage() {
           </div>
         </div>
 
-        {/* Right info rail (desktop xl+ only). */}
-        {currentUser && (
+        {/* Right info rail (desktop xl+ only). The config table takes the full width instead. */}
+        {currentUser && view !== 'config' && (
           <aside className="mt-4 hidden xl:mt-0 xl:block xl:w-72 xl:shrink-0">
             <div className="sticky top-20">
               <ChoreRail chores={chores ?? []} currentUser={currentUser} onSelectUser={setRailUser} />
@@ -288,7 +300,7 @@ export function ChoresPage() {
 
       {creating && (
         <ChoreFormModal
-          title="Add chore"
+          title={t('chores.add')}
           onClose={() => setCreating(false)}
           onSaved={() => {
             setCreating(false)
@@ -299,7 +311,7 @@ export function ChoresPage() {
 
       {editing && (
         <ChoreFormModal
-          title="Edit chore"
+          title={t('chores.editTitle')}
           chore={editing}
           onClose={() => setEditing(null)}
           onSaved={() => {
@@ -389,7 +401,7 @@ export function ChoresPage() {
         <button
           type="button"
           onClick={() => setCreating(true)}
-          aria-label="Add chore"
+          aria-label={t('chores.add')}
           className="fixed bottom-6 left-6 z-30 flex h-14 w-14 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-pop transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring md:left-auto md:right-6"
         >
           <PlusIcon />

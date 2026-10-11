@@ -3,22 +3,12 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { notificationsApi } from '@/lib/api'
 import type { NotificationInboxItem } from '@/lib/types'
 import { cn } from '@/lib/utils'
+import { relativeTimeLabel } from '@/lib/chore-format'
+import { t } from '@/lib/i18n'
 
 interface NotificationsBellProps {
   /** Opens the chore details modal for the given chore id (resolved by the parent). */
   onOpenChore: (choreId: string) => void
-}
-
-function timeAgo(iso: string): string {
-  const diff = Date.now() - new Date(iso).getTime()
-  const mins = Math.floor(diff / 60_000)
-  if (mins < 1) return 'just now'
-  if (mins < 60) return `${mins}m ago`
-  const hours = Math.floor(mins / 60)
-  if (hours < 24) return `${hours}h ago`
-  const days = Math.floor(hours / 24)
-  if (days < 7) return `${days}d ago`
-  return new Date(iso).toLocaleDateString('en-GB')
 }
 
 export function NotificationsBell({ onOpenChore }: NotificationsBellProps) {
@@ -76,7 +66,7 @@ export function NotificationsBell({ onOpenChore }: NotificationsBellProps) {
       <button
         type="button"
         onClick={() => (open ? close() : setOpen(true))}
-        aria-label="Notifications"
+        aria-label={t('notifEdit.title')}
         aria-expanded={open}
         className="relative inline-flex h-9 w-9 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       >
@@ -91,7 +81,7 @@ export function NotificationsBell({ onOpenChore }: NotificationsBellProps) {
       {open && (
         <div className="fixed left-4 right-4 top-[4.5rem] z-30 overflow-hidden rounded-lg border border-border bg-card shadow-pop sm:absolute sm:left-auto sm:right-0 sm:top-full sm:mt-2 sm:w-80 sm:max-w-[calc(100vw-2rem)]">
           <div className="flex items-center justify-between gap-3 border-b border-border px-4 py-2.5">
-            <span className="text-sm font-semibold text-foreground">Notifications</span>
+            <span className="text-sm font-semibold text-foreground">{t('notifEdit.title')}</span>
             <div className="flex items-center gap-3">
               {unread > 0 && (
                 <button
@@ -99,7 +89,7 @@ export function NotificationsBell({ onOpenChore }: NotificationsBellProps) {
                   onClick={() => markRead.mutate()}
                   className="text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
                 >
-                  Mark all read
+                  {t('bell.markAll')}
                 </button>
               )}
               {(items ?? []).length > 0 && (
@@ -108,7 +98,7 @@ export function NotificationsBell({ onOpenChore }: NotificationsBellProps) {
                   onClick={() => clearAll.mutate()}
                   className="text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
                 >
-                  Clear all
+                  {t('filters.clearAll')}
                 </button>
               )}
             </div>
@@ -116,7 +106,7 @@ export function NotificationsBell({ onOpenChore }: NotificationsBellProps) {
 
           <div className="max-h-96 overflow-y-auto">
             {(items ?? []).length === 0 ? (
-              <p className="px-4 py-8 text-center text-sm text-muted-foreground">No notifications yet.</p>
+              <p className="px-4 py-8 text-center text-sm text-muted-foreground">{t('bell.empty')}</p>
             ) : (
               (items ?? []).map((n) => {
                 const clickable = Boolean(n.choreId)
@@ -147,13 +137,13 @@ export function NotificationsBell({ onOpenChore }: NotificationsBellProps) {
                       <span className="min-w-0 flex-1">
                         <span className="block truncate text-sm font-medium text-foreground">{n.title}</span>
                         <span className="block text-sm text-muted-foreground">{n.body}</span>
-                        <span className="mt-0.5 block text-xs text-muted-foreground">{timeAgo(n.createdAt)}</span>
+                        <span className="mt-0.5 block text-xs text-muted-foreground">{relativeTimeLabel(n.createdAt)}</span>
                       </span>
                     </button>
                     <button
                       type="button"
                       onClick={() => deleteItem.mutate(n.id)}
-                      aria-label="Delete notification"
+                      aria-label={t('bell.delete')}
                       className="absolute right-1.5 top-2 inline-flex h-7 w-7 items-center justify-center rounded-full text-muted-foreground/70 transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                     >
                       <CloseIcon />

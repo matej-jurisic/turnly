@@ -5,6 +5,7 @@ import {
   DotsIcon, InfoIcon, SkipIcon, ReassignIcon, UndoIcon, CalendarIcon, EditIcon, CopyIcon, TrashIcon,
   PauseIcon, PlayIcon, BellIcon, BellOffIcon,
 } from '@/components/chores/icons'
+import { t } from '@/lib/i18n'
 
 export interface ChoreMenuProps {
   chore: Chore
@@ -35,14 +36,16 @@ export function ChoreMenu({ chore, isAdmin, meId, undoPending, skipPending, dele
   const ref = useRef<HTMLDivElement>(null)
 
   const hasUndo = Boolean(chore.lastCompletion)
-  const undoLabel = chore.lastCompletion?.isSkip ? 'Undo skip' : 'Undo'
+  const undoLabel = chore.lastCompletion?.isSkip ? t('chores.undoSkipTitle') : t('common.undo')
   // Skip/reschedule in track mode target a specific person's schedule, so they're handled from the
   // details modal's per-person rows; the card menu only drives them for rotating chores.
   const canSkip = isAdmin && chore.repeatType !== 'OneTime' && Boolean(chore.dueAt) && !isIndependent(chore)
   // Only admins move a chore directly. Anyone holding one can offer it instead, but not while an
   // offer is already live (they withdraw it from the details modal first) or the chore is paused.
-  const canReassign = isAdmin && !isIndependent(chore) && chore.assignees.length > 1
-  const canOffer = !isIndependent(chore) && chore.assignees.length > 1
+  // An unassigned chore can always be placed, even with a single candidate.
+  const canReassign = isAdmin && !isIndependent(chore) && (chore.assignees.length > 1 || !chore.currentAssignee)
+  // A pair's turn isn't one member's to hand over, so paired chores can't be offered at all.
+  const canOffer = !isIndependent(chore) && chore.assignees.length > 1 && chore.pairs.length === 0
     && chore.currentAssignee?.id === meId && !chore.openOffer && !chore.isFrozen
   const canReschedule = isAdmin && Boolean(chore.dueAt) && !isIndependent(chore)
 
@@ -60,7 +63,7 @@ export function ChoreMenu({ chore, isAdmin, meId, undoPending, skipPending, dele
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        aria-label="More options"
+        aria-label={t('menu.more')}
         aria-expanded={open}
         className="inline-flex h-9 w-9 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       >
@@ -75,7 +78,7 @@ export function ChoreMenu({ chore, isAdmin, meId, undoPending, skipPending, dele
             className="flex w-full items-center gap-2 px-3 py-2 text-sm text-foreground transition-colors hover:bg-accent"
           >
             <InfoIcon />
-            Details
+            {t('menu.details')}
           </button>
           {/* Personal, so it's offered to everyone: muting only quiets the chore for you. */}
           <button
@@ -85,7 +88,7 @@ export function ChoreMenu({ chore, isAdmin, meId, undoPending, skipPending, dele
             className="flex w-full items-center gap-2 px-3 py-2 text-sm text-foreground transition-colors hover:bg-accent disabled:opacity-50"
           >
             {chore.isMuted ? <BellIcon /> : <BellOffIcon />}
-            {chore.isMuted ? 'Unmute' : 'Mute'}
+            {chore.isMuted ? t('menu.unmute') : t('menu.mute')}
           </button>
           {canSkip && (
             <button
@@ -95,7 +98,7 @@ export function ChoreMenu({ chore, isAdmin, meId, undoPending, skipPending, dele
               className="flex w-full items-center gap-2 px-3 py-2 text-sm text-foreground transition-colors hover:bg-accent disabled:opacity-50"
             >
               <SkipIcon />
-              Skip
+              {t('common.skip')}
             </button>
           )}
           {canReassign && (
@@ -105,7 +108,7 @@ export function ChoreMenu({ chore, isAdmin, meId, undoPending, skipPending, dele
               className="flex w-full items-center gap-2 px-3 py-2 text-sm text-foreground transition-colors hover:bg-accent"
             >
               <ReassignIcon />
-              Reassign
+              {chore.currentAssignee ? t('menu.reassign') : t('menu.assign')}
             </button>
           )}
           {canOffer && (
@@ -115,7 +118,7 @@ export function ChoreMenu({ chore, isAdmin, meId, undoPending, skipPending, dele
               className="flex w-full items-center gap-2 px-3 py-2 text-sm text-foreground transition-colors hover:bg-accent"
             >
               <ReassignIcon />
-              Offer
+              {t('menu.offer')}
             </button>
           )}
           {hasUndo && (
@@ -136,7 +139,7 @@ export function ChoreMenu({ chore, isAdmin, meId, undoPending, skipPending, dele
               className="flex w-full items-center gap-2 px-3 py-2 text-sm text-foreground transition-colors hover:bg-accent"
             >
               <CalendarIcon />
-              Reschedule
+              {t('menu.reschedule')}
             </button>
           )}
           {isAdmin && (
@@ -149,7 +152,7 @@ export function ChoreMenu({ chore, isAdmin, meId, undoPending, skipPending, dele
                   className="flex w-full items-center gap-2 px-3 py-2 text-sm text-foreground transition-colors hover:bg-accent disabled:opacity-50"
                 >
                   <PlayIcon />
-                  Unpause
+                  {t('menu.unpause')}
                 </button>
               ) : (
                 <button
@@ -159,7 +162,7 @@ export function ChoreMenu({ chore, isAdmin, meId, undoPending, skipPending, dele
                   className="flex w-full items-center gap-2 px-3 py-2 text-sm text-foreground transition-colors hover:bg-accent disabled:opacity-50"
                 >
                   <PauseIcon />
-                  Pause
+                  {t('menu.pause')}
                 </button>
               )}
               <button
@@ -168,7 +171,7 @@ export function ChoreMenu({ chore, isAdmin, meId, undoPending, skipPending, dele
                 className="flex w-full items-center gap-2 px-3 py-2 text-sm text-foreground transition-colors hover:bg-accent"
               >
                 <EditIcon />
-                Edit
+                {t('common.edit')}
               </button>
               <button
                 type="button"
@@ -176,7 +179,7 @@ export function ChoreMenu({ chore, isAdmin, meId, undoPending, skipPending, dele
                 className="flex w-full items-center gap-2 px-3 py-2 text-sm text-foreground transition-colors hover:bg-accent"
               >
                 <CopyIcon />
-                Copy
+                {t('menu.copy')}
               </button>
               <button
                 type="button"
@@ -185,7 +188,7 @@ export function ChoreMenu({ chore, isAdmin, meId, undoPending, skipPending, dele
                 className="flex w-full items-center gap-2 px-3 py-2 text-sm text-destructive transition-colors hover:bg-destructive/10 disabled:opacity-50"
               >
                 <TrashIcon />
-                Delete
+                {t('common.delete')}
               </button>
             </>
           )}

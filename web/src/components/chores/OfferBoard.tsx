@@ -5,6 +5,7 @@ import type { Chore } from '@/lib/types'
 import { Badge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
+import { t } from '@/lib/i18n'
 
 /**
  * "Up for grabs" band above the chore list: every offer the viewer can actually take, with its bounty
@@ -18,7 +19,7 @@ export function OfferBoard({ chores, meId, onSelect }: { chores: Chore[]; meId?:
   const claimMutation = useMutation({
     mutationFn: (choreId: string) => choresApi.claimOffer(choreId),
     onSuccess: (chore) => {
-      toast.success(`"${chore.name}" is yours.`)
+      toast.success(t('board.yours', { name: chore.name }))
       void queryClient.invalidateQueries({ queryKey: ['chores'] })
       // A bounty moved between two balances.
       void queryClient.invalidateQueries({ queryKey: ['me'] })
@@ -26,7 +27,7 @@ export function OfferBoard({ chores, meId, onSelect }: { chores: Chore[]; meId?:
     },
     // Losing a claim race is a 409 from the server; its message already explains it.
     onError: (err) => {
-      toast.error(err instanceof ApiError ? err.message : 'Claim failed')
+      toast.error(err instanceof ApiError ? err.message : t('offer.claimFailed'))
       void queryClient.invalidateQueries({ queryKey: ['chores'] })
     },
   })
@@ -41,8 +42,8 @@ export function OfferBoard({ chores, meId, onSelect }: { chores: Chore[]; meId?:
   if (claimable.length === 0) return null
 
   return (
-    <section aria-label="Chores up for grabs">
-      <h2 className="mb-2 px-1 text-sm font-semibold text-foreground">Up for grabs</h2>
+    <section aria-label={t('board.label')}>
+      <h2 className="mb-2 px-1 text-sm font-semibold text-foreground">{t('offer.upForGrabs')}</h2>
       <Card className="divide-y divide-border p-0">
         {claimable.map((chore) => {
           const offer = chore.openOffer!
@@ -57,8 +58,7 @@ export function OfferBoard({ chores, meId, onSelect }: { chores: Chore[]; meId?:
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-sm text-foreground">{chore.name}</span>
                   <span className="block truncate text-xs text-muted-foreground">
-                    from {offer.fromUser.displayName}
-                    {offer.toUser ? ', just for you' : ''}
+                    {t(offer.toUser ? 'board.fromForYou' : 'board.from', { name: offer.fromUser.displayName })}
                   </span>
                 </span>
               </button>
@@ -70,7 +70,7 @@ export function OfferBoard({ chores, meId, onSelect }: { chores: Chore[]; meId?:
                 onClick={() => claimMutation.mutate(chore.id)}
                 disabled={claimMutation.isPending}
               >
-                Claim
+                {t('offer.claim')}
               </Button>
             </div>
           )

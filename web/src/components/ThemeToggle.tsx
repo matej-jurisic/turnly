@@ -1,5 +1,6 @@
 import { useThemeStore } from '@/lib/theme'
 import { Button } from '@/components/ui/Button'
+import { t } from '@/lib/i18n'
 
 export function ThemeToggle() {
   const theme = useThemeStore((s) => s.theme)
@@ -10,8 +11,8 @@ export function ThemeToggle() {
       variant="ghost"
       size="sm"
       onClick={toggle}
-      aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
-      title="Toggle theme"
+      aria-label={theme === 'dark' ? t('theme.toLight') : t('theme.toDark')}
+      title={t('theme.toggle')}
       className="px-2"
     >
       {theme === 'dark' ? <SunIcon /> : <MoonIcon />}

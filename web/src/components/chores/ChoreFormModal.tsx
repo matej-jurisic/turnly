@@ -19,9 +19,10 @@ import { Modal, Avatar } from '@/components/ui/Modal'
 import { RecurrenceEditor } from '@/components/RecurrenceEditor'
 import { NotificationsEditor } from '@/components/NotificationsEditor'
 import {
-  REPEAT_OPTIONS, STRATEGY_OPTIONS, SCHEDULING_OPTIONS, ROTATION_PERIOD_OPTIONS, GRACE_UNITS,
-  isIntervalStyle, supportsRotationPeriod, splitGrace, toLocalDueInstant, toLocalDateInput,
+  REPEAT_OPTIONS, STRATEGY_OPTIONS, SCHEDULING_OPTIONS, GRACE_UNITS,
+  isIntervalStyle, rotationPeriodOptions, splitGrace, toLocalDueInstant, toLocalDateInput,
 } from '@/lib/chore-format'
+import { t } from '@/lib/i18n'
 
 interface ChoreFormModalProps {
   title: string
@@ -80,10 +81,19 @@ export function ChoreFormModal({ title, chore, onClose, onSaved }: ChoreFormModa
   const [timesOfDay, setTimesOfDay] = useState<string[]>(
     chore?.timesOfDay?.length ? chore.timesOfDay : chore?.dueTime ? [chore.dueTime] : [''],
   )
+  // Optional slot names ("Morning"), index-aligned with `timesOfDay` so a label follows its row
+  // through edits and removals rather than being keyed by a time that is still being typed.
+  const [timeLabels, setTimeLabels] = useState<string[]>(
+    (chore?.timesOfDay ?? []).map((t) => chore?.timeLabels?.[t] ?? ''),
+  )
   const [assigneeIds, setAssigneeIds] = useState<string[]>(
     chore?.assignees.map((a) => a.id) ?? [],
   )
   const [currentAssigneeId, setCurrentAssigneeId] = useState(chore?.currentAssignee?.id ?? '')
+  // Fixed pairs who do the chore together. Kept as entered; a pair only counts while both of its
+  // people are still selected as assignees (see `activePairs`).
+  const [pairs, setPairs] = useState<string[][]>(chore?.pairs ?? [])
+  const [pairDraft, setPairDraft] = useState<[string, string]>(['', ''])
   const [selectedTags, setSelectedTags] = useState<string[]>(chore?.tags ?? [])
   const [notifications, setNotifications] = useState<ChoreNotificationInput[]>(
     chore?.notifications.map((n) => ({
@@ -96,10 +106,14 @@ export function ChoreFormModal({ title, chore, onClose, onSaved }: ChoreFormModa
   )
   const [error, setError] = useState<string | null>(null)
 
+  // Manual chores may sit unassigned ('' in the picker) until an admin places them.
+  const isManual = assignmentStrategy === 'Manual'
+  const keepUnassigned = isManual && currentAssigneeId === ''
+
   const toggleAssignee = (id: string) => {
     setAssigneeIds((prev) => {
       const next = prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
-      if (!next.includes(currentAssigneeId)) setCurrentAssigneeId(next[0] ?? '')
+      if (!keepUnassigned && !next.includes(currentAssigneeId)) setCurrentAssigneeId(next[0] ?? '')
       return next
     })
   }
@@ -108,10 +122,14 @@ export function ChoreFormModal({ title, chore, onClose, onSaved }: ChoreFormModa
   const isCustom = repeatType === 'Custom'
   // Track mode: every assignee gets their own schedule + quota, no rotation, no single current assignee.
   const isIndependent = assignmentStrategy === 'Independent'
-  // A rotation period only applies to chores that rotate and come due more often than monthly; fall
-  // back to the default otherwise so a hidden choice is never submitted.
-  const showRotationPeriod = supportsRotationPeriod(repeatType, assignmentStrategy)
-  const effectiveRotationPeriod: RotationPeriod = showRotationPeriod ? rotationPeriod : 'EveryOccurrence'
+  // Pairs whose two people are both still assignees; the rest are ignored and never submitted.
+  const activePairs = pairs.filter((p) => p.every((id) => assigneeIds.includes(id)))
+  // A rotation period only applies to chores that rotate and come due more often than the period;
+  // fall back to the default otherwise so a hidden choice is never submitted.
+  const rotationOptions = rotationPeriodOptions(repeatType, assignmentStrategy)
+  const showRotationPeriod = rotationOptions.length > 0
+  const rotationOption = rotationOptions.find((o) => o.value === rotationPeriod)
+  const effectiveRotationPeriod: RotationPeriod = rotationOption?.value ?? 'EveryOccurrence'
   // Per-completion rotation contradicts a calendar rotation period, so it's only offered without one.
   const showRotateEach =
     !isCustom && !isIndependent && completionsRequired > 1 && effectiveRotationPeriod === 'EveryOccurrence'
@@ -140,6 +158,14 @@ export function ChoreFormModal({ title, chore, onClose, onSaved }: ChoreFormModa
   // Single slot keeps row 0's value verbatim (may be '' = end of day); multi uses the earliest slot
   // as the anchor for the start instant and the stored mirror.
   const primaryTime = isMultiTime ? uniqueSortedTimes[0] : trimmedTimes[0] || ''
+  // Labels only mean something with several slots; a duplicated time keeps its first row's label.
+  const labelsByTime: Record<string, string> = {}
+  if (isMultiTime) {
+    trimmedTimes.forEach((t, i) => {
+      const label = (timeLabels[i] ?? '').trim()
+      if (t && label && !(t in labelsByTime)) labelsByTime[t] = label
+    })
+  }
 
   const mutation = useMutation({
     mutationFn: () => {
@@ -161,21 +187,36 @@ export function ChoreFormModal({ title, chore, onClose, onSaved }: ChoreFormModa
         startDate: toLocalDueInstant(startDate, primaryTime),
         dueTime: primaryTime || null,
         timesOfDay: isMultiTime ? uniqueSortedTimes : null,
+        timeLabels: isMultiTime ? labelsByTime : null,
         assigneeIds,
-        currentAssigneeId: isIndependent ? null : currentAssigneeId,
+        currentAssigneeId: isIndependent ? null : currentAssigneeId || (isManual ? null : ''),
         tagNames: selectedTags,
         notifications,
         tracks: isIndependent
           ? assigneeIds.map((id) => ({ userId: id, completionsRequired: Math.max(1, trackQuotas[id] ?? 1) }))
           : undefined,
+        pairs: isIndependent ? null : activePairs,
       }
       return isEdit && chore ? choresApi.update(chore.id, body) : choresApi.create(body)
     },
     onSuccess: onSaved,
-    onError: (err) => setError(err instanceof ApiError ? err.message : 'Save failed'),
+    onError: (err) => setError(err instanceof ApiError ? err.message : t('form.saveFailed')),
   })
 
   const selectedAssignees = (allUsers ?? []).filter((u) => assigneeIds.includes(u.id))
+  const userName = (id: string) => (allUsers ?? []).find((u) => u.id === id)?.displayName ?? '?'
+  const unpaired = selectedAssignees.filter((u) => !activePairs.some((p) => p.includes(u.id)))
+  const partnerName = (id: string) => {
+    const partnerId = activePairs.find((p) => p.includes(id))?.find((x) => x !== id)
+    return partnerId ? userName(partnerId) : null
+  }
+  const addPair = () => {
+    const [a, b] = pairDraft
+    if (!a || !b || a === b) return
+    // Drop any stale pair either person was in (its other half was deselected) before adding.
+    setPairs((prev) => [...prev.filter((p) => !p.includes(a) && !p.includes(b)), [a, b]])
+    setPairDraft(['', ''])
+  }
 
   return (
     <Modal title={title} onClose={onClose}>
@@ -183,7 +224,7 @@ export function ChoreFormModal({ title, chore, onClose, onSaved }: ChoreFormModa
         onSubmit={(e) => {
           e.preventDefault()
           if (assigneeIds.length === 0) {
-            setError('Select at least one assignee.')
+            setError(t('form.selectAssignee'))
             return
           }
           setError(null)
@@ -192,26 +233,26 @@ export function ChoreFormModal({ title, chore, onClose, onSaved }: ChoreFormModa
         className="max-h-[70vh] space-y-2 overflow-y-auto pl-1 -ml-1 pr-4 -mr-4"
       >
         <div>
-          <Label htmlFor="name">Name</Label>
+          <Label htmlFor="name">{t('form.name')}</Label>
           <Input id="name" value={name} onChange={(e) => setName(e.target.value)} required />
         </div>
         <div className="flex gap-3">
           <div className="flex-1">
-            <Label htmlFor="emoji">Emoji</Label>
+            <Label htmlFor="emoji">{t('slot.Emoji')}</Label>
             <Input id="emoji" value={emoji} onChange={(e) => setEmoji(e.target.value)} />
           </div>
           <div className="flex-1">
-            <Label htmlFor="points">Points</Label>
+            <Label htmlFor="points">{t('nav.points')}</Label>
             <Input id="points" type="number" min={0} value={points} onChange={(e) => setPoints(e.target.value)} />
           </div>
         </div>
         <div>
-          <Label htmlFor="description">Description</Label>
+          <Label htmlFor="description">{t('form.description')}</Label>
           <Input id="description" value={description} onChange={(e) => setDescription(e.target.value)} />
         </div>
         <div className="flex gap-3">
           <div className="flex-1">
-            <Label htmlFor="repeat">Repeat</Label>
+            <Label htmlFor="repeat">{t('filters.repeat')}</Label>
             <Select id="repeat" value={repeatType} onChange={(e) => setRepeatType(e.target.value as RepeatType)}>
               {REPEAT_OPTIONS.map((o) => (
                 <option key={o.value} value={o.value}>{o.label}</option>
@@ -220,12 +261,12 @@ export function ChoreFormModal({ title, chore, onClose, onSaved }: ChoreFormModa
           </div>
           {!isCustom && !isIndependent && (
             <div className="w-28">
-              <Label htmlFor="times">Times</Label>
+              <Label htmlFor="times">{t('form.times')}</Label>
               <IntegerInput
                 id="times"
                 value={completionsRequired}
                 onCommit={(n) => setCompletionsRequired(Math.max(1, n))}
-                aria-label="Completions needed per occurrence"
+                aria-label={t('form.timesLabel')}
               />
             </div>
           )}
@@ -233,7 +274,7 @@ export function ChoreFormModal({ title, chore, onClose, onSaved }: ChoreFormModa
         {!isCustom && !isIndependent && completionsRequired > 1 && (
           <div className="-mt-1 space-y-2">
             <p className="text-xs text-muted-foreground">
-              Must be completed {completionsRequired} times before it's due again.
+              {t('form.mustComplete', { count: completionsRequired })}
             </p>
             {showRotateEach && (
               <label className="flex items-start gap-2 text-sm text-foreground">
@@ -244,9 +285,9 @@ export function ChoreFormModal({ title, chore, onClose, onSaved }: ChoreFormModa
                   className="mt-0.5 h-4 w-4 rounded border-border text-primary focus:ring-ring"
                 />
                 <span>
-                  Rotate assignee after each completion
+                  {t('form.rotateEach')}
                   <span className="block text-xs text-muted-foreground">
-                    Otherwise the assignee only changes once all {completionsRequired} are done.
+                    {t('form.rotateEachHint', { count: completionsRequired })}
                   </span>
                 </span>
               </label>
@@ -263,11 +304,11 @@ export function ChoreFormModal({ title, chore, onClose, onSaved }: ChoreFormModa
                 className="mt-0.5 h-4 w-4 rounded border-border text-primary focus:ring-ring"
               />
               <span>
-                Auto-advance incomplete occurrences
+                {t('form.autoAdvance')}
                 <span className="block text-xs text-muted-foreground">
                   {completionsRequired > 1
-                    ? `If fewer than ${completionsRequired} are completed, the occurrence expires and the schedule moves on.`
-                    : 'If left incomplete, the occurrence expires and the schedule moves on.'}
+                    ? t('form.autoAdvanceHintN', { count: completionsRequired })
+                    : t('form.autoAdvanceHint')}
                 </span>
               </span>
             </label>
@@ -281,9 +322,9 @@ export function ChoreFormModal({ title, chore, onClose, onSaved }: ChoreFormModa
                     className="mt-0.5 h-4 w-4 rounded border-border text-primary focus:ring-ring"
                   />
                   <span>
-                    Delay auto-advance after due date
+                    {t('form.delayAdvance')}
                     <span className="block text-xs text-muted-foreground">
-                      Otherwise it expires as soon as it's overdue.
+                      {t('form.delayAdvanceHint')}
                     </span>
                   </span>
                 </label>
@@ -293,21 +334,21 @@ export function ChoreFormModal({ title, chore, onClose, onSaved }: ChoreFormModa
                       <IntegerInput
                         value={windowValue}
                         onCommit={(n) => setWindowValue(Math.max(1, n))}
-                        aria-label="Completion window amount"
+                        aria-label={t('form.windowAmount')}
                       />
                     </div>
                     <div className="w-28">
                       <Select
                         value={windowUnit}
                         onChange={(e) => setWindowUnit(e.target.value)}
-                        aria-label="Completion window unit"
+                        aria-label={t('form.windowUnit')}
                       >
                         {GRACE_UNITS.map((u) => (
                           <option key={u.value} value={u.value}>{u.label}</option>
                         ))}
                       </Select>
                     </div>
-                    <span className="text-sm text-muted-foreground">after due date</span>
+                    <span className="text-sm text-muted-foreground">{t('form.afterDue')}</span>
                   </div>
                 )}
               </div>
@@ -316,12 +357,12 @@ export function ChoreFormModal({ title, chore, onClose, onSaved }: ChoreFormModa
         )}
         <div className="flex gap-3">
           <div className="flex-1">
-            <Label htmlFor="start">Start date</Label>
+            <Label htmlFor="start">{t('details.startDate')}</Label>
             <Input id="start" type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} required />
           </div>
           {!supportsTimes && (
             <div className="flex-1">
-              <Label htmlFor="dueTime">Due time</Label>
+              <Label htmlFor="dueTime">{t('form.dueTime')}</Label>
               <TimeField
                 id="dueTime"
                 value={timesOfDay[0] ?? ''}
@@ -335,27 +376,42 @@ export function ChoreFormModal({ title, chore, onClose, onSaved }: ChoreFormModa
         )}
         {supportsTimes && (
           <div className="space-y-2 rounded-lg border border-border bg-accent/40 p-3">
-            <Label className="mb-0">Times of day</Label>
+            <Label className="mb-0">{t('form.timesOfDay')}</Label>
             <p className="-mt-0.5 text-xs text-muted-foreground">
-              One to-do per time (e.g. 08:00 and 20:00 for twice a day).
+              {t('form.timesOfDayHint')}
             </p>
             <div className="space-y-1.5">
-              {timesOfDay.map((t, i) => (
+              {timesOfDay.map((time, i) => (
                 <div key={i} className="flex items-center gap-2">
                   <div className="w-32">
                     <TimeField
-                      value={t}
+                      value={time}
                       onChange={(v) => setTimesOfDay((prev) => prev.map((x, j) => (j === i ? v : x)))}
-                      aria-label={`Time ${i + 1}`}
+                      aria-label={t('form.timeN', { n: i + 1 })}
                     />
                   </div>
                   {timesOfDay.length > 1 && (
+                    <Input
+                      className="min-w-0 flex-1"
+                      value={timeLabels[i] ?? ''}
+                      onChange={(e) =>
+                        setTimeLabels((prev) => timesOfDay.map((_, j) => (j === i ? e.target.value : prev[j] ?? '')))
+                      }
+                      maxLength={32}
+                      placeholder={t('form.labelOptional')}
+                      aria-label={t('form.labelForTime', { n: i + 1 })}
+                    />
+                  )}
+                  {timesOfDay.length > 1 && (
                     <button
                       type="button"
-                      onClick={() => setTimesOfDay((prev) => prev.filter((_, j) => j !== i))}
+                      onClick={() => {
+                        setTimesOfDay((prev) => prev.filter((_, j) => j !== i))
+                        setTimeLabels((prev) => prev.filter((_, j) => j !== i))
+                      }}
                       className="text-xs text-muted-foreground underline-offset-2 hover:text-destructive hover:underline"
                     >
-                      Remove
+                      {t('common.remove')}
                     </button>
                   )}
                 </div>
@@ -366,14 +422,14 @@ export function ChoreFormModal({ title, chore, onClose, onSaved }: ChoreFormModa
               onClick={() => setTimesOfDay((prev) => [...prev, ''])}
               className="text-xs text-primary underline-offset-2 hover:underline"
             >
-              + Add another time
+              {t('form.addTime')}
             </button>
           </div>
         )}
         {repeatType !== 'OneTime' && (
           <div className="flex gap-3">
             <div className="flex-1">
-              <Label htmlFor="strategy">Assignment</Label>
+              <Label htmlFor="strategy">{t('details.assignment')}</Label>
               <Select
                 id="strategy"
                 value={assignmentStrategy}
@@ -385,7 +441,7 @@ export function ChoreFormModal({ title, chore, onClose, onSaved }: ChoreFormModa
               </Select>
             </div>
             <div className="flex-1">
-              <Label htmlFor="scheduling">Next due</Label>
+              <Label htmlFor="scheduling">{t('details.nextDue')}</Label>
               <Select
                 id="scheduling"
                 value={effectiveScheduling}
@@ -400,19 +456,19 @@ export function ChoreFormModal({ title, chore, onClose, onSaved }: ChoreFormModa
         )}
         {showRotationPeriod && (
           <div>
-            <Label htmlFor="rotation">Hand over</Label>
+            <Label htmlFor="rotation">{t('form.handOver')}</Label>
             <Select
               id="rotation"
-              value={rotationPeriod}
+              value={effectiveRotationPeriod}
               onChange={(e) => setRotationPeriod(e.target.value as RotationPeriod)}
             >
-              {ROTATION_PERIOD_OPTIONS.map((o) => (
+              {rotationOptions.map((o) => (
                 <option key={o.value} value={o.value}>{o.label}</option>
               ))}
             </Select>
-            {rotationPeriod === 'Monthly' && (
+            {rotationOption?.span && !isManual && (
               <p className="mt-1 text-xs text-muted-foreground">
-                The same person keeps this chore for the whole calendar month, then it moves to the next person.
+                {rotationOption.span}
               </p>
             )}
           </div>
@@ -427,9 +483,9 @@ export function ChoreFormModal({ title, chore, onClose, onSaved }: ChoreFormModa
                 className="mt-0.5 h-4 w-4 rounded border-border text-primary focus:ring-ring"
               />
               <span>
-                Reset schedule when completed early (grace window)
+                {t('form.grace')}
                 <span className="block text-xs text-muted-foreground">
-                  If finished more than this early, the next due date resets from completion.
+                  {t('form.graceHint')}
                 </span>
               </span>
             </label>
@@ -439,14 +495,14 @@ export function ChoreFormModal({ title, chore, onClose, onSaved }: ChoreFormModa
                   <IntegerInput
                     value={graceValue}
                     onCommit={(n) => setGraceValue(Math.max(1, n))}
-                    aria-label="Grace window amount"
+                    aria-label={t('form.graceAmount')}
                   />
                 </div>
                 <div className="w-28">
                   <Select
                     value={graceUnit}
                     onChange={(e) => setGraceUnit(e.target.value)}
-                    aria-label="Grace window unit"
+                    aria-label={t('form.graceUnit')}
                   >
                     {GRACE_UNITS.map((u) => (
                       <option key={u.value} value={u.value}>{u.label}</option>
@@ -459,7 +515,7 @@ export function ChoreFormModal({ title, chore, onClose, onSaved }: ChoreFormModa
         )}
         <div>
           <div className="mb-1 flex items-center justify-between">
-            <Label className="mb-0">Assignees</Label>
+            <Label className="mb-0">{t('details.assignees')}</Label>
             {(allUsers ?? []).length > 1 && (() => {
               const all = (allUsers ?? []).map((u) => u.id)
               const allSelected = all.every((id) => assigneeIds.includes(id))
@@ -472,12 +528,12 @@ export function ChoreFormModal({ title, chore, onClose, onSaved }: ChoreFormModa
                       setCurrentAssigneeId('')
                     } else {
                       setAssigneeIds(all)
-                      if (!all.includes(currentAssigneeId)) setCurrentAssigneeId(all[0] ?? '')
+                      if (!keepUnassigned && !all.includes(currentAssigneeId)) setCurrentAssigneeId(all[0] ?? '')
                     }
                   }}
                   className="text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
                 >
-                  {allSelected ? 'Deselect all' : 'Everyone'}
+                  {allSelected ? t('form.deselectAll') : t('form.everyone')}
                 </button>
               )
             })()}
@@ -503,12 +559,12 @@ export function ChoreFormModal({ title, chore, onClose, onSaved }: ChoreFormModa
         </div>
         {isIndependent ? (
           <div>
-            <Label>Per-person counts</Label>
+            <Label>{t('form.perPerson')}</Label>
             <p className="-mt-0.5 mb-1.5 text-xs text-muted-foreground">
-              Each person does it on their own schedule, so one being late never blocks the others.
+              {t('form.perPersonHint')}
             </p>
             {selectedAssignees.length === 0 ? (
-              <p className="text-sm text-muted-foreground">Select assignees above.</p>
+              <p className="text-sm text-muted-foreground">{t('form.selectAbove')}</p>
             ) : (
               <div className="space-y-1.5">
                 {selectedAssignees.map((u) => (
@@ -524,7 +580,7 @@ export function ChoreFormModal({ title, chore, onClose, onSaved }: ChoreFormModa
                           onCommit={(n) =>
                             setTrackQuotas((prev) => ({ ...prev, [u.id]: Math.max(1, n) }))
                           }
-                          aria-label={`Times for ${u.displayName}`}
+                          aria-label={t('form.timesFor', { name: u.displayName })}
                         />
                       </div>
                       <span className="text-xs text-muted-foreground">×</span>
@@ -536,22 +592,83 @@ export function ChoreFormModal({ title, chore, onClose, onSaved }: ChoreFormModa
           </div>
         ) : (
           <div>
-            <Label htmlFor="current">Current assignee</Label>
+            <Label htmlFor="current">{t('form.currentAssignee')}</Label>
             <Select
               id="current"
               value={currentAssigneeId}
               onChange={(e) => setCurrentAssigneeId(e.target.value)}
               disabled={selectedAssignees.length === 0}
             >
-              <option value="" disabled>Select an assignee</option>
+              {isManual
+                ? <option value="">{t('chore.unassigned')}</option>
+                : <option value="" disabled>{t('form.selectAnAssignee')}</option>}
               {selectedAssignees.map((u) => (
-                <option key={u.id} value={u.id}>{u.displayName}</option>
+                <option key={u.id} value={u.id}>
+                  {partnerName(u.id) ? `${u.displayName} & ${partnerName(u.id)}` : u.displayName}
+                </option>
               ))}
             </Select>
           </div>
         )}
+        {!isIndependent && selectedAssignees.length >= 2 && (
+          <div>
+            <Label>{t('form.pairs')}</Label>
+            {activePairs.length > 0 && (
+              <div className="mb-1.5 flex flex-wrap gap-1">
+                {activePairs.map((pair) => (
+                  <span
+                    key={pair.join('-')}
+                    className="flex items-center gap-1.5 rounded-md bg-primary/10 px-2 py-1 text-xs text-primary ring-1 ring-primary"
+                  >
+                    {userName(pair[0])} & {userName(pair[1])}
+                    <button
+                      type="button"
+                      onClick={() => setPairs((prev) => prev.filter((p) => p !== pair))}
+                      className="opacity-70 hover:opacity-100"
+                      aria-label={t('form.removePair', { a: userName(pair[0]), b: userName(pair[1]) })}
+                    >
+                      ×
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
+            {unpaired.length >= 2 ? (
+              <div className="flex items-center gap-1.5">
+                {[0, 1].map((slot) => (
+                  <Select
+                    key={slot}
+                    value={pairDraft[slot]}
+                    onChange={(e) =>
+                      setPairDraft((prev) => (slot === 0 ? [e.target.value, prev[1]] : [prev[0], e.target.value]))
+                    }
+                    aria-label={slot === 0 ? t('form.firstInPair') : t('form.secondInPair')}
+                  >
+                    <option value="">{t('form.selectPerson')}</option>
+                    {unpaired
+                      .filter((u) => u.id !== pairDraft[1 - slot])
+                      .map((u) => (
+                        <option key={u.id} value={u.id}>{u.displayName}</option>
+                      ))}
+                  </Select>
+                ))}
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={addPair}
+                  disabled={!pairDraft[0] || !pairDraft[1]}
+                  className="shrink-0"
+                >
+                  {t('form.addPair')}
+                </Button>
+              </div>
+            ) : activePairs.length === 0 ? null : (
+              <p className="text-xs text-muted-foreground">{t('form.allPaired')}</p>
+            )}
+          </div>
+        )}
         <div>
-          <Label>Tags</Label>
+          <Label>{t('filters.tags')}</Label>
           {allTags && allTags.length > 0 ? (
             <div className="flex flex-wrap gap-1">
               {allTags.map((t) => (
@@ -573,15 +690,15 @@ export function ChoreFormModal({ title, chore, onClose, onSaved }: ChoreFormModa
               ))}
             </div>
           ) : (
-            <p className="text-sm text-muted-foreground">No tags yet. Add them in Settings.</p>
+            <p className="text-sm text-muted-foreground">{t('form.noTags')}</p>
           )}
         </div>
         <NotificationsEditor value={notifications} onChange={setNotifications} independent={isIndependent} />
         {error && <p className="text-sm text-destructive">{error}</p>}
         <div className="flex justify-end gap-2">
-          <Button type="button" variant="secondary" onClick={onClose}>Cancel</Button>
+          <Button type="button" variant="secondary" onClick={onClose}>{t('common.cancel')}</Button>
           <Button type="submit" disabled={mutation.isPending}>
-            {mutation.isPending ? 'Saving…' : 'Save'}
+            {mutation.isPending ? t('common.saving') : t('common.save')}
           </Button>
         </div>
       </form>

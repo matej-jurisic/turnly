@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/Button'
 import { Card, CardContent } from '@/components/ui/Card'
 import { Select } from '@/components/ui/Field'
 import { cn } from '@/lib/utils'
+import { locale, t, tServer } from '@/lib/i18n'
 
 // Order categories deterministically; anything unknown falls to the end.
 const CATEGORY_ORDER = ['Completions', 'Streaks', 'Points', 'Rewards', 'Variety']
@@ -38,7 +39,7 @@ export function AchievementsPage() {
   const revokeMutation = useMutation({
     mutationFn: (key: string) => achievementsApi.revoke(targetUserId, key),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['achievements', targetUserId] }),
-    onError: (err) => toast.error(err instanceof ApiError ? err.message : 'Revoke failed'),
+    onError: (err) => toast.error(err instanceof ApiError ? err.message : t('ach.revokeFailed')),
   })
 
   const earnedCount = achievements?.filter((a) => a.earned).length ?? 0
@@ -52,7 +53,7 @@ export function AchievementsPage() {
   return (
     <div className="space-y-8">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-2xl font-semibold text-foreground">Achievements</h1>
+        <h1 className="text-2xl font-semibold text-foreground">{t('nav.achievements')}</h1>
         <div className="flex items-center gap-3">
           {isAdmin && users && users.length > 0 && (
             <Select
@@ -62,8 +63,7 @@ export function AchievementsPage() {
             >
               {users.map((u) => (
                 <option key={u.id} value={u.id}>
-                  {u.displayName}
-                  {u.id === currentUser?.id ? ' (you)' : ''}
+                  {u.id === currentUser?.id ? t('complete.you', { name: u.displayName }) : u.displayName}
                 </option>
               ))}
             </Select>
@@ -73,9 +73,9 @@ export function AchievementsPage() {
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value as 'all' | 'earned' | 'locked')}
           >
-            <option value="all">All</option>
-            <option value="earned">Completed</option>
-            <option value="locked">Locked</option>
+            <option value="all">{t('ach.all')}</option>
+            <option value="earned">{t('ach.filterEarned')}</option>
+            <option value="locked">{t('ach.locked')}</option>
           </Select>
           {total > 0 && (
             <Badge tone="violet" className="shrink-0 whitespace-nowrap">
@@ -85,12 +85,12 @@ export function AchievementsPage() {
         </div>
       </div>
 
-      {isLoading && <p className="text-muted-foreground">Loading…</p>}
+      {isLoading && <p className="text-muted-foreground">{t('common.loading')}</p>}
       {error && <p className="text-destructive">{(error as ApiError).message}</p>}
 
       {groups.map(([category, items]) => (
         <section key={category} className="space-y-3">
-          <h2 className="text-sm font-semibold text-muted-foreground">{category}</h2>
+          <h2 className="text-sm font-semibold text-muted-foreground">{tServer(`achievementCategory.${category}`, category)}</h2>
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {items.map((a) => (
               <AchievementCard
@@ -101,9 +101,9 @@ export function AchievementsPage() {
                 onRevoke={async () => {
                   if (
                     await confirm({
-                      title: 'Revoke achievement',
-                      message: `Revoke "${a.name}"? It can be re-earned if the threshold is met again.`,
-                      confirmLabel: 'Revoke',
+                      title: t('ach.revokeTitle'),
+                      message: t('ach.revokeMessage', { name: tServer(`achievement.${a.key}.name`, a.name) }),
+                      confirmLabel: t('ach.revoke'),
                     })
                   ) {
                     revokeMutation.mutate(a.key)
@@ -141,10 +141,10 @@ function AchievementCard({
           </span>
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2">
-              <p className="truncate font-semibold text-foreground">{a.name}</p>
-              {a.earned && <Badge tone="green">Earned</Badge>}
+              <p className="truncate font-semibold text-foreground">{tServer(`achievement.${a.key}.name`, a.name)}</p>
+              {a.earned && <Badge tone="green">{t('ach.earned')}</Badge>}
             </div>
-            <p className="mt-0.5 text-sm text-muted-foreground">{a.description}</p>
+            <p className="mt-0.5 text-sm text-muted-foreground">{tServer(`achievement.${a.key}.description`, a.description)}</p>
           </div>
         </div>
 
@@ -152,7 +152,9 @@ function AchievementCard({
           {a.earned ? (
             <div className="flex items-center justify-between gap-2">
               <p className="text-xs text-muted-foreground">
-                Unlocked{a.earnedAt ? ` ${new Date(a.earnedAt).toLocaleDateString()}` : ''}
+                {a.earnedAt
+                  ? t('ach.unlockedOn', { date: new Date(a.earnedAt).toLocaleDateString(locale()) })
+                  : t('ach.unlocked')}
               </p>
               {canRevoke && (
                 <Button
@@ -162,7 +164,7 @@ function AchievementCard({
                   disabled={revoking}
                   onClick={onRevoke}
                 >
-                  Revoke
+                  {t('ach.revoke')}
                 </Button>
               )}
             </div>

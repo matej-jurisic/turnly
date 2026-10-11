@@ -4,17 +4,17 @@ Family chore management web app (PWA). Self-hosted, simple, actually works.
 
 Turnly is feature-complete. It provides foundation
 (auth, users, roles, Docker), chore CRUD with recurrence and assignment strategies, a dashboard
-with today/overdue/upcoming views (list, compact, and calendar layouts), per-user point totals,
+with today/overdue/upcoming views (list, compact, and calendar layouts, plus an admin-only config table of every chore's settings), per-user point totals,
 filtering, and global search, a history/stats view, a Rewards page with awards and point redemption (with next-goal
-progress), per-occurrence skip, admin reassignment, and chore offers (put a chore you're holding up for anyone
+progress), per-occurrence skip, backdated completions (set when you actually did it), admin reassignment, and chore offers (put a chore you're holding up for anyone
 to take, optionally with a points bounty), Web Push notifications (per-chore
 reminder/due/follow-up schedule via self-hosted VAPID keys, with per-user quiet hours and
 per-category delivery controls), and UX
 polish (swipe actions, completion confetti, admin complete-on-behalf and activity-entry deletion).
 **Shared chores** can also be set to "Everyone (independent)", giving each assignee their own
 schedule and per-person quota — one chore for "everyone does the dishes once a week" without anyone
-blocking anyone else. Rotating chores can **hand over once a month** instead of every occurrence
-(one person does the weekly chore all month, then the next person takes over). Chores can also fire **multiple times a day**, **auto-advance** past missed
+blocking anyone else. Jobs that take two people can use **fixed pairs**: the pair holds the turn together, rotates as one, and both get the points when either marks it done. Rotating chores can **hand over once a day, week, month, quarter or year** instead of every occurrence
+(one person does the weekly chore all month, then the next person takes over). Chores can also fire **multiple times a day** (each time can be named, e.g. Morning and Evening), **auto-advance** past missed
 occurrences, track an **on-time streak**, and be **copied**; admins can **adjust points** manually,
 **delete a redemption of any status** (refunding its points), and set the instance's **family
 timezone**. Members also earn **achievements** — collectible, permanently-earned badges for
@@ -30,7 +30,8 @@ pity counter that guarantees a Legendary, a dust economy that turns duplicates i
 crafted item, published drop rates, and one-per-slot equipping. For a clean slate, admins can run a
 **fresh start** (Settings → Danger zone) that wipes all activity, point history, redemptions,
 achievements, and cosmetics progress and resets everyone's points to 0, while keeping every chore and its
-schedule intact. See [`specs.md`](./specs.md) for the full product spec and feature list.
+schedule intact. The interface is available in **English and Croatian**, picked per device under
+Settings → Language. See [`specs.md`](./specs.md) for the full product spec and feature list.
 
 ## Stack
 

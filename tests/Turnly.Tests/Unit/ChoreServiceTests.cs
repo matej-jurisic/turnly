@@ -412,6 +412,69 @@ public class ChoreServiceTests
     }
 
     [Fact]
+    public async Task CompleteAsync_backdated_logs_the_given_time_and_schedules_from_it()
+    {
+        using var ctx = new TestContext();
+        var (_, member) = await SeedUsersAsync(ctx);
+        var chore = (await ctx.Chores.CreateAsync(NewChore(member, [member], RepeatType.Daily,
+            scheduling: SchedulingPreference.FromCompletionDate))).Value!;
+
+        // Done three days ago, logged only now.
+        var doneAt = DateTimeOffset.UtcNow.AddDays(-3);
+        var result = await ctx.Chores.CompleteAsync(chore.Id, member, new CompleteChoreRequest(null, CompletedAt: doneAt));
+
+        Assert.True(result.Succeeded);
+        Assert.Equal(doneAt, result.Value!.LastCompletion!.CompletedAt);
+        // Completion-anchored scheduling steps off when it was really done, not when it was logged.
+        Assert.Equal(doneAt.Date.AddDays(1), result.Value.DueAt!.Value.Date);
+    }
+
+    [Fact]
+    public async Task CompleteAsync_backdated_before_the_due_date_counts_as_on_time()
+    {
+        using var ctx = new TestContext();
+        var (_, member) = await SeedUsersAsync(ctx);
+        // Due at Start (long past), so logging it now would be late.
+        var chore = (await ctx.Chores.CreateAsync(NewChore(member, [member], RepeatType.Daily))).Value!;
+
+        await ctx.Chores.CompleteAsync(chore.Id, member, new CompleteChoreRequest(null, CompletedAt: Start.AddHours(-1)));
+
+        var completion = await ctx.Db.ChoreCompletions.SingleAsync(c => c.ChoreId == chore.Id);
+        Assert.True(completion.CompletedAt <= completion.OccurrenceDueAt);
+    }
+
+    [Fact]
+    public async Task CompleteAsync_rejects_a_future_completion_time()
+    {
+        using var ctx = new TestContext();
+        var (_, member) = await SeedUsersAsync(ctx);
+        var chore = (await ctx.Chores.CreateAsync(NewChore(member, [member]))).Value!;
+
+        var result = await ctx.Chores.CompleteAsync(chore.Id, member,
+            new CompleteChoreRequest(null, CompletedAt: DateTimeOffset.UtcNow.AddHours(1)));
+
+        Assert.False(result.Succeeded);
+        Assert.Equal(ErrorType.Validation, result.Error!.Type);
+        Assert.Empty(ctx.Db.ChoreCompletions);
+    }
+
+    [Fact]
+    public async Task CompleteAsync_rejects_backdating_before_the_last_logged_entry()
+    {
+        using var ctx = new TestContext();
+        var (_, member) = await SeedUsersAsync(ctx);
+        var chore = (await ctx.Chores.CreateAsync(NewChore(member, [member]))).Value!;
+        await ctx.Chores.CompleteAsync(chore.Id, member, new CompleteChoreRequest(null));
+
+        var result = await ctx.Chores.CompleteAsync(chore.Id, member,
+            new CompleteChoreRequest(null, CompletedAt: DateTimeOffset.UtcNow.AddDays(-1)));
+
+        Assert.False(result.Succeeded);
+        Assert.Equal(ErrorType.Validation, result.Error!.Type);
+        Assert.Equal(1, await ctx.Db.ChoreCompletions.CountAsync());
+    }
+
+    [Fact]
     public async Task CompleteAsync_multi_completion_tracks_progress_then_advances()
     {
         using var ctx = new TestContext();
@@ -458,6 +521,75 @@ public class ChoreServiceTests
         var afterMorning = await ctx.Chores.CompleteAsync(chore.Id, member, new CompleteChoreRequest(null));
         // From the morning slot, the next is the same day's evening slot.
         Assert.Equal(new DateTimeOffset(2026, 6, 18, 20, 0, 0, TimeSpan.Zero), afterMorning.Value!.DueAt);
+    }
+
+    [Fact]
+    public async Task CreateAsync_with_time_labels_keeps_only_labels_for_real_slots()
+    {
+        using var ctx = new TestContext();
+        var (_, member) = await SeedUsersAsync(ctx);
+        var chore = (await ctx.Chores.CreateAsync(NewChore(member, [member], RepeatType.Daily) with
+        {
+            TimesOfDay = ["08:00", "20:00"],
+            // 12:00 isn't a slot and the 20:00 label is blank, so only the morning label survives.
+            TimeLabels = new() { ["08:00"] = "  Morning ", ["20:00"] = " ", ["12:00"] = "Lunch" }
+        })).Value!;
+
+        Assert.Equal(new Dictionary<string, string> { ["08:00"] = "Morning" }, chore.TimeLabels);
+        Assert.Null(chore.DueLabel); // first due is the unlabelled 20:00 slot
+    }
+
+    [Fact]
+    public async Task CompleteAsync_with_time_labels_moves_the_due_label_with_the_slot()
+    {
+        using var ctx = new TestContext();
+        var (_, member) = await SeedUsersAsync(ctx);
+        var chore = (await ctx.Chores.CreateAsync(NewChore(member, [member], RepeatType.Daily) with
+        {
+            TimesOfDay = ["08:00", "20:00"],
+            TimeLabels = new() { ["08:00"] = "Morning", ["20:00"] = "Evening" }
+        })).Value!; // first due 2026-06-17 20:00
+        Assert.Equal("Evening", chore.DueLabel);
+
+        var afterEvening = await ctx.Chores.CompleteAsync(chore.Id, member, new CompleteChoreRequest(null));
+        Assert.Equal("Morning", afterEvening.Value!.DueLabel);
+
+        // Labels survive a reload (JSON column round-trip) and a copy.
+        var reloaded = (await ctx.Chores.GetAsync(chore.Id)).Value!;
+        Assert.Equal("Evening", reloaded.TimeLabels["20:00"]);
+        var copy = (await ctx.Chores.CopyAsync(chore.Id, "Feed the cat")).Value!;
+        Assert.Equal(reloaded.TimeLabels, copy.TimeLabels);
+    }
+
+    [Fact]
+    public async Task CreateAsync_rejects_an_overlong_or_malformed_time_label()
+    {
+        using var ctx = new TestContext();
+        var (_, member) = await SeedUsersAsync(ctx);
+        var twiceDaily = NewChore(member, [member], RepeatType.Daily) with { TimesOfDay = ["08:00", "20:00"] };
+
+        var tooLong = await ctx.Chores.CreateAsync(twiceDaily with
+        {
+            TimeLabels = new() { ["08:00"] = new string('x', Validators.MaxTimeLabelLength + 1) }
+        });
+        var badKey = await ctx.Chores.CreateAsync(twiceDaily with { TimeLabels = new() { ["morning"] = "Morning" } });
+
+        Assert.Equal(ErrorType.Validation, tooLong.Error!.Type);
+        Assert.Equal(ErrorType.Validation, badKey.Error!.Type);
+    }
+
+    [Fact]
+    public async Task UpdateAsync_drops_the_label_of_a_removed_time()
+    {
+        using var ctx = new TestContext();
+        var (_, member) = await SeedUsersAsync(ctx);
+        var labels = new Dictionary<string, string> { ["08:00"] = "Morning", ["20:00"] = "Evening" };
+        var req = NewChore(member, [member], RepeatType.Daily) with { TimesOfDay = ["08:00", "20:00"], TimeLabels = labels };
+        var chore = (await ctx.Chores.CreateAsync(req)).Value!;
+
+        var updated = (await ctx.Chores.UpdateAsync(chore.Id, ToUpdate(req) with { TimesOfDay = ["08:00", "13:00"], TimeLabels = labels })).Value!;
+
+        Assert.Equal(new Dictionary<string, string> { ["08:00"] = "Morning" }, updated.TimeLabels);
     }
 
     [Fact]
@@ -578,6 +710,73 @@ public class ChoreServiceTests
         // A completion closes the 2nd slot → occurrence advances.
         var done = await ctx.Chores.CompleteAsync(chore.Id, member, new CompleteChoreRequest(null));
         Assert.True(done.Value!.DueAt > originalDue);
+    }
+
+    [Fact]
+    public async Task CompleteAsync_manual_strategy_leaves_next_occurrence_unassigned()
+    {
+        using var ctx = new TestContext();
+        var (admin, member) = await SeedUsersAsync(ctx);
+        var chore = (await ctx.Chores.CreateAsync(
+            NewChore(member, [admin, member], strategy: AssignmentStrategy.Manual))).Value!;
+
+        var result = await ctx.Chores.CompleteAsync(chore.Id, member, new CompleteChoreRequest(null));
+
+        Assert.True(result.Succeeded);
+        Assert.Null(result.Value!.CurrentAssignee);
+        Assert.Null(result.Value.NextAssignee);
+        Assert.NotNull(result.Value.DueAt);
+        // Going unassigned isn't an assignment: only the initial one is on record.
+        Assert.Equal(1, await ctx.Db.ChoreAssignments.CountAsync(a => a.ChoreId == chore.Id));
+    }
+
+    [Fact]
+    public async Task ReassignAsync_admin_assigns_an_unassigned_manual_chore()
+    {
+        using var ctx = new TestContext();
+        var (admin, member) = await SeedUsersAsync(ctx);
+        var chore = (await ctx.Chores.CreateAsync(
+            NewChore(member, [admin, member], strategy: AssignmentStrategy.Manual))).Value!;
+        await ctx.Chores.CompleteAsync(chore.Id, member, new CompleteChoreRequest(null));
+
+        var denied = await ctx.Chores.ReassignAsync(chore.Id, member, new ReassignChoreRequest(member));
+        var result = await ctx.Chores.ReassignAsync(chore.Id, admin, new ReassignChoreRequest(admin));
+
+        Assert.Equal(ErrorType.Forbidden, denied.Error!.Type);
+        Assert.True(result.Succeeded);
+        Assert.Equal(admin, result.Value!.CurrentAssignee!.Id);
+    }
+
+    [Fact]
+    public async Task UndoCompletionAsync_manual_strategy_restores_the_assignee()
+    {
+        using var ctx = new TestContext();
+        var (admin, member) = await SeedUsersAsync(ctx);
+        var chore = (await ctx.Chores.CreateAsync(
+            NewChore(member, [admin, member], strategy: AssignmentStrategy.Manual))).Value!;
+        var done = (await ctx.Chores.CompleteAsync(chore.Id, member, new CompleteChoreRequest(null))).Value!;
+
+        var undo = await ctx.Chores.UndoCompletionAsync(done.LastCompletion!.Id, member);
+
+        Assert.True(undo.Succeeded);
+        Assert.Equal(member, (await ctx.Chores.GetAsync(chore.Id)).Value!.CurrentAssignee!.Id);
+    }
+
+    [Fact]
+    public async Task CreateAsync_manual_strategy_allows_no_current_assignee()
+    {
+        using var ctx = new TestContext();
+        var (admin, member) = await SeedUsersAsync(ctx);
+
+        var result = await ctx.Chores.CreateAsync(
+            NewChore(member, [admin, member], strategy: AssignmentStrategy.Manual) with { CurrentAssigneeId = null });
+        var other = await ctx.Chores.CreateAsync(
+            NewChore(member, [admin, member], strategy: AssignmentStrategy.RoundRobin) with { CurrentAssigneeId = null });
+
+        Assert.True(result.Succeeded);
+        Assert.Null(result.Value!.CurrentAssignee);
+        Assert.Equal(0, await ctx.Db.ChoreAssignments.CountAsync(a => a.ChoreId == result.Value.Id));
+        Assert.Equal(ErrorType.Validation, other.Error!.Type);
     }
 
     [Fact]
@@ -1484,6 +1683,32 @@ public class ChoreServiceTests
         Assert.Equal(1, await ctx.Chores.AutoAdvanceAsync(Start.AddDays(7).AddHours(1)));
         Assert.Equal(Start.AddDays(14), stored.DueAt);
         Assert.Equal(member, stored.CurrentAssigneeId);
+    }
+
+    [Fact]
+    public async Task CreateAsync_keeps_a_quarterly_rotation_period_on_a_monthly_chore()
+    {
+        using var ctx = new TestContext();
+        var (admin, member) = await SeedUsersAsync(ctx);
+
+        var chore = (await ctx.Chores.CreateAsync(
+            NewChore(admin, [admin, member], RepeatType.Monthly, strategy: AssignmentStrategy.RoundRobin)
+            with { RotationPeriod = RotationPeriod.Quarterly })).Value!;
+
+        Assert.Equal(RotationPeriod.Quarterly, chore.RotationPeriod);
+    }
+
+    [Fact]
+    public async Task CreateAsync_drops_a_weekly_rotation_period_on_a_weekly_chore()
+    {
+        using var ctx = new TestContext();
+        var (admin, member) = await SeedUsersAsync(ctx);
+
+        var chore = (await ctx.Chores.CreateAsync(
+            NewChore(admin, [admin, member], RepeatType.Weekly, strategy: AssignmentStrategy.RoundRobin)
+            with { RotationPeriod = RotationPeriod.Weekly })).Value!;
+
+        Assert.Equal(RotationPeriod.EveryOccurrence, chore.RotationPeriod);
     }
 
     [Theory]

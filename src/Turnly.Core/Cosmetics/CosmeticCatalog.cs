@@ -93,11 +93,12 @@ public static class CosmeticCatalog
         new("theme-twilight",    "Twilight",       "A plum-and-coral sunset gradient.",       CosmeticSlot.Theme, CosmeticRarity.Legendary),
 
         // ---- Avatar colors ----------------------------------------------------------------
-        // The default purple is free (owned by everyone, never rolled). The rest are collectible.
+        // Indigo (what new users start on), green and blue are free: owned by everyone, never
+        // rolled. The rest are collectible.
         new("color-indigo", "Indigo", "The classic purple avatar.", CosmeticSlot.Color, CosmeticRarity.Common, Value: "#6366f1", Default: true),
         new("color-amber",  "Amber",  "A warm amber avatar.",       CosmeticSlot.Color, CosmeticRarity.Common, Value: "#f59e0b"),
-        new("color-green",  "Green",  "A fresh green avatar.",      CosmeticSlot.Color, CosmeticRarity.Common, Value: "#22c55e"),
-        new("color-blue",   "Blue",   "A clean blue avatar.",       CosmeticSlot.Color, CosmeticRarity.Common, Value: "#3b82f6"),
+        new("color-green",  "Green",  "A fresh green avatar.",      CosmeticSlot.Color, CosmeticRarity.Common, Value: "#22c55e", Default: true),
+        new("color-blue",   "Blue",   "A clean blue avatar.",       CosmeticSlot.Color, CosmeticRarity.Common, Value: "#3b82f6", Default: true),
         new("color-slate",  "Slate",  "A cool slate avatar.",       CosmeticSlot.Color, CosmeticRarity.Common, Value: "#64748b"),
         new("color-cyan",   "Cyan",   "A bright cyan avatar.",      CosmeticSlot.Color, CosmeticRarity.Rare, Value: "#06b6d4"),
         new("color-teal",   "Teal",   "A calm teal avatar.",        CosmeticSlot.Color, CosmeticRarity.Rare, Value: "#14b8a6"),
@@ -106,12 +107,13 @@ public static class CosmeticCatalog
         new("color-rose",   "Rose",   "An elegant rose avatar.",    CosmeticSlot.Color, CosmeticRarity.Legendary, Value: "#e11d48"),
 
         // ---- Avatar emojis ----------------------------------------------------------------
-        // Shown on the avatar in place of initials. No free default (initials are the fallback);
-        // Value is the emoji char the backend writes to User.AvatarEmoji on equip.
+        // Shown on the avatar in place of initials. Star, heart and paw are free starters, but none
+        // is equipped out of the box (initials are the fallback). Value is the emoji char the
+        // backend writes to User.AvatarEmoji on equip.
         // Common: everyday emoji.
-        new("emoji-star",     "Star",     "A bright star on your avatar.",     CosmeticSlot.Emoji, CosmeticRarity.Common, Value: "⭐"),
-        new("emoji-heart",    "Heart",    "A red heart on your avatar.",       CosmeticSlot.Emoji, CosmeticRarity.Common, Value: "❤️"),
-        new("emoji-paw",      "Paw",      "A little paw print.",               CosmeticSlot.Emoji, CosmeticRarity.Common, Value: "\U0001F43E"),
+        new("emoji-star",     "Star",     "A bright star on your avatar.",     CosmeticSlot.Emoji, CosmeticRarity.Common, Value: "⭐", Default: true),
+        new("emoji-heart",    "Heart",    "A red heart on your avatar.",       CosmeticSlot.Emoji, CosmeticRarity.Common, Value: "❤️", Default: true),
+        new("emoji-paw",      "Paw",      "A little paw print.",               CosmeticSlot.Emoji, CosmeticRarity.Common, Value: "\U0001F43E", Default: true),
         new("emoji-leaf",     "Leaf",     "A fresh green leaf.",               CosmeticSlot.Emoji, CosmeticRarity.Common, Value: "\U0001F343"),
         // Rare: with a bit more character.
         new("emoji-fire",     "Fire",     "A blazing flame.",                  CosmeticSlot.Emoji, CosmeticRarity.Rare, Value: "\U0001F525"),
@@ -125,6 +127,10 @@ public static class CosmeticCatalog
         new("emoji-unicorn",  "Unicorn",  "A magical unicorn.",                CosmeticSlot.Emoji, CosmeticRarity.Legendary, Value: "\U0001F984"),
         new("emoji-dragon",   "Dragon",   "A mighty dragon.",                  CosmeticSlot.Emoji, CosmeticRarity.Legendary, Value: "\U0001F409"),
     ];
+
+    /// <summary>The avatar color a new (or freshly reset) user starts on. One of several free
+    /// <see cref="CosmeticDefinition.Default"/> colors, so it's named rather than looked up by flag.</summary>
+    public const string StarterColorKey = "color-indigo";
 
     public static CosmeticDefinition? Find(string key) => All.FirstOrDefault(c => c.Key == key);
 }

@@ -6,28 +6,29 @@ import type {
   NotificationType,
 } from '@/lib/types'
 import { IntegerInput, Label, Select } from '@/components/ui/Field'
+import { localized, t } from '@/lib/i18n'
 
 const TYPE_OPTIONS: { value: NotificationType; label: string }[] = [
-  { value: 'Reminder', label: 'Reminder' },
-  { value: 'Due', label: 'Due' },
-  { value: 'FollowUp', label: 'Follow-up' },
+  localized({ value: 'Reminder' as const }, { label: 'notifType.Reminder' }),
+  localized({ value: 'Due' as const }, { label: 'notifType.Due' }),
+  localized({ value: 'FollowUp' as const }, { label: 'notifType.FollowUp' }),
 ]
 
 const TIMING_OPTIONS: { value: NotificationTiming; label: string }[] = [
-  { value: 'Before', label: 'before due' },
-  { value: 'AtDue', label: 'at due time' },
-  { value: 'After', label: 'after due' },
+  localized({ value: 'Before' as const }, { label: 'notifEdit.before' }),
+  localized({ value: 'AtDue' as const }, { label: 'notifTiming.atDue' }),
+  localized({ value: 'After' as const }, { label: 'notifEdit.after' }),
 ]
 
 const UNIT_OPTIONS: { value: NotificationOffsetUnit; label: string }[] = [
-  { value: 'Minutes', label: 'minutes' },
-  { value: 'Hours', label: 'hours' },
-  { value: 'Days', label: 'days' },
+  localized({ value: 'Minutes' as const }, { label: 'unit.minutes' }),
+  localized({ value: 'Hours' as const }, { label: 'unit.hours' }),
+  localized({ value: 'Days' as const }, { label: 'unit.days' }),
 ]
 
 const RECIPIENT_OPTIONS: { value: NotificationRecipients; label: string }[] = [
-  { value: 'CurrentAssignee', label: 'Current assignee' },
-  { value: 'AllAssignees', label: 'All assignees' },
+  localized({ value: 'CurrentAssignee' as const }, { label: 'form.currentAssignee' }),
+  localized({ value: 'AllAssignees' as const }, { label: 'notifEdit.allAssignees' }),
 ]
 
 const DEFAULT_ENTRY: ChoreNotificationInput = {
@@ -56,18 +57,18 @@ export function NotificationsEditor({ value, onChange, independent = false }: Pr
   return (
     <div className="space-y-2">
       <div className="flex items-center justify-between">
-        <Label className="mb-0">Notifications</Label>
+        <Label className="mb-0">{t('notifEdit.title')}</Label>
         <button
           type="button"
           onClick={add}
           className="text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
         >
-          + Add
+          {t('notifEdit.add')}
         </button>
       </div>
 
       {value.length === 0 ? (
-        <p className="text-sm text-muted-foreground">No notifications yet. Add one to send push reminders.</p>
+        <p className="text-sm text-muted-foreground">{t('notifEdit.empty')}</p>
       ) : (
         <div className="space-y-2">
           {value.map((entry, i) => (
@@ -77,7 +78,7 @@ export function NotificationsEditor({ value, onChange, independent = false }: Pr
                   <Select
                     value={entry.type}
                     onChange={(e) => update(i, { type: e.target.value as NotificationType })}
-                    aria-label="Notification type"
+                    aria-label={t('notifEdit.type')}
                   >
                     {TYPE_OPTIONS.map((o) => (
                       <option key={o.value} value={o.value}>{o.label}</option>
@@ -87,7 +88,7 @@ export function NotificationsEditor({ value, onChange, independent = false }: Pr
                 <button
                   type="button"
                   onClick={() => remove(i)}
-                  aria-label="Remove notification"
+                  aria-label={t('notifEdit.remove')}
                   className="px-1 text-muted-foreground transition-colors hover:text-destructive"
                 >
                   ✕
@@ -96,11 +97,11 @@ export function NotificationsEditor({ value, onChange, independent = false }: Pr
 
               <div className="flex items-center gap-2">
                 {entry.timing !== 'AtDue' && (
-                  <div className="w-14">
+                  <div className="w-20 shrink-0">
                     <IntegerInput
                       value={entry.offsetValue}
                       onCommit={(n) => update(i, { offsetValue: n })}
-                      aria-label="Offset value"
+                      aria-label={t('notifEdit.offsetValue')}
                     />
                   </div>
                 )}
@@ -109,7 +110,7 @@ export function NotificationsEditor({ value, onChange, independent = false }: Pr
                     <Select
                       value={entry.offsetUnit}
                       onChange={(e) => update(i, { offsetUnit: e.target.value as NotificationOffsetUnit })}
-                      aria-label="Offset unit"
+                      aria-label={t('notifEdit.offsetUnit')}
                     >
                       {UNIT_OPTIONS.map((o) => (
                         <option key={o.value} value={o.value}>{o.label}</option>
@@ -121,7 +122,7 @@ export function NotificationsEditor({ value, onChange, independent = false }: Pr
                   <Select
                     value={entry.timing}
                     onChange={(e) => update(i, { timing: e.target.value as NotificationTiming })}
-                    aria-label="Notification timing"
+                    aria-label={t('notifEdit.timing')}
                   >
                     {TIMING_OPTIONS.map((o) => (
                       <option key={o.value} value={o.value}>{o.label}</option>
@@ -131,12 +132,12 @@ export function NotificationsEditor({ value, onChange, independent = false }: Pr
               </div>
 
               {independent ? (
-                <p className="text-xs text-muted-foreground">Sent to each person about their own schedule.</p>
+                <p className="text-xs text-muted-foreground">{t('notifEdit.independent')}</p>
               ) : (
                 <Select
                   value={entry.recipients}
                   onChange={(e) => update(i, { recipients: e.target.value as NotificationRecipients })}
-                  aria-label="Notification recipients"
+                  aria-label={t('notifEdit.recipients')}
                 >
                   {RECIPIENT_OPTIONS.map((o) => (
                     <option key={o.value} value={o.value}>{o.label}</option>

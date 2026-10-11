@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { Input, Label } from '@/components/ui/Field'
 import { ThemeToggle } from '@/components/ThemeToggle'
 import { normalizeOrigin, setServerOrigin } from '@/lib/server-config'
+import { t } from '@/lib/i18n'
 
 /**
  * First-run screen for the native app: the user enters the address of their self-hosted Turnly
@@ -24,7 +25,7 @@ export function ServerSetupPage({ onConnected }: { onConnected: () => void }) {
     try {
       origin = normalizeOrigin(address)
     } catch {
-      setError('Enter a valid server address, for example https://turnly.myhome.net')
+      setError(t('server.invalidAddress'))
       return
     }
 
@@ -37,9 +38,7 @@ export function ServerSetupPage({ onConnected }: { onConnected: () => void }) {
       await setServerOrigin(origin)
       onConnected()
     } catch {
-      setError(
-        'Could not reach a Turnly server at that address. Check the URL, and that the server allows this app (Cors:Origins).',
-      )
+      setError(t('server.unreachable'))
       setSubmitting(false)
     }
   }
@@ -51,12 +50,12 @@ export function ServerSetupPage({ onConnected }: { onConnected: () => void }) {
       </div>
       <Card className="w-full max-w-sm">
         <CardHeader>
-          <CardTitle>Connect to your server</CardTitle>
+          <CardTitle>{t('server.title')}</CardTitle>
         </CardHeader>
         <CardContent>
           <form onSubmit={onSubmit} className="space-y-4">
             <div>
-              <Label htmlFor="server">Server address</Label>
+              <Label htmlFor="server">{t('server.address')}</Label>
               <Input
                 id="server"
                 value={address}
@@ -68,12 +67,12 @@ export function ServerSetupPage({ onConnected }: { onConnected: () => void }) {
                 required
               />
               <p className="mt-2 text-sm text-muted-foreground">
-                Enter the address of your self-hosted Turnly instance.
+                {t('server.hint')}
               </p>
             </div>
             {error && <p className="text-sm text-destructive">{error}</p>}
             <Button type="submit" className="w-full" disabled={submitting}>
-              {submitting ? 'Connecting…' : 'Connect'}
+              {submitting ? t('server.connecting') : t('server.connect')}
             </Button>
           </form>
         </CardContent>

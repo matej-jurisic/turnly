@@ -3,6 +3,7 @@ import { useAchievementCelebrationStore } from '@/lib/achievementCelebration'
 import { celebrate } from '@/lib/confetti'
 import { Modal } from '@/components/ui/Modal'
 import { Button } from '@/components/ui/Button'
+import { t, tServer } from '@/lib/i18n'
 
 /**
  * Shows a celebratory popup when the user unlocks an achievement. Achievements arrive on the
@@ -22,15 +23,15 @@ export function AchievementCelebration() {
   if (!current) return null
 
   return (
-    <Modal title="Achievement unlocked!" onClose={dismiss}>
+    <Modal title={t('celebration.title')} onClose={dismiss}>
       <div className="flex flex-col items-center gap-4 py-2 text-center">
         <span className="text-6xl leading-none">{current.emoji}</span>
         <div className="space-y-1">
-          <p className="text-lg font-semibold text-foreground">{current.name}</p>
-          <p className="text-sm text-muted-foreground">{current.description}</p>
+          <p className="text-lg font-semibold text-foreground">{tServer(`achievement.${current.key}.name`, current.name)}</p>
+          <p className="text-sm text-muted-foreground">{tServer(`achievement.${current.key}.description`, current.description)}</p>
         </div>
         <Button onClick={dismiss} className="mt-1">
-          {remaining > 1 ? `Next (${remaining - 1} more)` : 'Nice!'}
+          {remaining > 1 ? t('celebration.next', { count: remaining - 1 }) : t('celebration.nice')}
         </Button>
       </div>
     </Modal>

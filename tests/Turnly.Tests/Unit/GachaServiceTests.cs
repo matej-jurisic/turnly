@@ -176,6 +176,23 @@ public class GachaServiceTests
         Assert.True(result.Succeeded);
     }
 
+    [Theory]
+    [InlineData("color-green", CosmeticSlot.Color)]
+    [InlineData("color-blue", CosmeticSlot.Color)]
+    [InlineData("emoji-star", CosmeticSlot.Emoji)]
+    [InlineData("emoji-heart", CosmeticSlot.Emoji)]
+    [InlineData("emoji-paw", CosmeticSlot.Emoji)]
+    public async Task Starter_cosmetics_are_owned_without_a_row_and_equippable(string key, CosmeticSlot slot)
+    {
+        using var ctx = new TestContext();
+        var id = await SeedUserAsync(ctx);
+
+        var state = (await ctx.Gacha.GetStateAsync(id)).Value!;
+        Assert.True(state.Cosmetics.Single(c => c.Key == key).Owned);
+
+        Assert.True((await ctx.Gacha.EquipAsync(id, slot, key)).Succeeded);
+    }
+
     [Fact]
     public async Task Equip_color_sets_the_avatar_color()
     {

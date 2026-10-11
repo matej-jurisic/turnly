@@ -169,6 +169,22 @@ public class UserServiceTests
     }
 
     [Fact]
+    public async Task FreezeAsync_leaves_manual_chore_unassigned_even_with_eligible_assignees()
+    {
+        using var ctx = new TestContext();
+        var adminId = await SeedAdminAsync(ctx);
+        var memberId = (await ctx.Users.CreateAsync(NewUser("bob"))).Value!.Id;
+        var choreId = await SeedRotatingChoreAsync(ctx, adminId, [adminId, memberId]);
+        var chore = await ctx.Db.Chores.FindAsync(choreId);
+        chore!.AssignmentStrategy = AssignmentStrategy.Manual;
+        await ctx.Db.SaveChangesAsync();
+
+        await ctx.Users.FreezeAsync(adminId);
+
+        Assert.Null(chore.CurrentAssigneeId);
+    }
+
+    [Fact]
     public async Task FreezeAsync_leaves_chore_unassigned_when_no_eligible_assignee_remains()
     {
         using var ctx = new TestContext();

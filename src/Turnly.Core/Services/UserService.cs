@@ -70,26 +70,31 @@ public class UserService
         var users = await _db.Users.OrderBy(u => u.DisplayName).ToListAsync(ct);
         var allCompletions = await _db.ChoreCompletions
             .Where(c => !c.IsSkip) // skips are not real completions — exclude from stats
-            .Select(c => new { c.CompletedByUserId, c.CompletedAt, c.OccurrenceDueAt, c.IsExpired, c.PreviousAssigneeId })
+            .Select(c => new { c.CompletedByUserId, c.PartnerUserId, c.CompletedAt, c.OccurrenceDueAt, c.IsExpired, c.PreviousAssigneeId })
             .ToListAsync(ct);
 
         var weekStart = GetCurrentWeekStart();
         var now = DateTimeOffset.UtcNow;
         var monthStart = new DateTimeOffset(now.Year, now.Month, 1, 0, 0, 0, TimeSpan.Zero);
 
-        // Expired rows have null CompletedByUserId so they never match the per-user completion counts below.
-        var userStats = users.Select(u => new UserStatsDto(
-            u.Id, u.DisplayName, u.AvatarColor,
-            allCompletions.Count(c => c.CompletedByUserId == u.Id && c.CompletedAt >= weekStart),
-            allCompletions.Count(c => c.CompletedByUserId == u.Id && c.CompletedAt >= monthStart),
-            allCompletions.Count(c => c.CompletedByUserId == u.Id),
-            allCompletions.Count(c => c.CompletedByUserId == u.Id
-                && c.OccurrenceDueAt.HasValue && c.CompletedAt <= c.OccurrenceDueAt.Value),
-            allCompletions.Count(c => c.CompletedByUserId == u.Id
-                && c.OccurrenceDueAt.HasValue && c.CompletedAt > c.OccurrenceDueAt.Value),
-            allCompletions.Count(c => c.IsExpired && c.PreviousAssigneeId == u.Id),
-            u.AvatarEmoji, u.EquippedFrameKey
-        )).ToList();
+        // A paired completion counts for both partners. Expired rows are split out first: they carry a
+        // partner too (who shares the miss), so they mustn't leak into the completion counts.
+        var done = allCompletions.Where(c => !c.IsExpired).ToList();
+        var missed = allCompletions.Where(c => c.IsExpired).ToList();
+
+        var userStats = users.Select(u =>
+        {
+            var mine = done.Where(c => c.CompletedByUserId == u.Id || c.PartnerUserId == u.Id).ToList();
+            return new UserStatsDto(
+                u.Id, u.DisplayName, u.AvatarColor,
+                mine.Count(c => c.CompletedAt >= weekStart),
+                mine.Count(c => c.CompletedAt >= monthStart),
+                mine.Count,
+                mine.Count(c => c.OccurrenceDueAt.HasValue && c.CompletedAt <= c.OccurrenceDueAt.Value),
+                mine.Count(c => c.OccurrenceDueAt.HasValue && c.CompletedAt > c.OccurrenceDueAt.Value),
+                missed.Count(c => c.PreviousAssigneeId == u.Id || c.PartnerUserId == u.Id),
+                u.AvatarEmoji, u.EquippedFrameKey);
+        }).ToList();
 
         var totalMissedCount = allCompletions.Count(c => c.IsExpired);
 
@@ -104,7 +109,7 @@ public class UserService
                 : $"{ws:MMM d}–{end:MMM d}";
             var userCounts = users.Select(u => new UserWeeklyCountDto(
                 u.Id, u.DisplayName, u.AvatarColor,
-                allCompletions.Count(c => c.CompletedByUserId == u.Id && c.CompletedAt >= ws && c.CompletedAt < we)
+                done.Count(c => (c.CompletedByUserId == u.Id || c.PartnerUserId == u.Id) && c.CompletedAt >= ws && c.CompletedAt < we)
             )).ToList();
             return new ChartWeekDto(label, ws, userCounts);
         }).ToList();

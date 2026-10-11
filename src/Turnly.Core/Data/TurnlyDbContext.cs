@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.ChangeTracking;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
@@ -80,6 +81,8 @@ public class TurnlyDbContext : DbContext
             e.Property(x => x.DaysOfMonth).HasConversion(IntListConverter, IntListComparer);
             e.Property(x => x.Months).HasConversion(IntListConverter, IntListComparer);
             e.Property(x => x.TimesOfDay).HasConversion(TimesOfDayConverter, TimesOfDayComparer);
+            e.Property(x => x.TimeLabels).HasConversion(TimeLabelsConverter, TimeLabelsComparer);
+            e.Property(x => x.Pairs).HasConversion(PairsConverter, PairsComparer);
 
             e.HasOne(x => x.CurrentAssignee)
                 .WithMany()
@@ -132,6 +135,12 @@ public class TurnlyDbContext : DbContext
             e.HasOne(x => x.CompletedBy)
                 .WithMany()
                 .HasForeignKey(x => x.CompletedByUserId)
+                .IsRequired(false)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            e.HasOne(x => x.Partner)
+                .WithMany()
+                .HasForeignKey(x => x.PartnerUserId)
                 .IsRequired(false)
                 .OnDelete(DeleteBehavior.Restrict);
         });
@@ -392,5 +401,39 @@ public class TurnlyDbContext : DbContext
     private static readonly ValueComparer<List<TimeOnly>> TimesOfDayComparer = new(
         (a, b) => (a ?? new List<TimeOnly>()).SequenceEqual(b ?? new List<TimeOnly>()),
         v => v.Aggregate(0, (hash, t) => HashCode.Combine(hash, t)),
+        v => v.ToList());
+
+    /// <summary>Stores the per-slot labels as a JSON object keyed by "HH:mm" (labels are free text, so
+    /// the CSV trick the other lists use would break on a comma). Empty string = no labels.</summary>
+    private static readonly ValueConverter<Dictionary<TimeOnly, string>, string> TimeLabelsConverter = new(
+        v => v.Count == 0
+            ? string.Empty
+            : JsonSerializer.Serialize(
+                v.OrderBy(p => p.Key).ToDictionary(p => p.Key.ToString("HH\\:mm"), p => p.Value),
+                (JsonSerializerOptions?)null),
+        v => string.IsNullOrEmpty(v)
+            ? new Dictionary<TimeOnly, string>()
+            : JsonSerializer.Deserialize<Dictionary<string, string>>(v, (JsonSerializerOptions?)null)!
+                .ToDictionary(p => TimeOnly.ParseExact(p.Key, "HH\\:mm"), p => p.Value));
+
+    private static readonly ValueComparer<Dictionary<TimeOnly, string>> TimeLabelsComparer = new(
+        (a, b) => (a ?? new Dictionary<TimeOnly, string>()).OrderBy(p => p.Key)
+            .SequenceEqual((b ?? new Dictionary<TimeOnly, string>()).OrderBy(p => p.Key)),
+        v => v.OrderBy(p => p.Key).Aggregate(0, (hash, p) => HashCode.Combine(hash, p.Key, p.Value)),
+        v => new Dictionary<TimeOnly, string>(v));
+
+    /// <summary>Stores the fixed pairs as a JSON array of two-id arrays. Empty string = no pairs.</summary>
+    private static readonly ValueConverter<List<ChorePair>, string> PairsConverter = new(
+        v => v.Count == 0
+            ? string.Empty
+            : JsonSerializer.Serialize(v.Select(p => new[] { p.First, p.Second }), (JsonSerializerOptions?)null),
+        v => string.IsNullOrEmpty(v)
+            ? new List<ChorePair>()
+            : JsonSerializer.Deserialize<Guid[][]>(v, (JsonSerializerOptions?)null)!
+                .Select(p => new ChorePair(p[0], p[1])).ToList());
+
+    private static readonly ValueComparer<List<ChorePair>> PairsComparer = new(
+        (a, b) => (a ?? new List<ChorePair>()).SequenceEqual(b ?? new List<ChorePair>()),
+        v => v.Aggregate(0, (hash, p) => HashCode.Combine(hash, p)),
         v => v.ToList());
 }

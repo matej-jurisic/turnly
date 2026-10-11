@@ -33,7 +33,8 @@ public static class StreakCalculator
             // counts only once fully done — and, when scoped, whose streak it is.
             var closing = occ.OrderByDescending(c => c.CompletedAt).First();
             if (closing.CompletedAt > occ.Key) break; // late
-            if (userId is { } uid && closing.CompletedByUserId != uid) break; // closed by someone else
+            // Closed by someone else. A partner on a paired chore closed it too.
+            if (userId is { } uid && closing.CompletedByUserId != uid && closing.PartnerUserId != uid) break;
             streak++;
         }
         return streak;

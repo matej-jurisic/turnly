@@ -544,7 +544,8 @@ public class NotificationService
                     var dueAt = chore.DueAt!.Value;
                     var recipients = (entry.Recipients == NotificationRecipients.AllAssignees
                             ? chore.Assignees.Select(a => a.Id).Where(id => !frozenUserIds.Contains(id))
-                            : chore.CurrentAssigneeId is { } cur ? [cur] : Enumerable.Empty<Guid>())
+                            // The current assignee, plus their partner on a paired chore.
+                            : chore.CurrentHolderIds())
                         .Distinct()
                         .ToList();
                     if (await TryFireAsync(chore, entry, dueAt, dedupUserId: null, recipients,
@@ -682,11 +683,17 @@ public class NotificationService
     private static (string Title, string Body) BuildMessage(Chore chore, ChoreNotification entry,
         DateTimeOffset occurrenceDueAt, Guid? assigneeId, DateTimeOffset now)
     {
-        var title = string.IsNullOrWhiteSpace(chore.Emoji) ? chore.Name : $"{chore.Emoji} {chore.Name}";
+        // A labelled slot names itself in the title ("Feed the dog (Morning)") so the two pushes of a
+        // twice-a-day chore don't read identically.
+        var name = chore.SlotLabel(occurrenceDueAt) is { } label ? $"{chore.Name} ({label})" : chore.Name;
+        var title = string.IsNullOrWhiteSpace(chore.Emoji) ? name : $"{chore.Emoji} {name}";
 
         // The named assignee (current assignee, or the track owner in Independent mode) is one of the
         // loaded Assignees, so resolve the name without an extra include.
         var assignee = chore.Assignees.FirstOrDefault(a => a.Id == assigneeId)?.DisplayName;
+        // A paired chore names both people doing it.
+        if (assignee is not null && chore.PartnerOf(assigneeId) is { } partner)
+            assignee = $"{assignee} & {partner.DisplayName}";
         var prefix = assignee is null ? "" : $"{assignee} - ";
         var points = chore.Points > 0 ? $" ({chore.Points} pts)" : "";
         var dueAt = occurrenceDueAt;

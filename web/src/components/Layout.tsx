@@ -13,6 +13,7 @@ import { UserDetailsModal } from '@/components/UserDetailsModal'
 import { CompleteModal } from '@/components/CompleteModal'
 import type { Chore, LeaderboardEntry } from '@/lib/types'
 import { cn } from '@/lib/utils'
+import { t } from '@/lib/i18n'
 
 export function Layout() {
   const user = useAuthStore((s) => s.user)
@@ -32,9 +33,9 @@ export function Layout() {
   async function logout() {
     if (
       !(await confirm({
-        title: 'Sign out',
-        message: 'Are you sure you want to sign out?',
-        confirmLabel: 'Sign out',
+        title: t('auth.signOut'),
+        message: t('auth.signOutConfirm'),
+        confirmLabel: t('auth.signOut'),
         variant: 'primary',
       }))
     )
@@ -90,13 +91,13 @@ export function Layout() {
   const tabs = [
     // Daily action first, then the gamification loop (standing -> earned -> spend), then the log,
     // and finally the admin/config cluster (Users is admin-only) out of the daily path.
-    { to: '/chores', label: 'Chores', Icon: ChoresIcon },
-    { to: '/points', label: 'Points', Icon: PointsIcon },
-    { to: '/achievements', label: 'Achievements', Icon: AchievementsIcon },
-    { to: '/rewards', label: 'Rewards', Icon: RewardsIcon },
-    { to: '/history', label: 'History', Icon: HistoryIcon },
-    ...(isAdmin ? [{ to: '/users', label: 'Users', Icon: UsersIcon }] : []),
-    { to: '/settings', label: 'Settings', Icon: SettingsIcon },
+    { to: '/chores', label: t('nav.chores'), Icon: ChoresIcon },
+    { to: '/points', label: t('nav.points'), Icon: PointsIcon },
+    { to: '/achievements', label: t('nav.achievements'), Icon: AchievementsIcon },
+    { to: '/rewards', label: t('nav.rewards'), Icon: RewardsIcon },
+    { to: '/history', label: t('nav.history'), Icon: HistoryIcon },
+    ...(isAdmin ? [{ to: '/users', label: t('nav.users'), Icon: UsersIcon }] : []),
+    { to: '/settings', label: t('nav.settings'), Icon: SettingsIcon },
   ]
 
   const navItemClass = ({ isActive }: { isActive: boolean }) =>
@@ -133,7 +134,7 @@ export function Layout() {
             <button
               type="button"
               onClick={() => setMenuOpen(true)}
-              aria-label="Open menu"
+              aria-label={t('nav.openMenu')}
               className="-ml-1 rounded-md p-2 text-foreground hover:bg-accent"
             >
               <MenuIcon />
@@ -146,11 +147,11 @@ export function Layout() {
             <button
               type="button"
               onClick={() => setSearchOpen(true)}
-              aria-label="Search"
+              aria-label={t('nav.search')}
               className="flex w-full max-w-sm items-center gap-2 rounded-lg border border-border bg-card px-3 py-1.5 text-sm text-muted-foreground transition-colors hover:border-ring hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
               <SearchIcon />
-              <span className="flex-1 text-left">Search…</span>
+              <span className="flex-1 text-left">{t('nav.searchPlaceholder')}</span>
               <kbd className="hidden rounded border border-border px-1 py-0.5 text-xs sm:inline">⌘K</kbd>
             </button>
           </div>
@@ -195,7 +196,7 @@ export function Layout() {
             <button
               type="button"
               onClick={() => setMenuOpen(false)}
-              aria-label="Close menu"
+              aria-label={t('nav.closeMenu')}
               className="rounded-md p-2 text-muted-foreground hover:bg-accent hover:text-foreground"
             >
               <CloseIcon />

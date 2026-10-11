@@ -19,5 +19,8 @@ public enum AssignmentStrategy
     /// <summary>No rotation: every assignee gets their own independent schedule (a
     /// <see cref="Entities.ChoreAssigneeTrack"/>) with its own due date and per-occurrence quota. Used for
     /// shared chores like "everyone does the dishes once a week".</summary>
-    Independent = 6
+    Independent = 6,
+    /// <summary>Nobody is picked automatically: when the chore would rotate it goes back to
+    /// unassigned (null current assignee) and stays there until an admin assigns it.</summary>
+    Manual = 7
 }

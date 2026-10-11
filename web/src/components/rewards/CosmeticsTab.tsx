@@ -11,6 +11,7 @@ import type { Cosmetic, CosmeticRarity, CosmeticSlot, PullResult } from '@/lib/t
 import { useAuthStore } from '@/store/auth'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useState } from 'react'
+import { t } from '@/lib/i18n'
 
 /** Cosmetics tab of `RewardsPage`: spend points on pulls, craft with dust, browse the collection. */
 export function CosmeticsTab() {
@@ -35,14 +36,14 @@ export function CosmeticsTab() {
     mutationFn: (key: string) => gachaApi.craft(key),
     onSuccess: async () => {
       await syncAppearanceFromServer(queryClient)
-      toast.success('Crafted!')
+      toast.success(t('cosmetics.crafted'))
     },
     onError: (e: Error) => toast.error(e.message),
   })
 
   if (!user) return null
   if (isLoading || !state) {
-    return <div className="text-muted-foreground">Loading…</div>
+    return <div className="text-muted-foreground">{t('common.loading')}</div>
   }
 
   const busy = pull.isPending || craft.isPending
@@ -57,8 +58,8 @@ export function CosmeticsTab() {
       {/* Pull panel */}
       <Card>
         <CardHeader className="flex items-center justify-between gap-3">
-          <CardTitle>Pull</CardTitle>
-          <Badge tone="amber">{state.dust} dust</Badge>
+          <CardTitle>{t('cosmetics.pull')}</CardTitle>
+          <Badge tone="amber">{t('cosmetics.dust', { count: state.dust })}</Badge>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="flex gap-3">
@@ -67,8 +68,8 @@ export function CosmeticsTab() {
               onClick={() => pull.mutate(1)}
               disabled={busy || state.points < state.pullCost}
             >
-              <span>Pull x1</span>
-              <span className="text-xs opacity-90">({state.pullCost} pts)</span>
+              <span>{t('cosmetics.pull1')}</span>
+              <span className="text-xs opacity-90">{t('cosmetics.cost', { count: state.pullCost })}</span>
             </Button>
             <Button
               className="h-auto flex-1 flex-col py-1.5 leading-tight"
@@ -76,15 +77,15 @@ export function CosmeticsTab() {
               onClick={() => pull.mutate(10)}
               disabled={busy || state.points < state.tenPullCost}
             >
-              <span>Pull x10</span>
-              <span className="text-xs opacity-90">({state.tenPullCost} pts)</span>
+              <span>{t('cosmetics.pull10')}</span>
+              <span className="text-xs opacity-90">{t('cosmetics.cost', { count: state.tenPullCost })}</span>
             </Button>
           </div>
 
           {/* Pity */}
           <div className="space-y-1">
             <div className="flex justify-between text-xs text-muted-foreground">
-              <span>Pity: guaranteed Legendary</span>
+              <span>{t('cosmetics.pity')}</span>
               <span>
                 {state.pullsSinceLegendary} / {state.pityThreshold}
               </span>
@@ -102,10 +103,10 @@ export function CosmeticsTab() {
 
       {/* Collection */}
       <p className="text-sm text-muted-foreground">
-        Equip what you unlock from the account menu (Customization).
+        {t('cosmetics.equipHint')}
       </p>
       <CollectionSection
-        title="Avatar frames"
+        title={t('cosmetics.frames')}
         items={bySlot.Frame}
         userColor={user.avatarColor}
         userName={user.displayName}
@@ -114,7 +115,7 @@ export function CosmeticsTab() {
         onCraft={(key) => craft.mutate(key)}
       />
       <CollectionSection
-        title="Avatar colors"
+        title={t('cosmetics.colors')}
         items={bySlot.Color}
         userColor={user.avatarColor}
         userName={user.displayName}
@@ -123,7 +124,7 @@ export function CosmeticsTab() {
         onCraft={(key) => craft.mutate(key)}
       />
       <CollectionSection
-        title="Avatar emojis"
+        title={t('cosmetics.emojis')}
         items={bySlot.Emoji}
         userColor={user.avatarColor}
         userName={user.displayName}
@@ -132,7 +133,7 @@ export function CosmeticsTab() {
         onCraft={(key) => craft.mutate(key)}
       />
       <CollectionSection
-        title="App themes"
+        title={t('cosmetics.themes')}
         items={bySlot.Theme}
         userColor={user.avatarColor}
         userName={user.displayName}
@@ -149,7 +150,7 @@ export function CosmeticsTab() {
 function OddsDisclosure({ odds }: { odds: { rarity: CosmeticRarity; odds: number }[] }) {
   return (
     <details className="text-sm">
-      <summary className="cursor-pointer text-muted-foreground">Drop rates</summary>
+      <summary className="cursor-pointer text-muted-foreground">{t('cosmetics.dropRates')}</summary>
       <ul className="mt-2 space-y-1">
         {RARITY_ORDER.map((r) => {
           const o = odds.find((x) => x.rarity === r)
@@ -242,7 +243,7 @@ function CosmeticCard({
 
       {c.owned ? (
         <span className={`text-xs ${c.equipped ? 'font-medium text-primary' : 'text-muted-foreground'}`}>
-          {c.equipped ? 'Equipped' : 'Owned'}
+          {c.equipped ? t('cosmetics.equipped') : t('cosmetics.owned')}
         </span>
       ) : (
         <Button
@@ -251,9 +252,9 @@ function CosmeticCard({
           className="w-full whitespace-nowrap text-xs md:text-sm"
           disabled={busy || dust < c.dustCraftCost}
           onClick={onCraft}
-          title={dust < c.dustCraftCost ? 'Not enough dust' : undefined}
+          title={dust < c.dustCraftCost ? t('cosmetics.notEnoughDust') : undefined}
         >
-          Craft ({c.dustCraftCost} dust)
+          {t('cosmetics.craft', { count: c.dustCraftCost })}
         </Button>
       )}
     </div>
@@ -335,7 +336,7 @@ function RevealModal({ results, onClose }: { results: PullResult[]; onClose: () 
   const dust = results.reduce((sum, r) => sum + r.dustAwarded, 0)
 
   return (
-    <Modal title={results.length > 1 ? 'Your 10-pull' : 'You pulled'} onClose={onClose}>
+    <Modal title={results.length > 1 ? t('cosmetics.tenPull') : t('cosmetics.youPulled')} onClose={onClose}>
       <div className="space-y-4">
         <div className="grid grid-cols-3 gap-3 sm:grid-cols-5">
           {results.map((r, i) => (
@@ -351,18 +352,18 @@ function RevealModal({ results, onClose }: { results: PullResult[]; onClose: () 
                 {SLOT_LABEL[r.cosmetic.slot]}
               </span>
               <span className="text-[11px] text-muted-foreground">
-                {r.isNew ? 'New!' : `+${r.dustAwarded} dust`}
+                {r.isNew ? t('cosmetics.new') : t('cosmetics.dustPlus', { count: r.dustAwarded })}
               </span>
             </div>
           ))}
         </div>
         <p className="text-center text-sm text-muted-foreground">
-          {newCount > 0 ? `${newCount} new unlocked. ` : ''}
-          {dust > 0 ? `${dust} dust from duplicates.` : ''}
-          {newCount === 0 && dust === 0 ? 'Better luck next time.' : ''}
+          {newCount > 0 ? `${t('cosmetics.newUnlocked', { count: newCount })} ` : ''}
+          {dust > 0 ? t('cosmetics.dustFromDupes', { count: dust }) : ''}
+          {newCount === 0 && dust === 0 ? t('cosmetics.betterLuck') : ''}
         </p>
         <div className="flex justify-center">
-          <Button onClick={onClose}>Nice!</Button>
+          <Button onClick={onClose}>{t('celebration.nice')}</Button>
         </div>
       </div>
     </Modal>

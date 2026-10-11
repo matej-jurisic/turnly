@@ -2,14 +2,22 @@ import { useEffect, useRef, useState } from 'react'
 import type { RepeatType, User } from '@/lib/types'
 import { Avatar } from '@/components/ui/Modal'
 import { REPEAT_OPTIONS } from '@/lib/chore-format'
+import { localized, t } from '@/lib/i18n'
 
 export type DueStatus = 'overdue' | 'today' | 'upcoming' | 'later'
 
-export type ChoreView = 'list' | 'compact' | 'calendar'
-export const VIEW_OPTIONS: { value: ChoreView; label: string; Icon: () => React.ReactElement }[] = [
-  { value: 'list', label: 'List', Icon: ListViewIcon },
-  { value: 'compact', label: 'Compact', Icon: CompactViewIcon },
-  { value: 'calendar', label: 'Calendar', Icon: CalendarViewIcon },
+export type ChoreView = 'list' | 'compact' | 'calendar' | 'config'
+/** `adminOnly` views are offered to admins only (the config table exposes every chore's settings). */
+export const VIEW_OPTIONS: {
+  value: ChoreView
+  label: string
+  Icon: () => React.ReactElement
+  adminOnly?: boolean
+}[] = [
+  localized({ value: 'list' as const, Icon: ListViewIcon }, { label: 'view.list' }),
+  localized({ value: 'compact' as const, Icon: CompactViewIcon }, { label: 'view.compact' }),
+  localized({ value: 'calendar' as const, Icon: CalendarViewIcon }, { label: 'view.calendar' }),
+  localized({ value: 'config' as const, Icon: ConfigViewIcon, adminOnly: true }, { label: 'view.config' }),
 ]
 
 export interface ChoreFilterState {
@@ -31,10 +39,10 @@ export function filterCount(f: ChoreFilterState): number {
 }
 
 const DUE_OPTIONS: { value: DueStatus; label: string }[] = [
-  { value: 'overdue', label: 'Overdue' },
-  { value: 'today', label: 'Today' },
-  { value: 'upcoming', label: 'This week' },
-  { value: 'later', label: 'Later' },
+  localized({ value: 'overdue' as const }, { label: 'due.overdue' }),
+  localized({ value: 'today' as const }, { label: 'due.today' }),
+  localized({ value: 'upcoming' as const }, { label: 'due.upcoming' }),
+  localized({ value: 'later' as const }, { label: 'due.later' }),
 ]
 function toggle<T>(list: T[], value: T): T[] {
   return list.includes(value) ? list.filter((v) => v !== value) : [...list, value]
@@ -84,6 +92,7 @@ export function ChoreFilters({
   currentUserId,
   view,
   onViewChange,
+  isAdmin,
 }: {
   value: ChoreFilterState
   onChange: (next: ChoreFilterState) => void
@@ -92,6 +101,7 @@ export function ChoreFilters({
   currentUserId?: string
   view: ChoreView
   onViewChange: (next: ChoreView) => void
+  isAdmin: boolean
 }) {
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
@@ -102,12 +112,12 @@ export function ChoreFilters({
   // "Mine"/"My turn next" only make sense with more than one member to distinguish.
   const presets: { label: string; state: ChoreFilterState }[] = []
   if (currentUserId && assignees.length > 1) {
-    presets.push({ label: 'Mine', state: { ...emptyFilters, assignees: [currentUserId] } })
+    presets.push({ label: t('filters.mine'), state: { ...emptyFilters, assignees: [currentUserId] } })
   }
-  presets.push({ label: 'Overdue', state: { ...emptyFilters, due: ['overdue'] } })
-  presets.push({ label: 'Today', state: { ...emptyFilters, due: ['today'] } })
+  presets.push({ label: t('due.overdue'), state: { ...emptyFilters, due: ['overdue'] } })
+  presets.push({ label: t('due.today'), state: { ...emptyFilters, due: ['today'] } })
   if (currentUserId && assignees.length > 1) {
-    presets.push({ label: 'My turn next', state: { ...emptyFilters, assignees: [currentUserId], includeNext: true } })
+    presets.push({ label: t('filters.myTurnNext'), state: { ...emptyFilters, assignees: [currentUserId], includeNext: true } })
   }
 
   const showAssignees = assignees.length > 1
@@ -116,15 +126,15 @@ export function ChoreFilters({
     <div className="flex items-center justify-end gap-2">
       {presets.length > 0 && <QuickViews value={value} onChange={onChange} presets={presets} />}
 
-      <ViewMenu view={view} onViewChange={onViewChange} />
+      <ViewMenu view={view} onViewChange={onViewChange} isAdmin={isAdmin} />
 
       <div ref={ref} className="relative">
         <button
           type="button"
           onClick={() => setOpen((v) => !v)}
           aria-expanded={open}
-          aria-label="Filters"
-          title="Filters"
+          aria-label={t('filters.title')}
+          title={t('filters.title')}
           className={iconButtonClass(count > 0)}
         >
           <SlidersIcon />
@@ -137,7 +147,7 @@ export function ChoreFilters({
 
         {open && (
           <div className="absolute right-0 top-full z-20 mt-2 w-80 max-w-[calc(100vw-2rem)] space-y-4 rounded-lg border border-border bg-card p-4 shadow-pop">
-            <Group label="Due">
+            <Group label={t('filters.due')}>
               {DUE_OPTIONS.map((o) => (
                 <TogglePill
                   key={o.value}
@@ -150,14 +160,14 @@ export function ChoreFilters({
             </Group>
 
             {tags.length > 0 && (
-              <Group label="Tags">
-                {tags.map((t) => (
+              <Group label={t('filters.tags')}>
+                {tags.map((tag) => (
                   <TogglePill
-                    key={t}
-                    active={value.tags.includes(t)}
-                    onClick={() => onChange({ ...value, tags: toggle(value.tags, t) })}
+                    key={tag}
+                    active={value.tags.includes(tag)}
+                    onClick={() => onChange({ ...value, tags: toggle(value.tags, tag) })}
                   >
-                    {t}
+                    {tag}
                   </TogglePill>
                 ))}
               </Group>
@@ -165,7 +175,7 @@ export function ChoreFilters({
 
             {showAssignees && (
               <div>
-                <p className="mb-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">Assignee</p>
+                <p className="mb-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">{t('filters.assignee')}</p>
                 <div className="flex flex-wrap gap-1.5">
                   {assignees.map((u) => (
                     <TogglePill
@@ -185,12 +195,12 @@ export function ChoreFilters({
                     onChange={(e) => onChange({ ...value, includeNext: e.target.checked })}
                     className="h-4 w-4 accent-primary"
                   />
-                  Also match where they're up next
+                  {t('filters.includeNext')}
                 </label>
               </div>
             )}
 
-            <Group label="Repeat">
+            <Group label={t('filters.repeat')}>
               {REPEAT_OPTIONS.map((o) => (
                 <TogglePill
                   key={o.value}
@@ -209,7 +219,7 @@ export function ChoreFilters({
                 disabled={count === 0}
                 className="text-sm text-muted-foreground underline-offset-2 hover:text-foreground hover:underline disabled:cursor-default disabled:opacity-40 disabled:no-underline disabled:hover:text-muted-foreground"
               >
-                Clear all
+                {t('filters.clearAll')}
               </button>
             </div>
           </div>
@@ -240,8 +250,8 @@ function QuickViews({
         type="button"
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
-        aria-label="Quick views"
-        title={activePreset ? `Quick view: ${activePreset.label}` : 'Quick views'}
+        aria-label={t('filters.quickViews')}
+        title={activePreset ? t('filters.quickView', { name: activePreset.label }) : t('filters.quickViews')}
         className={iconButtonClass(!!activePreset)}
       >
         <FunnelIcon />
@@ -275,8 +285,17 @@ function QuickViews({
   )
 }
 
-/** Round "View" button + dropdown to switch between list / compact / calendar layouts. */
-function ViewMenu({ view, onViewChange }: { view: ChoreView; onViewChange: (next: ChoreView) => void }) {
+/** Round "View" button + dropdown to switch between list / compact / calendar layouts (plus the
+ * config table for admins). */
+function ViewMenu({
+  view,
+  onViewChange,
+  isAdmin,
+}: {
+  view: ChoreView
+  onViewChange: (next: ChoreView) => void
+  isAdmin: boolean
+}) {
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
   useOutsideClose(open, ref, () => setOpen(false))
@@ -288,8 +307,8 @@ function ViewMenu({ view, onViewChange }: { view: ChoreView; onViewChange: (next
         type="button"
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
-        aria-label="View"
-        title="View"
+        aria-label={t('filters.view')}
+        title={t('filters.view')}
         className={iconButtonClass(false)}
       >
         <Active />
@@ -297,7 +316,7 @@ function ViewMenu({ view, onViewChange }: { view: ChoreView; onViewChange: (next
 
       {open && (
         <div className="absolute right-0 top-full z-20 mt-2 w-40 max-w-[calc(100vw-2rem)] rounded-lg border border-border bg-card p-1 shadow-pop">
-          {VIEW_OPTIONS.map((o) => {
+          {VIEW_OPTIONS.filter((o) => isAdmin || !o.adminOnly).map((o) => {
             const active = o.value === view
             return (
               <button
@@ -413,6 +432,17 @@ function CalendarViewIcon() {
       <line x1="16" y1="2" x2="16" y2="6" />
       <line x1="8" y1="2" x2="8" y2="6" />
       <line x1="3" y1="10" x2="21" y2="10" />
+    </svg>
+  )
+}
+
+function ConfigViewIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <rect x="3" y="4" width="18" height="16" rx="2" ry="2" />
+      <line x1="3" y1="10" x2="21" y2="10" />
+      <line x1="3" y1="15" x2="21" y2="15" />
+      <line x1="9" y1="4" x2="9" y2="20" />
     </svg>
   )
 }

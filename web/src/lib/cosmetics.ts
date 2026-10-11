@@ -1,4 +1,5 @@
 import type { CosmeticRarity, CosmeticSlot } from '@/lib/types'
+import { localized } from '@/lib/i18n'
 
 /**
  * Frontend visual registry for gacha cosmetics. The backend catalog
@@ -34,9 +35,7 @@ export const RARITY_COLOR: Record<CosmeticRarity, string> = {
 export const RARITY_ORDER: CosmeticRarity[] = ['Legendary', 'Epic', 'Rare', 'Common']
 
 /** Short, user-facing label for a cosmetic slot (the gacha "category"). */
-export const SLOT_LABEL: Record<CosmeticSlot, string> = {
-  Frame: 'Frame',
-  Theme: 'Theme',
-  Color: 'Color',
-  Emoji: 'Emoji',
-}
+export const SLOT_LABEL: Record<CosmeticSlot, string> = localized(
+  {},
+  { Frame: 'slot.Frame', Theme: 'slot.Theme', Color: 'slot.Color', Emoji: 'slot.Emoji' },
+)

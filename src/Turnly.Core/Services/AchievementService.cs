@@ -103,9 +103,10 @@ public class AchievementService
     /// user — fine at family scale.</summary>
     public async Task<AchievementStats> ComputeStatsAsync(Guid userId, CancellationToken ct = default)
     {
-        // Real completions credited to the user (skips and auto-expiries don't count).
+        // Real completions credited to the user, as the completer or as their partner on a paired
+        // chore (skips and auto-expiries don't count).
         var myCompletions = await _db.ChoreCompletions
-            .Where(c => c.CompletedByUserId == userId && !c.IsSkip && !c.IsExpired)
+            .Where(c => (c.CompletedByUserId == userId || c.PartnerUserId == userId) && !c.IsSkip && !c.IsExpired)
             .Include(c => c.Chore!)
             .ThenInclude(ch => ch.Tags)
             .ToListAsync(ct);

@@ -39,6 +39,7 @@ import type {
   User,
   UserFreezePreview,
 } from '@/lib/types'
+import { t } from '@/lib/i18n'
 
 /**
  * Resolve the API base. On the web the app is served same-origin, so a relative `/api` is used
@@ -112,7 +113,7 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
     const refreshed = await tryRefresh()
     if (refreshed) return request<T>(path, { ...options, retry: false })
     useAuthStore.getState().clear()
-    throw new ApiError(401, 'Your session has expired. Please sign in again.')
+    throw new ApiError(401, t('auth.sessionExpired'))
   }
 
   if (!res.ok) {
@@ -128,7 +129,7 @@ async function readError(res: Response): Promise<string> {
     const body = await res.json()
     return body.detail ?? body.title ?? res.statusText
   } catch {
-    return res.statusText || 'Request failed'
+    return res.statusText || t('common.requestFailed')
   }
 }
 

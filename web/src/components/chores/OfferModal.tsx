@@ -7,6 +7,7 @@ import { useAuthStore } from '@/store/auth'
 import { Button } from '@/components/ui/Button'
 import { IntegerInput, Label, Select } from '@/components/ui/Field'
 import { Modal } from '@/components/ui/Modal'
+import { plural, t } from '@/lib/i18n'
 
 /**
  * Members put a chore up for someone else to take. Open by default (any other assignee can claim it,
@@ -31,47 +32,47 @@ export function OfferModal({ chore, onClose, onDone }: { chore: Chore; onClose: 
     mutationFn: () => choresApi.offer(chore.id, { toUserId: toUserId || null, bountyPoints: bounty }),
     onSuccess: () => {
       const recipient = candidates.find((u) => u.id === toUserId)
-      toast.success(recipient ? `Offered to ${recipient.displayName}.` : 'Chore is up for grabs.')
+      toast.success(recipient ? t('offerModal.offeredTo', { name: recipient.displayName }) : t('offerModal.open'))
       // The bounty left the offerer's balance, so points on screen are stale.
       void queryClient.invalidateQueries({ queryKey: ['me'] })
       void queryClient.invalidateQueries({ queryKey: ['leaderboard'] })
       onDone()
     },
-    onError: (err) => toast.error(err instanceof ApiError ? err.message : 'Offer failed'),
+    onError: (err) => toast.error(err instanceof ApiError ? err.message : t('offerModal.failed')),
   })
 
   return (
-    <Modal title={`Offer ${chore.name}`} onClose={onClose}>
+    <Modal title={t('offerModal.title', { name: chore.name })} onClose={onClose}>
       <form className="space-y-4" onSubmit={(e) => { e.preventDefault(); mutation.mutate() }}>
         <div className="space-y-1.5">
-          <Label htmlFor="offer-to">Offer to</Label>
+          <Label htmlFor="offer-to">{t('offerModal.to')}</Label>
           <Select id="offer-to" value={toUserId} onChange={(e) => setToUserId(e.target.value)}>
-            <option value="">Anyone assigned</option>
+            <option value="">{t('offerModal.anyone')}</option>
             {candidates.map((u) => (
               <option key={u.id} value={u.id}>{u.displayName}</option>
             ))}
           </Select>
           <p className="text-xs text-muted-foreground">
             {toUserId
-              ? 'Only they can take it, and they can decline.'
-              : 'First to claim it gets it.'}
+              ? t('offerModal.targetHint')
+              : t('offerModal.openHint')}
           </p>
         </div>
 
         <div className="space-y-1.5">
-          <Label htmlFor="offer-bounty">Bounty</Label>
+          <Label htmlFor="offer-bounty">{t('offerModal.bounty')}</Label>
           <IntegerInput id="offer-bounty" min={0} max={myPoints} value={bounty} onCommit={setBounty} />
           <p className="text-xs text-muted-foreground">
             {bounty > 0
-              ? 'Paid to whoever takes it. Refunded if nobody does.'
-              : `Optional. ${myPoints} points available.`}
+              ? t('offerModal.bountyHint')
+              : plural('offerModal.available', myPoints)}
           </p>
         </div>
 
         <div className="flex justify-end gap-2">
-          <Button type="button" variant="secondary" onClick={onClose}>Cancel</Button>
+          <Button type="button" variant="secondary" onClick={onClose}>{t('common.cancel')}</Button>
           <Button type="submit" disabled={mutation.isPending || bounty > myPoints || candidates.length === 0}>
-            {mutation.isPending ? 'Saving…' : 'Offer'}
+            {mutation.isPending ? t('common.saving') : t('menu.offer')}
           </Button>
         </div>
       </form>

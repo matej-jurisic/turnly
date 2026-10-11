@@ -145,7 +145,32 @@ public record ChoreDto(
         {
             IsFrozen = c.IsFrozen,
             OpenOffer = openOffer is null ? null : ChoreOfferDto.FromEntity(openOffer),
+            TimeLabels = c.TimeLabels.OrderBy(p => p.Key).ToDictionary(p => p.Key.ToString("HH\\:mm"), p => p.Value),
+            DueLabel = c.SlotLabel(c.DueAt),
+            Pairs = c.Pairs.Select(p => new[] { p.First, p.Second }).ToArray(),
+            CurrentPartner = c.PartnerOf(c.CurrentAssigneeId) is { } partner ? UserDto.FromEntity(partner) : null,
+            NextPartner = c.PartnerOf(nextAssignee?.Id) is { } nextPartner ? UserDto.FromEntity(nextPartner) : null,
         };
+
+    /// <summary>Optional names for individual <see cref="TimesOfDay"/> slots, keyed by "HH:mm" (e.g.
+    /// "08:00" → "Morning"). Sparse: unlabelled slots are absent.</summary>
+    public Dictionary<string, string> TimeLabels { get; init; } = new();
+
+    /// <summary>The label of the slot <see cref="DueAt"/> falls on, or null when it has none. Resolved
+    /// server-side off the stored instant so the client doesn't have to match slots across timezones;
+    /// personalized with <see cref="DueAt"/> on track-mode chores.</summary>
+    public string? DueLabel { get; init; }
+
+    /// <summary>Fixed pairs who do the chore together, each a two-element array of assignee ids.
+    /// Empty when the chore isn't paired.</summary>
+    public Guid[][] Pairs { get; init; } = [];
+
+    /// <summary>On a paired chore, who shares the current occurrence with <see cref="CurrentAssignee"/>.
+    /// Null when the holder has no partner (or the partner is frozen).</summary>
+    public UserDto? CurrentPartner { get; init; }
+
+    /// <summary>The partner coming up alongside <see cref="NextAssignee"/>, if any.</summary>
+    public UserDto? NextPartner { get; init; }
 
     public bool IsFrozen { get; init; }
 
@@ -217,9 +242,9 @@ public interface IChoreInput
     int[]? Months { get; }
     int CompletionsRequired { get; }
     bool RotateOnEachCompletion { get; }
-    /// <summary>How often the assignee hands over; <see cref="Enums.RotationPeriod.Monthly"/> holds
-    /// one person for the whole calendar month. Ignored (stored as every occurrence) where the chore
-    /// doesn't rotate or already repeats monthly or slower.</summary>
+    /// <summary>How often the assignee hands over; a calendar period (e.g.
+    /// <see cref="Enums.RotationPeriod.Monthly"/>) holds one person for all of it. Ignored (stored as
+    /// every occurrence) where the chore doesn't rotate or doesn't repeat faster than the period.</summary>
     RotationPeriod RotationPeriod { get; }
     AssignmentStrategy AssignmentStrategy { get; }
     SchedulingPreference SchedulingPreference { get; }
@@ -241,6 +266,9 @@ public interface IChoreInput
     /// occurrence. Only valid for Daily and the custom DaysOfWeek / DaysOfMonth modes; null/empty
     /// means a single daily slot at <see cref="DueTime"/>.</summary>
     string[]? TimesOfDay { get; }
+    /// <summary>Optional names for the <see cref="TimesOfDay"/> slots, keyed by "HH:mm". Entries whose
+    /// time isn't one of the chore's slots are dropped; a blank label clears it.</summary>
+    Dictionary<string, string>? TimeLabels { get; }
     Guid[] AssigneeIds { get; }
     /// <summary>The current assignee for rotating chores; null for
     /// <see cref="Enums.AssignmentStrategy.Independent"/> (per-assignee tracks instead).</summary>
@@ -250,6 +278,10 @@ public interface IChoreInput
     /// <summary>Per-assignee quotas for <see cref="Enums.AssignmentStrategy.Independent"/> chores —
     /// one entry per assignee. Ignored (and cleared) for rotating chores.</summary>
     TrackInput[]? Tracks { get; }
+    /// <summary>Fixed pairs who do the chore together, each a two-element array of assignee ids.
+    /// Nobody may be in two pairs. Ignored (and cleared) for
+    /// <see cref="Enums.AssignmentStrategy.Independent"/> chores.</summary>
+    Guid[][]? Pairs { get; }
 }
 
 /// <summary>One assignee's quota as supplied on create/update of a track-mode chore.</summary>
@@ -283,7 +315,9 @@ public record CreateChoreRequest(
     string? DueTime = null,
     TrackInput[]? Tracks = null,
     string[]? TimesOfDay = null,
-    RotationPeriod RotationPeriod = RotationPeriod.EveryOccurrence) : IChoreInput;
+    RotationPeriod RotationPeriod = RotationPeriod.EveryOccurrence,
+    Dictionary<string, string>? TimeLabels = null,
+    Guid[][]? Pairs = null) : IChoreInput;
 
 public record UpdateChoreRequest(
     string Name,
@@ -313,11 +347,15 @@ public record UpdateChoreRequest(
     string? DueTime = null,
     TrackInput[]? Tracks = null,
     string[]? TimesOfDay = null,
-    RotationPeriod RotationPeriod = RotationPeriod.EveryOccurrence) : IChoreInput;
+    RotationPeriod RotationPeriod = RotationPeriod.EveryOccurrence,
+    Dictionary<string, string>? TimeLabels = null,
+    Guid[][]? Pairs = null) : IChoreInput;
 
 public record CopyChoreRequest(string NewName);
 
-public record CompleteChoreRequest(string? Notes, Guid? CompletedByUserId = null);
+/// <param name="CompletedAt">When the chore was actually done, for logging it after the fact.
+/// Null = now. Can't be in the future or before the chore's last logged entry.</param>
+public record CompleteChoreRequest(string? Notes, Guid? CompletedByUserId = null, DateTimeOffset? CompletedAt = null);
 
 /// <summary><see cref="UserId"/> names whose track to skip on a track-mode chore (required there);
 /// ignored for rotating chores, which only have one schedule to skip.</summary>
@@ -356,10 +394,16 @@ public record ChoreCompletionDto(
     bool IsSkip,
     bool IsExpired)
 {
+    /// <summary>The partner credited alongside <see cref="CompletedBy"/> on a paired chore.</summary>
+    public UserDto? Partner { get; init; }
+
     public static ChoreCompletionDto FromEntity(ChoreCompletion c) =>
         new(c.Id, c.ChoreId, c.Chore?.Name ?? string.Empty,
             c.CompletedBy is null ? null : UserDto.FromEntity(c.CompletedBy),
-            c.CompletedAt, c.OccurrenceDueAt, c.Notes, c.PointsAwarded, c.IsSkip, c.IsExpired);
+            c.CompletedAt, c.OccurrenceDueAt, c.Notes, c.PointsAwarded, c.IsSkip, c.IsExpired)
+        {
+            Partner = c.Partner is null ? null : UserDto.FromEntity(c.Partner)
+        };
 }
 
 /// <summary>A single entry in the chore history feed — either a completion/skip (a
@@ -378,13 +422,20 @@ public record ChoreHistoryEntryDto(
     UserDto? FromAssignee,
     UserDto? ToAssignee)
 {
+    /// <summary>On a paired chore's completion (or auto-expiry), the partner who shares it with
+    /// <see cref="Actor"/>. Null for everything else.</summary>
+    public UserDto? Partner { get; init; }
+
     public static ChoreHistoryEntryDto FromCompletion(ChoreCompletion c, User? expiredAssignee = null) =>
         new(c.Id, c.IsExpired ? "expired" : c.IsSkip ? "skip" : "completion",
             c.ChoreId, c.Chore?.Name ?? string.Empty,
             c.IsExpired
                 ? expiredAssignee is null ? null : UserDto.FromEntity(expiredAssignee)
                 : c.CompletedBy is null ? null : UserDto.FromEntity(c.CompletedBy),
-            c.CompletedAt, c.OccurrenceDueAt, c.Notes, c.PointsAwarded, null, null);
+            c.CompletedAt, c.OccurrenceDueAt, c.Notes, c.PointsAwarded, null, null)
+        {
+            Partner = c.Partner is null ? null : UserDto.FromEntity(c.Partner)
+        };
 
     public static ChoreHistoryEntryDto FromReassignment(ChoreAssignment a) =>
         new(a.Id, "reassignment", a.ChoreId, a.Chore?.Name ?? string.Empty,

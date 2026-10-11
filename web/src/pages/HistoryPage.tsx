@@ -11,6 +11,8 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { Avatar } from '@/components/ui/Modal'
 import { TrashIcon } from '@/components/chores/icons'
 import { cn } from '@/lib/utils'
+import { formatDateTime, pairLabel, relativeTimeLabel } from '@/lib/chore-format'
+import { locale, localized, plural, t } from '@/lib/i18n'
 
 interface Segment {
   label: string
@@ -55,17 +57,17 @@ export function HistoryPage() {
       void queryClient.invalidateQueries({ queryKey: ['me'] })
       void queryClient.invalidateQueries({ queryKey: ['leaderboard'] })
     },
-    onError: (err) => toast.error(err instanceof ApiError ? err.message : 'Delete failed'),
+    onError: (err) => toast.error(err instanceof ApiError ? err.message : t('chores.deleteFailed')),
   })
 
   const onDeleteEntry = async (entry: ChoreHistoryEntry) => {
     const { title, message } =
       entry.kind === 'skip'
-        ? { title: 'Delete skip', message: 'Delete this skip from the log? The chore schedule is not changed.' }
+        ? { title: t('activity.deleteSkipTitle'), message: t('activity.deleteSkipMessage') }
         : entry.kind === 'expired'
-          ? { title: 'Delete expired entry', message: 'Delete this auto-expired entry from the log? The chore schedule is not changed.' }
-          : { title: 'Delete completion', message: `Delete this completion? ${entry.pointsAwarded} points will be reversed and the chore schedule is not changed.` }
-    if (await confirm({ title, message, confirmLabel: 'Delete' })) {
+          ? { title: t('activity.deleteExpiredTitle'), message: t('activity.deleteExpiredMessage') }
+          : { title: t('activity.deleteCompletionTitle'), message: plural('activity.deleteCompletionMessage', entry.pointsAwarded) }
+    if (await confirm({ title, message, confirmLabel: t('common.delete') })) {
       deleteMutation.mutate(entry.id)
     }
   }
@@ -78,10 +80,13 @@ export function HistoryPage() {
   // Donut chart 2: currently assigned tasks per member
   const assigneeMap = new Map<string, Segment>()
   for (const chore of chores) {
-    if (!chore.currentAssignee) continue
-    const { id, displayName, avatarColor } = chore.currentAssignee
-    const entry = assigneeMap.get(id) ?? { label: displayName, count: 0, color: avatarColor }
-    assigneeMap.set(id, { ...entry, count: entry.count + 1 })
+    // A paired chore is on both partners' plates.
+    for (const holder of [chore.currentAssignee, chore.currentPartner]) {
+      if (!holder) continue
+      const { id, displayName, avatarColor } = holder
+      const entry = assigneeMap.get(id) ?? { label: displayName, count: 0, color: avatarColor }
+      assigneeMap.set(id, { ...entry, count: entry.count + 1 })
+    }
   }
   const assigneeSegments = [...assigneeMap.values()].sort((a, b) => b.count - a.count)
 
@@ -101,28 +106,28 @@ export function HistoryPage() {
 
   return (
     <div className="space-y-8">
-      <h1 className="text-2xl font-semibold text-foreground">History</h1>
+      <h1 className="text-2xl font-semibold text-foreground">{t('nav.history')}</h1>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
         <DonutChart
-          title="Completion timing"
+          title={t('history.timing')}
           segments={[
-            { label: 'On time', count: totalOnTime, color: 'var(--success)' },
-            { label: 'Late', count: totalLate, color: 'var(--destructive)' },
-            { label: 'Expired', count: totalMissed, color: 'var(--warning)' },
+            { label: t('history.onTime'), count: totalOnTime, color: 'var(--success)' },
+            { label: t('history.late'), count: totalLate, color: 'var(--destructive)' },
+            { label: t('details.expired'), count: totalMissed, color: 'var(--warning)' },
           ]}
         />
         <DonutChart
-          title="Tasks by assignee"
+          title={t('history.byAssignee')}
           segments={assigneeSegments}
         />
         <DonutChart
-          title="Task status"
+          title={t('history.status')}
           segments={[
-            { label: 'Overdue', count: overdueTasks, color: 'var(--destructive)' },
-            { label: 'Due today', count: todayTasks, color: 'var(--warning)' },
-            { label: 'Upcoming', count: upcomingTasks, color: 'var(--primary)' },
-            { label: 'Paused', count: pausedTasks, color: 'var(--muted-foreground)' },
+            { label: t('due.overdue'), count: overdueTasks, color: 'var(--destructive)' },
+            { label: t('rail.dueToday'), count: todayTasks, color: 'var(--warning)' },
+            { label: t('history.upcoming'), count: upcomingTasks, color: 'var(--primary)' },
+            { label: t('chores.paused'), count: pausedTasks, color: 'var(--muted-foreground)' },
           ]}
         />
       </div>
@@ -136,16 +141,16 @@ export function HistoryPage() {
 
       <section className="space-y-4">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-          <h2 className="text-base font-semibold text-foreground">Activity log</h2>
+          <h2 className="text-base font-semibold text-foreground">{t('history.activityLog')}</h2>
           <div className="flex flex-1 gap-2">
             <select
               value={filterTag}
               onChange={(e) => setFilterTag(e.target.value)}
               className="min-w-0 flex-1 rounded-lg border border-border bg-card px-3 py-1.5 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring sm:flex-none"
             >
-              <option value="">All tags</option>
-              {tags.map((t) => (
-                <option key={t.id} value={t.name}>{t.name}</option>
+              <option value="">{t('history.allTags')}</option>
+              {tags.map((tag) => (
+                <option key={tag.id} value={tag.name}>{tag.name}</option>
               ))}
             </select>
             <select
@@ -153,7 +158,7 @@ export function HistoryPage() {
               onChange={(e) => setFilterUserId(e.target.value)}
               className="min-w-0 flex-1 rounded-lg border border-border bg-card px-3 py-1.5 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring sm:flex-none"
             >
-              <option value="">All members</option>
+              <option value="">{t('history.allMembers')}</option>
               {members.map((u) => (
                 <option key={u.id} value={u.id}>{u.displayName}</option>
               ))}
@@ -163,7 +168,7 @@ export function HistoryPage() {
               onChange={(e) => setFilterChoreId(e.target.value)}
               className="min-w-0 flex-1 rounded-lg border border-border bg-card px-3 py-1.5 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring sm:flex-none"
             >
-              <option value="">All chores</option>
+              <option value="">{t('history.allChores')}</option>
               {chores.map((c) => (
                 <option key={c.id} value={c.id}>{c.emoji ? `${c.emoji} ${c.name}` : c.name}</option>
               ))}
@@ -174,7 +179,7 @@ export function HistoryPage() {
                 onClick={() => { setFilterTag(''); setFilterUserId(''); setFilterChoreId('') }}
                 className="shrink-0 rounded-lg px-3 py-1.5 text-sm text-muted-foreground hover:bg-accent hover:text-foreground"
               >
-                Clear
+                {t('history.clear')}
               </button>
             )}
           </div>
@@ -183,7 +188,7 @@ export function HistoryPage() {
         {history.length === 0 ? (
           <Card>
             <CardContent>
-              <p className="py-4 text-sm text-muted-foreground">No activity found.</p>
+              <p className="py-4 text-sm text-muted-foreground">{t('history.empty')}</p>
             </CardContent>
           </Card>
         ) : (
@@ -204,37 +209,56 @@ export function HistoryPage() {
                       emoji={subject?.avatarEmoji}
                     />
                     <div className="min-w-0 flex-1">
-                      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                        <span className="text-sm font-medium text-foreground">
+                      {/* Phones: name + time on one row, then the pill and every detail on one wrapping row. */}
+                      <div className="flex items-center gap-x-2 gap-y-1 sm:flex-wrap">
+                        <span className="min-w-0 flex-1 truncate text-sm font-medium text-foreground sm:flex-none sm:whitespace-normal">
                           {entry.choreName}
                         </span>
-                        <Badge tone={ACTIVITY_BADGE[entry.kind].tone}>
+                        <time
+                          dateTime={entry.at}
+                          title={formatDateTime(entry.at)}
+                          className="shrink-0 text-xs text-muted-foreground sm:hidden"
+                        >
+                          {relativeTimeLabel(entry.at)}
+                        </time>
+                        <Badge tone={ACTIVITY_BADGE[entry.kind].tone} className="hidden sm:inline-flex">
                           {ACTIVITY_BADGE[entry.kind].label}
                         </Badge>
                       </div>
-                      <p className="mt-0.5 text-xs text-muted-foreground">
-                        {activityDetail(entry)}
-                      </p>
+                      <div className="mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-xs text-muted-foreground sm:mt-0.5">
+                        <Badge tone={ACTIVITY_BADGE[entry.kind].tone} className="sm:hidden">
+                          {ACTIVITY_BADGE[entry.kind].label}
+                        </Badge>
+                        <span>{activityDetail(entry)}</span>
+                        {onTime !== null && (
+                          <span className={cn('sm:hidden', onTime ? 'text-success' : 'text-destructive')}>
+                            · {onTime ? t('history.onTimeLower') : t('history.lateLower')}
+                          </span>
+                        )}
+                        {entry.pointsAwarded > 0 && (
+                          <span className="text-success sm:hidden">· {t('common.ptsPlus', { count: entry.pointsAwarded })}</span>
+                        )}
+                      </div>
                       {entry.notes && (
                         <p className="mt-0.5 text-xs italic text-muted-foreground">{entry.notes}</p>
                       )}
                     </div>
-                    <div className="flex shrink-0 flex-col items-end gap-1 text-xs">
+                    <div className="hidden shrink-0 flex-col items-end gap-1 text-xs sm:flex">
                       <time
                         dateTime={entry.at}
-                        title={new Date(entry.at).toLocaleString()}
+                        title={formatDateTime(entry.at)}
                         className="text-muted-foreground"
                       >
-                        {formatRelative(entry.at)}
+                        {relativeTimeLabel(entry.at)}
                       </time>
                       <div className="flex items-center gap-2">
                         {onTime !== null && (
                           <span className={cn(onTime ? 'text-success' : 'text-destructive')}>
-                            {onTime ? 'on time' : 'late'}
+                            {onTime ? t('history.onTimeLower') : t('history.lateLower')}
                           </span>
                         )}
                         {entry.pointsAwarded > 0 && (
-                          <span className="text-success">+{entry.pointsAwarded} pts</span>
+                          <span className="text-success">{t('common.ptsPlus', { count: entry.pointsAwarded })}</span>
                         )}
                       </div>
                     </div>
@@ -243,7 +267,7 @@ export function HistoryPage() {
                         type="button"
                         onClick={() => onDeleteEntry(entry)}
                         disabled={deleteMutation.isPending}
-                        aria-label="Delete entry"
+                        aria-label={t('activity.deleteEntry')}
                         className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
                       >
                         <TrashIcon />
@@ -337,11 +361,11 @@ function CompletionChart({ chart }: { chart: ChartWeek[] }) {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Completions per week</CardTitle>
+        <CardTitle>{t('history.perWeek')}</CardTitle>
       </CardHeader>
       <CardContent>
         {!hasAnyData ? (
-          <p className="text-sm text-muted-foreground">No completions yet.</p>
+          <p className="text-sm text-muted-foreground">{t('history.noCompletions')}</p>
         ) : (
           <div className="overflow-x-auto">
             <div className="flex min-w-max items-end gap-4 pb-2 pt-2">
@@ -364,7 +388,7 @@ function CompletionChart({ chart }: { chart: ChartWeek[] }) {
                       ))}
                   </div>
                   <span className="w-20 text-center text-[10px] leading-tight text-muted-foreground">
-                    {week.label}
+                    {weekRangeLabel(week)}
                   </span>
                 </div>
               ))}
@@ -387,15 +411,15 @@ function UserStatsTable({ userStats }: { userStats: UserStats[] }) {
   })
 
   const periodLabel: Record<Period, string> = {
-    weekly: 'This week',
-    monthly: 'This month',
-    allTime: 'All time',
+    weekly: t('due.upcoming'),
+    monthly: t('history.thisMonth'),
+    allTime: t('history.allTime'),
   }
 
   return (
     <Card>
       <CardHeader className="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <CardTitle>Completions by member</CardTitle>
+        <CardTitle>{t('history.byMember')}</CardTitle>
         <div className="flex w-full rounded-lg border border-border text-sm sm:w-auto">
           {(['weekly', 'monthly', 'allTime'] as Period[]).map((p, i) => (
             <button
@@ -418,7 +442,7 @@ function UserStatsTable({ userStats }: { userStats: UserStats[] }) {
       </CardHeader>
       <CardContent>
         {sorted.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No members yet.</p>
+          <p className="text-sm text-muted-foreground">{t('history.noMembers')}</p>
         ) : (
           <ul className="divide-y divide-border">
             {sorted.map((u, index) => {
@@ -433,12 +457,12 @@ function UserStatsTable({ userStats }: { userStats: UserStats[] }) {
                   <span className="flex-1 text-sm text-foreground">{u.displayName}</span>
                   <div className="flex items-center gap-3 text-xs text-muted-foreground">
                     {(u.onTimeCount + u.overdueCount + u.missedCount > 0) && (
-                      <span title="On time / late / expired (all time)" className="flex items-center gap-1">
-                        {u.onTimeCount > 0 && <span className="text-success">{u.onTimeCount} on time</span>}
+                      <span title={t('history.statsTitle')} className="flex items-center gap-1">
+                        {u.onTimeCount > 0 && <span className="text-success">{t('history.nOnTime', { count: u.onTimeCount })}</span>}
                         {u.onTimeCount > 0 && u.overdueCount > 0 && <span>·</span>}
-                        {u.overdueCount > 0 && <span className="text-destructive">{u.overdueCount} late</span>}
+                        {u.overdueCount > 0 && <span className="text-destructive">{t('history.nLate', { count: u.overdueCount })}</span>}
                         {u.missedCount > 0 && (u.onTimeCount > 0 || u.overdueCount > 0) && <span>·</span>}
-                        {u.missedCount > 0 && <span className="text-warning">{u.missedCount} missed</span>}
+                        {u.missedCount > 0 && <span className="text-warning">{t('history.nMissed', { count: u.missedCount })}</span>}
                       </span>
                     )}
                   </div>
@@ -454,30 +478,31 @@ function UserStatsTable({ userStats }: { userStats: UserStats[] }) {
 }
 
 const ACTIVITY_BADGE: Record<ChoreHistoryEntry['kind'], { tone: BadgeTone; label: string }> = {
-  completion: { tone: 'green', label: 'Completed' },
-  skip: { tone: 'neutral', label: 'Skipped' },
-  expired: { tone: 'amber', label: 'Expired' },
-  reassignment: { tone: 'blue', label: 'Reassigned' },
+  completion: localized({ tone: 'green' as const }, { label: 'details.completed' }),
+  skip: localized({ tone: 'neutral' as const }, { label: 'details.skipped' }),
+  expired: localized({ tone: 'amber' as const }, { label: 'details.expired' }),
+  reassignment: localized({ tone: 'blue' as const }, { label: 'history.reassigned' }),
 }
 
 /** One consistent "who did it" line per entry; the badge already names the action. */
 function activityDetail(entry: ChoreHistoryEntry): string {
   if (entry.kind === 'reassignment') {
-    const detail = `${entry.fromAssignee?.displayName ?? 'nobody'} → ${entry.toAssignee?.displayName ?? 'nobody'}`
-    return entry.actor ? `${detail} · by ${entry.actor.displayName}` : detail
+    const detail = `${entry.fromAssignee?.displayName ?? t('history.nobody')} → ${entry.toAssignee?.displayName ?? t('history.nobody')}`
+    return entry.actor ? t('history.reassignBy', { detail, name: entry.actor.displayName }) : detail
   }
-  if (entry.kind === 'expired') return entry.actor ? `assigned to ${entry.actor.displayName}` : 'auto-advanced'
-  return `by ${entry.actor?.displayName ?? 'someone'}`
+  if (entry.kind === 'expired') {
+    return entry.actor
+      ? t('history.assignedTo', { name: pairLabel(entry.actor, entry.partner) })
+      : t('history.autoAdvanced')
+  }
+  return t('history.by', { name: entry.actor ? pairLabel(entry.actor, entry.partner) : t('history.someone') })
 }
 
-function formatRelative(iso: string): string {
-  const diff = Date.now() - new Date(iso).getTime()
-  const mins = Math.floor(diff / 60_000)
-  if (mins < 1) return 'just now'
-  if (mins < 60) return `${mins}m ago`
-  const hours = Math.floor(mins / 60)
-  if (hours < 24) return `${hours}h ago`
-  const days = Math.floor(hours / 24)
-  if (days < 7) return `${days}d ago`
-  return new Date(iso).toLocaleDateString()
+/** "5–11 Oct" for a chart week, in the UI language. Falls back to the server's own label where the
+ * browser can't format a date range. */
+function weekRangeLabel(week: ChartWeek): string {
+  const start = new Date(week.weekStart)
+  const end = new Date(start.getFullYear(), start.getMonth(), start.getDate() + 6)
+  const format = new Intl.DateTimeFormat(locale(), { day: 'numeric', month: 'short' })
+  return typeof format.formatRange === 'function' ? format.formatRange(start, end) : week.label
 }

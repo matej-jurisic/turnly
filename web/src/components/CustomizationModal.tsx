@@ -9,6 +9,7 @@ import { frameClasses, RARITY_COLOR } from '@/lib/cosmetics'
 import type { CosmeticRarity } from '@/lib/types'
 import { toast } from '@/lib/toast'
 import { Modal, Avatar } from '@/components/ui/Modal'
+import { t } from '@/lib/i18n'
 
 /**
  * Appearance picker opened from the account menu. One place to choose how the app looks: the base
@@ -41,21 +42,21 @@ export function CustomizationModal({ onClose }: { onClose: () => void }) {
   // a slow or failed fetch (retry is off) never masquerades as "you own nothing".
   if (!state) {
     return (
-      <Modal title="Customization" onClose={onClose} widthClassName="max-w-2xl">
+      <Modal title={t('userMenu.customization')} onClose={onClose} widthClassName="max-w-2xl">
         {isError ? (
           <div className="flex flex-col items-center gap-3 py-10 text-center">
-            <p className="text-sm text-muted-foreground">Could not load your collection.</p>
+            <p className="text-sm text-muted-foreground">{t('custom.loadFailed')}</p>
             <button
               type="button"
               onClick={() => refetch()}
               className="rounded-lg border border-border px-3 py-1.5 text-sm text-foreground transition-colors hover:bg-accent"
             >
-              Try again
+              {t('custom.retry')}
             </button>
           </div>
         ) : (
           <div className="flex items-center justify-center py-10 text-sm text-muted-foreground">
-            {isPending ? 'Loading your collection...' : 'Loading...'}
+            {isPending ? t('custom.loadingCollection') : t('custom.loading')}
           </div>
         )}
       </Modal>
@@ -96,7 +97,7 @@ export function CustomizationModal({ onClose }: { onClose: () => void }) {
   const busy = equip.isPending
 
   return (
-    <Modal title="Customization" onClose={onClose} widthClassName="max-w-2xl">
+    <Modal title={t('userMenu.customization')} onClose={onClose} widthClassName="max-w-2xl">
       <div className="space-y-5">
         {/* One tab per dimension so each view shows a single grid - keeps the modal from sprawling
             once a lot of cosmetics are unlocked. Color/Emoji/Frame all share a live avatar preview.
@@ -104,16 +105,16 @@ export function CustomizationModal({ onClose }: { onClose: () => void }) {
             survives narrow screens and any number of future sections. */}
         <div className="flex gap-1 overflow-x-auto rounded-xl bg-muted p-1">
           <TabButton active={tab === 'theme'} onClick={() => setTab('theme')}>
-            Theme
+            {t('slot.Theme')}
           </TabButton>
           <TabButton active={tab === 'color'} onClick={() => setTab('color')}>
-            Color
+            {t('slot.Color')}
           </TabButton>
           <TabButton active={tab === 'emoji'} onClick={() => setTab('emoji')}>
-            Emoji
+            {t('slot.Emoji')}
           </TabButton>
           <TabButton active={tab === 'frame'} onClick={() => setTab('frame')}>
-            Frame
+            {t('slot.Frame')}
           </TabButton>
         </div>
 
@@ -132,14 +133,14 @@ export function CustomizationModal({ onClose }: { onClose: () => void }) {
             {tab === 'theme' && (
               <section className="grid grid-cols-2 gap-2 @sm:grid-cols-3 @lg:grid-cols-4">
                 <SwatchTile
-                  label="Light"
+                  label={t('custom.light')}
                   selected={!activePalette && theme === 'light'}
                   disabled={busy}
                   onClick={() => chooseMode('light')}
                   preview={<ModePreview mode="light" />}
                 />
                 <SwatchTile
-                  label="Dark"
+                  label={t('custom.dark')}
                   selected={!activePalette && theme === 'dark'}
                   disabled={busy}
                   onClick={() => chooseMode('dark')}
@@ -178,7 +179,7 @@ export function CustomizationModal({ onClose }: { onClose: () => void }) {
             {tab === 'emoji' && (
               <section className="grid grid-cols-2 gap-2 @sm:grid-cols-3 @lg:grid-cols-4">
                 <SwatchTile
-                  label="Initials"
+                  label={t('custom.initials')}
                   selected={!activeEmoji}
                   disabled={busy}
                   onClick={() => chooseEmoji(null)}
@@ -201,7 +202,7 @@ export function CustomizationModal({ onClose }: { onClose: () => void }) {
             {tab === 'frame' && (
               <section className="grid grid-cols-2 gap-2 @sm:grid-cols-3 @lg:grid-cols-4">
                 <SwatchTile
-                  label="None"
+                  label={t('custom.noFrame')}
                   selected={!activeFrame}
                   disabled={busy}
                   onClick={() => chooseFrame(null)}

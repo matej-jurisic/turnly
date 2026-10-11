@@ -40,6 +40,18 @@ public class Chore
     /// earliest of these when set.</summary>
     public List<TimeOnly> TimesOfDay { get; set; } = new();
 
+    /// <summary>Optional display names for individual <see cref="TimesOfDay"/> slots — e.g. 08:00 →
+    /// "Morning", 20:00 → "Evening". Sparse: a slot without an entry simply has no label. Keys are
+    /// always a subset of <see cref="TimesOfDay"/>. Purely presentational; never touches the
+    /// recurrence math.</summary>
+    public Dictionary<TimeOnly, string> TimeLabels { get; set; } = new();
+
+    /// <summary>The label of the slot an occurrence falls on, or null when that slot is unlabelled.
+    /// Reads the time-of-day in the instant's own stored offset, which is how the slot scanner stamps
+    /// it.</summary>
+    public string? SlotLabel(DateTimeOffset? dueAt) =>
+        dueAt is { } due && TimeLabels.TryGetValue(TimeOnly.FromTimeSpan(due.TimeOfDay), out var label) ? label : null;
+
     /// <summary>How many completions (skips count too) are needed to close the current occurrence
     /// before it advances to the next due date — e.g. 3 = "three times per occurrence". 1 for the
     /// usual one-completion-per-occurrence chore. Only meaningful for the non-custom repeat types
@@ -51,10 +63,11 @@ public class Chore
     /// Ignored (and stored false) when only one completion is required. Skips never rotate either way.</summary>
     public bool RotateOnEachCompletion { get; set; }
 
-    /// <summary>How often the assignee hands over. <see cref="RotationPeriod.Monthly"/> keeps the same
-    /// person across every occurrence in a calendar month and only rotates when the due date crosses
-    /// into the next one. Stored as <see cref="RotationPeriod.EveryOccurrence"/> wherever it can't mean
-    /// anything (one-time, independent, keep-last-assigned, and monthly/yearly repeats).</summary>
+    /// <summary>How often the assignee hands over. A calendar period (day, week, month, quarter, year)
+    /// keeps the same person across every occurrence inside it and only rotates when the due date
+    /// crosses into the next one. Stored as <see cref="RotationPeriod.EveryOccurrence"/> wherever it
+    /// can't mean anything (one-time, independent, keep-last-assigned, and repeats that don't come due
+    /// more than once per period, see <see cref="Recurrence.RotationBoundary.AppliesTo"/>).</summary>
     public RotationPeriod RotationPeriod { get; set; } = RotationPeriod.EveryOccurrence;
 
     /// <summary>How the next assignee is chosen when the chore advances to a new occurrence.</summary>
@@ -98,6 +111,34 @@ public class Chore
     /// <summary>The user currently assigned to this chore; must be one of <see cref="Assignees"/>.</summary>
     public Guid? CurrentAssigneeId { get; set; }
     public User? CurrentAssignee { get; set; }
+
+    /// <summary>Fixed pairs of assignees who do this chore together. The pair is the unit: it holds
+    /// the turn, rotates and is credited as one. <see cref="CurrentAssigneeId"/> stays a single user
+    /// (either member) and the partner is derived from it, so nothing else has to know about pairs.
+    /// A user is in at most one pair; assignees outside every pair simply take their turn alone.
+    /// Always empty on <see cref="AssignmentStrategy.Independent"/> chores.</summary>
+    public List<ChorePair> Pairs { get; set; } = new();
+
+    /// <summary>The fixed partner of <paramref name="userId"/> on this chore, or null when they have
+    /// none. A frozen partner counts as none: they're away, so the other member carries the turn
+    /// alone. Needs <see cref="Assignees"/> loaded.</summary>
+    public User? PartnerOf(Guid? userId)
+    {
+        if (userId is not { } id) return null;
+        foreach (var pair in Pairs)
+            if (pair.Other(id) is { } other)
+                return Assignees.FirstOrDefault(a => a.Id == other && !a.IsFrozen);
+        return null;
+    }
+
+    /// <summary>Everyone holding the current occurrence: the current assignee plus their partner on a
+    /// paired chore. Empty when unassigned. Needs <see cref="Assignees"/> loaded.</summary>
+    public IEnumerable<Guid> CurrentHolderIds()
+    {
+        if (CurrentAssigneeId is not { } current) yield break;
+        yield return current;
+        if (PartnerOf(current) is { } partner) yield return partner.Id;
+    }
 
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
 

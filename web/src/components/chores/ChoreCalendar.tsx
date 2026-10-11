@@ -1,11 +1,11 @@
 import { useMemo, useState } from 'react'
 import type { Chore } from '@/lib/types'
 import { Card } from '@/components/ui/Card'
-import { choreHasDueTime, dueStatus } from '@/lib/chore-format'
+import { WEEKDAY_ORDER, choreHasDueTime, dueStatus, weekdayShort } from '@/lib/chore-format'
 import { ChoreCompactItem, type ChoreItemProps } from '@/components/chores/ChoreCompactItem'
 import { cn } from '@/lib/utils'
+import { locale, t } from '@/lib/i18n'
 
-const WEEKDAY_HEADERS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 const COUNT_TONE: Record<string, string> = {
   overdue: 'bg-destructive/15 text-destructive',
   today: 'bg-warning/15 text-warning',
@@ -69,7 +69,7 @@ export function ChoreCalendar({
   }, [view])
 
   const todayKey = dayKey(new Date())
-  const monthLabel = view.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })
+  const monthLabel = view.toLocaleDateString(locale(), { month: 'long', year: 'numeric' })
   const shiftMonth = (delta: number) =>
     setView((v) => new Date(v.getFullYear(), v.getMonth() + delta, 1))
   const goToday = () => {
@@ -79,7 +79,7 @@ export function ChoreCalendar({
   }
 
   const selectedChores = byDay.get(selected) ?? []
-  const selectedLabel = parseKey(selected).toLocaleDateString('en-GB', {
+  const selectedLabel = parseKey(selected).toLocaleDateString(locale(), {
     weekday: 'long', day: 'numeric', month: 'long',
   })
 
@@ -94,16 +94,16 @@ export function ChoreCalendar({
               onClick={goToday}
               className="rounded-md px-2.5 py-1 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
             >
-              Today
+              {t('due.today')}
             </button>
-            <button type="button" onClick={() => shiftMonth(-1)} aria-label="Previous month" className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground">‹</button>
-            <button type="button" onClick={() => shiftMonth(1)} aria-label="Next month" className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground">›</button>
+            <button type="button" onClick={() => shiftMonth(-1)} aria-label={t('calendar.prev')} className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground">‹</button>
+            <button type="button" onClick={() => shiftMonth(1)} aria-label={t('calendar.next')} className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground">›</button>
           </div>
         </div>
 
         <div className="grid grid-cols-7 border-b border-border bg-accent/40">
-          {WEEKDAY_HEADERS.map((d) => (
-            <div key={d} className="px-2 py-1.5 text-center text-xs font-medium text-muted-foreground">{d}</div>
+          {WEEKDAY_ORDER.map((day) => (
+            <div key={day} className="px-2 py-1.5 text-center text-xs font-medium text-muted-foreground">{weekdayShort(day)}</div>
           ))}
         </div>
 
@@ -154,7 +154,7 @@ export function ChoreCalendar({
             {selectedChores.map((c) => <ChoreCompactItem key={c.id} {...itemProps(c)} />)}
           </Card>
         ) : (
-          <p className="px-1 text-sm text-muted-foreground">No chores due on this day.</p>
+          <p className="px-1 text-sm text-muted-foreground">{t('calendar.empty')}</p>
         )}
       </div>
     </div>

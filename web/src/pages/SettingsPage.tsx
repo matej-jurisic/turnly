@@ -16,6 +16,7 @@ import type { DeliveryChannel, NotificationCategory, NotificationPreference } fr
 import { Button } from '@/components/ui/Button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { Input, Label, Select } from '@/components/ui/Field'
+import { LANGUAGES, localized, plural, t, tRich, useLanguageStore } from '@/lib/i18n'
 
 // The browser's full IANA zone list (and the device's own zone), resolved once. Empty when the
 // browser is too old to support `Intl.supportedValuesOf`, in which case we fall back to a text input.
@@ -49,11 +50,11 @@ export function SettingsPage() {
     setSubmitting(true)
     try {
       await authApi.changePassword(currentPassword, newPassword)
-      setMessage({ kind: 'ok', text: 'Password updated.' })
+      setMessage({ kind: 'ok', text: t('settings.passwordUpdated') })
       setCurrentPassword('')
       setNewPassword('')
     } catch (err) {
-      setMessage({ kind: 'error', text: err instanceof ApiError ? err.message : 'Something went wrong' })
+      setMessage({ kind: 'error', text: err instanceof ApiError ? err.message : t('common.error') })
     } finally {
       setSubmitting(false)
     }
@@ -61,9 +62,11 @@ export function SettingsPage() {
 
   return (
     <div className="mx-auto max-w-lg space-y-6">
-      <h1 className="text-2xl font-semibold text-foreground">Settings</h1>
+      <h1 className="text-2xl font-semibold text-foreground">{t('nav.settings')}</h1>
 
       <AccountCard />
+
+      <LanguageCard />
 
       {isNative() && <ServerCard />}
 
@@ -79,16 +82,16 @@ export function SettingsPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Change password</CardTitle>
+          <CardTitle>{t('settings.changePassword')}</CardTitle>
         </CardHeader>
         <CardContent>
           <form onSubmit={onSubmit} className="space-y-4">
             <div>
-              <Label htmlFor="current">Current password</Label>
+              <Label htmlFor="current">{t('settings.currentPassword')}</Label>
               <Input id="current" type="password" value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)} autoComplete="current-password" required />
             </div>
             <div>
-              <Label htmlFor="new">New password</Label>
+              <Label htmlFor="new">{t('settings.newPassword')}</Label>
               <Input id="new" type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} autoComplete="new-password" required />
             </div>
             {message && (
@@ -97,7 +100,7 @@ export function SettingsPage() {
               </p>
             )}
             <Button type="submit" disabled={submitting}>
-              {submitting ? 'Saving…' : 'Update password'}
+              {submitting ? t('common.saving') : t('settings.updatePassword')}
             </Button>
           </form>
         </CardContent>
@@ -114,14 +117,50 @@ function AccountCard() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Account</CardTitle>
+        <CardTitle>{t('settings.account')}</CardTitle>
       </CardHeader>
       <CardContent className="space-y-4 text-sm text-muted-foreground">
         <div className="space-y-1">
           <p><span className="text-foreground">{user?.displayName}</span> (@{user?.username})</p>
-          <p>Role: {user?.role}</p>
+          <p>{t('settings.role', { role: user ? t(`role.${user.role}`) : '' })}</p>
         </div>
-        <p>Avatar, frame, and theme live in the account menu, under Customization.</p>
+        <p>{t('settings.accountHint')}</p>
+      </CardContent>
+    </Card>
+  )
+}
+
+function LanguageCard() {
+  const language = useLanguageStore((s) => s.language)
+  const setLanguage = useLanguageStore((s) => s.setLanguage)
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>{t('settings.language')}</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <div className="inline-flex rounded-lg border border-border p-0.5" role="group" aria-label={t('settings.language')}>
+          {LANGUAGES.map((option) => {
+            const selected = option.value === language
+            return (
+              <button
+                key={option.value}
+                type="button"
+                lang={option.value}
+                aria-pressed={selected}
+                onClick={() => setLanguage(option.value)}
+                className={`rounded-md px-3 py-1.5 text-sm transition-colors ${
+                  selected
+                    ? 'bg-primary/10 font-semibold text-primary'
+                    : 'text-muted-foreground hover:bg-accent hover:text-foreground'
+                }`}
+              >
+                {option.label}
+              </button>
+            )
+          })}
+        </div>
       </CardContent>
     </Card>
   )
@@ -133,9 +172,9 @@ function ServerCard() {
 
   async function onChange() {
     const ok = await confirm({
-      title: 'Change server',
-      message: 'This signs you out of this server and returns to the server picker. Continue?',
-      confirmLabel: 'Change server',
+      title: t('settings.changeServer'),
+      message: t('settings.changeServerConfirm'),
+      confirmLabel: t('settings.changeServer'),
     })
     if (!ok) return
     setBusy(true)
@@ -155,14 +194,14 @@ function ServerCard() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Server</CardTitle>
+        <CardTitle>{t('settings.server')}</CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">
         <p className="text-sm text-muted-foreground">
-          Connected to <span className="text-foreground">{origin}</span>.
+          {tRich('settings.connectedTo', { origin: <span className="text-foreground">{origin}</span> })}
         </p>
         <Button type="button" variant="secondary" disabled={busy} onClick={onChange}>
-          {busy ? 'Switching…' : 'Change server'}
+          {busy ? t('settings.switching') : t('settings.changeServer')}
         </Button>
       </CardContent>
     </Card>
@@ -204,15 +243,15 @@ function NotificationsCard() {
     try {
       if (turnOn) {
         await enablePush()
-        setMessage({ kind: 'ok', text: 'Notifications enabled on this device.' })
+        setMessage({ kind: 'ok', text: t('settings.pushEnabled') })
       } else {
         await disablePush()
-        setMessage({ kind: 'ok', text: 'Notifications disabled on this device.' })
+        setMessage({ kind: 'ok', text: t('settings.pushDisabled') })
       }
       await refreshLocalState()
       queryClient.invalidateQueries({ queryKey: ['push-devices'] })
     } catch (err) {
-      setMessage({ kind: 'error', text: err instanceof Error ? err.message : 'Something went wrong' })
+      setMessage({ kind: 'error', text: err instanceof Error ? err.message : t('common.error') })
     } finally {
       setBusy(false)
     }
@@ -225,11 +264,11 @@ function NotificationsCard() {
       const { sent } = await notificationsApi.test()
       setMessage(
         sent > 0
-          ? { kind: 'ok', text: `Test notification sent to ${sent} device${sent === 1 ? '' : 's'}.` }
-          : { kind: 'error', text: 'No device accepted the push. Make sure notifications are enabled on this device.' },
+          ? { kind: 'ok', text: plural('settings.testSent', sent) }
+          : { kind: 'error', text: t('settings.testNoDevice') },
       )
     } catch (err) {
-      setMessage({ kind: 'error', text: err instanceof ApiError ? err.message : 'Failed to send test' })
+      setMessage({ kind: 'error', text: err instanceof ApiError ? err.message : t('settings.testFailed') })
     } finally {
       setTesting(false)
     }
@@ -241,39 +280,39 @@ function NotificationsCard() {
       await refreshLocalState()
       queryClient.invalidateQueries({ queryKey: ['push-devices'] })
     },
-    onError: (err) => setMessage({ kind: 'error', text: err instanceof ApiError ? err.message : 'Failed to remove device' }),
+    onError: (err) => setMessage({ kind: 'error', text: err instanceof ApiError ? err.message : t('settings.removeDeviceFailed') }),
   })
 
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Notifications</CardTitle>
+        <CardTitle>{t('notifEdit.title')}</CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">
         <p className="text-sm text-muted-foreground">
-          Push reminders for your chores on this device. They stop once the chore is done.
+          {t('settings.pushIntro')}
         </p>
         {unsupported ? (
-          <p className="text-sm text-muted-foreground">This browser doesn’t support push notifications.</p>
+          <p className="text-sm text-muted-foreground">{t('settings.pushUnsupported')}</p>
         ) : blocked ? (
           <p className="text-sm text-destructive">
-            Notifications are blocked. Enable them for this site in your browser settings, then reload.
+            {t('settings.pushBlockedWeb')}
           </p>
         ) : enabled === null ? (
-          <p className="text-sm text-muted-foreground">Checking…</p>
+          <p className="text-sm text-muted-foreground">{t('settings.checking')}</p>
         ) : enabled ? (
           <Button type="button" variant="secondary" disabled={busy} onClick={() => toggle(false)}>
-            {busy ? 'Working…' : 'Disable on this device'}
+            {busy ? t('settings.working') : t('settings.disableDevice')}
           </Button>
         ) : (
           <Button type="button" disabled={busy} onClick={() => toggle(true)}>
-            {busy ? 'Working…' : 'Enable on this device'}
+            {busy ? t('settings.working') : t('settings.enableDevice')}
           </Button>
         )}
 
         {devices && devices.length > 0 && (
           <div className="space-y-2 border-t border-border pt-3">
-            <p className="text-sm text-foreground">Your devices</p>
+            <p className="text-sm text-foreground">{t('settings.yourDevices')}</p>
             <ul className="space-y-1">
               {devices.map((d) => {
                 const isThis = currentEndpoint != null && d.endpoint === currentEndpoint
@@ -281,13 +320,13 @@ function NotificationsCard() {
                   <li key={d.id} className="flex items-center justify-between gap-2 rounded-md bg-accent px-3 py-2 text-sm">
                     <span className="flex items-center gap-2 text-foreground">
                       {d.label}
-                      {isThis && <span className="rounded bg-primary/10 px-1.5 py-0.5 text-xs text-primary">This device</span>}
+                      {isThis && <span className="rounded bg-primary/10 px-1.5 py-0.5 text-xs text-primary">{t('settings.thisDevice')}</span>}
                     </span>
                     <button
                       type="button"
                       onClick={() => removeMutation.mutate(d.id)}
                       disabled={removeMutation.isPending}
-                      aria-label={`Remove ${d.label}`}
+                      aria-label={t('settings.removeItem', { name: d.label })}
                       className="text-muted-foreground transition-colors hover:text-destructive disabled:opacity-50"
                     >
                       <XIcon />
@@ -297,7 +336,7 @@ function NotificationsCard() {
               })}
             </ul>
             <p className="text-xs text-muted-foreground">
-              Removing a device stops notifications there until you turn them back on from that device.
+              {t('settings.removeDeviceNote')}
             </p>
           </div>
         )}
@@ -305,9 +344,9 @@ function NotificationsCard() {
         {isAdmin && enabled && (
           <div className="border-t border-border pt-3">
             <Button type="button" variant="secondary" disabled={testing} onClick={sendTest}>
-              {testing ? 'Sending…' : 'Send test notification'}
+              {testing ? t('settings.sending') : t('settings.sendTest')}
             </Button>
-            <p className="mt-1 text-xs text-muted-foreground">Sends one right now, to check it works.</p>
+            <p className="mt-1 text-xs text-muted-foreground">{t('settings.sendTestHint')}</p>
           </div>
         )}
         {message && (
@@ -342,12 +381,12 @@ function NativeNotificationsCard() {
       setPermission(perm)
       if (granted) {
         setEnabled(true)
-        setMessage({ kind: 'ok', text: 'Notifications enabled on this device.' })
+        setMessage({ kind: 'ok', text: t('settings.pushEnabled') })
       } else {
-        setMessage({ kind: 'error', text: 'Notification permission was not granted.' })
+        setMessage({ kind: 'error', text: t('push.denied') })
       }
     } catch (err) {
-      setMessage({ kind: 'error', text: err instanceof Error ? err.message : 'Something went wrong' })
+      setMessage({ kind: 'error', text: err instanceof Error ? err.message : t('common.error') })
     } finally {
       setBusy(false)
     }
@@ -359,9 +398,9 @@ function NativeNotificationsCard() {
     try {
       await unregisterNativePush()
       setEnabled(false)
-      setMessage({ kind: 'ok', text: 'Notifications disabled on this device.' })
+      setMessage({ kind: 'ok', text: t('settings.pushDisabled') })
     } catch (err) {
-      setMessage({ kind: 'error', text: err instanceof Error ? err.message : 'Something went wrong' })
+      setMessage({ kind: 'error', text: err instanceof Error ? err.message : t('common.error') })
     } finally {
       setBusy(false)
     }
@@ -374,11 +413,11 @@ function NativeNotificationsCard() {
       const { sent } = await notificationsApi.test()
       setMessage(
         sent > 0
-          ? { kind: 'ok', text: `Test notification sent to ${sent} device${sent === 1 ? '' : 's'}.` }
-          : { kind: 'error', text: 'No device accepted the push. Make sure notifications are enabled on this device.' },
+          ? { kind: 'ok', text: plural('settings.testSent', sent) }
+          : { kind: 'error', text: t('settings.testNoDevice') },
       )
     } catch (err) {
-      setMessage({ kind: 'error', text: err instanceof ApiError ? err.message : 'Failed to send test' })
+      setMessage({ kind: 'error', text: err instanceof ApiError ? err.message : t('settings.testFailed') })
     } finally {
       setTesting(false)
     }
@@ -387,34 +426,34 @@ function NativeNotificationsCard() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Notifications</CardTitle>
+        <CardTitle>{t('notifEdit.title')}</CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">
         <p className="text-sm text-muted-foreground">
-          Push reminders for your chores on this device. They stop once the chore is done.
+          {t('settings.pushIntro')}
         </p>
         {permission === null ? (
-          <p className="text-sm text-muted-foreground">Checking…</p>
+          <p className="text-sm text-muted-foreground">{t('settings.checking')}</p>
         ) : permission === 'denied' ? (
           <p className="text-sm text-destructive">
-            Notifications are blocked. Enable them for Turnly in your device settings, then reopen the app.
+            {t('settings.pushBlockedNative')}
           </p>
         ) : enabled ? (
           <Button type="button" variant="secondary" disabled={busy} onClick={disable}>
-            {busy ? 'Working…' : 'Disable on this device'}
+            {busy ? t('settings.working') : t('settings.disableDevice')}
           </Button>
         ) : (
           <Button type="button" disabled={busy} onClick={enable}>
-            {busy ? 'Working…' : 'Enable on this device'}
+            {busy ? t('settings.working') : t('settings.enableDevice')}
           </Button>
         )}
 
         {isAdmin && enabled && (
           <div className="border-t border-border pt-3">
             <Button type="button" variant="secondary" disabled={testing} onClick={sendTest}>
-              {testing ? 'Sending…' : 'Send test notification'}
+              {testing ? t('settings.sending') : t('settings.sendTest')}
             </Button>
-            <p className="mt-1 text-xs text-muted-foreground">Sends one right now, to check it works.</p>
+            <p className="mt-1 text-xs text-muted-foreground">{t('settings.sendTestHint')}</p>
           </div>
         )}
         {message && (
@@ -431,18 +470,18 @@ function NativeNotificationsCard() {
  * server marks non-configurable are rendered read-only rather than hidden, so the list still
  * describes everything Turnly can send you. */
 const CATEGORY_COPY: Record<NotificationCategory, { label: string; hint: string }> = {
-  ChoreReminder: { label: 'Chore reminders', hint: 'Before a chore is due.' },
-  ChoreDue: { label: 'Chore due', hint: 'When a chore is due.' },
-  ChoreOverdue: { label: 'Overdue chases', hint: 'After a chore is late.' },
-  OfferReceived: { label: 'Offers to you', hint: 'A chore offered to you or up for grabs.' },
-  OfferResponse: { label: 'Replies to your offers', hint: 'Someone claims or declines your offer.' },
-  System: { label: 'App messages', hint: 'Test pushes and account notices. Always on.' },
+  ChoreReminder: localized({}, { label: 'category.ChoreReminder.label', hint: 'category.ChoreReminder.hint' }),
+  ChoreDue: localized({}, { label: 'category.ChoreDue.label', hint: 'category.ChoreDue.hint' }),
+  ChoreOverdue: localized({}, { label: 'category.ChoreOverdue.label', hint: 'category.ChoreOverdue.hint' }),
+  OfferReceived: localized({}, { label: 'category.OfferReceived.label', hint: 'category.OfferReceived.hint' }),
+  OfferResponse: localized({}, { label: 'category.OfferResponse.label', hint: 'category.OfferResponse.hint' }),
+  System: localized({}, { label: 'category.System.label', hint: 'category.System.hint' }),
 }
 
 const CHANNEL_COPY: Record<DeliveryChannel, { label: string; title: string }> = {
-  PushAndInbox: { label: 'Push', title: 'Buzz your devices and record it in your inbox' },
-  InboxOnly: { label: 'Inbox', title: 'Record it in your inbox without buzzing your devices' },
-  Off: { label: 'Off', title: 'Don’t send it at all' },
+  PushAndInbox: localized({}, { label: 'channel.PushAndInbox.label', title: 'channel.PushAndInbox.title' }),
+  InboxOnly: localized({}, { label: 'channel.InboxOnly.label', title: 'channel.InboxOnly.title' }),
+  Off: localized({}, { label: 'channel.Off.label', title: 'channel.Off.title' }),
 }
 
 const CHANNELS: DeliveryChannel[] = ['PushAndInbox', 'InboxOnly', 'Off']
@@ -477,22 +516,24 @@ function NotificationPreferencesCard() {
     },
     onError: (err, _vars, context) => {
       if (context?.previous) queryClient.setQueryData(['notification-preferences'], context.previous)
-      toast.error(err instanceof ApiError ? err.message : 'Something went wrong')
+      toast.error(err instanceof ApiError ? err.message : t('common.error'))
     },
   })
 
   return (
     <Card>
       <CardHeader>
-        <CardTitle>What notifies you</CardTitle>
+        <CardTitle>{t('settings.prefsTitle')}</CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
         <p className="text-sm text-muted-foreground">
-          Yours alone. <span className="text-foreground">Push</span> buzzes your devices,{' '}
-          <span className="text-foreground">Inbox</span> only shows in the bell,{' '}
-          <span className="text-foreground">Off</span> sends nothing.
+          {tRich('settings.prefsIntro', {
+            push: <span className="text-foreground">{CHANNEL_COPY.PushAndInbox.label}</span>,
+            inbox: <span className="text-foreground">{CHANNEL_COPY.InboxOnly.label}</span>,
+            off: <span className="text-foreground">{CHANNEL_COPY.Off.label}</span>,
+          })}
         </p>
-        {isLoading && <p className="text-sm text-muted-foreground">Loading…</p>}
+        {isLoading && <p className="text-sm text-muted-foreground">{t('common.loading')}</p>}
         <div className="divide-y divide-border">
           {preferences?.map((pref) => (
             <div key={pref.category} className="flex items-center justify-between gap-4 py-3">
@@ -526,7 +567,7 @@ function NotificationPreferencesCard() {
           ))}
         </div>
         <p className="text-xs text-muted-foreground">
-          To silence just one chore, use Mute on its menu.
+          {t('settings.muteHint')}
         </p>
       </CardContent>
     </Card>
@@ -548,9 +589,9 @@ function QuietHoursCard() {
       }),
     onSuccess: (updated) => {
       setUser(updated)
-      toast.success('Quiet hours updated.')
+      toast.success(t('settings.quietUpdated'))
     },
-    onError: (err) => toast.error(err instanceof ApiError ? err.message : 'Something went wrong'),
+    onError: (err) => toast.error(err instanceof ApiError ? err.message : t('common.error')),
   })
 
   // Already-saved state, to gate the Save button.
@@ -564,12 +605,11 @@ function QuietHoursCard() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Quiet hours</CardTitle>
+        <CardTitle>{t('settings.quietTitle')}</CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
         <p className="text-sm text-muted-foreground">
-          No buzzing during these hours. Notifications still land in your inbox. A window like 22:00 to
-          07:00 spans midnight.
+          {t('settings.quietIntro')}
         </p>
         <label className="flex items-center gap-2 text-sm text-foreground">
           <input
@@ -578,23 +618,23 @@ function QuietHoursCard() {
             onChange={(e) => setEnabled(e.target.checked)}
             className="h-4 w-4 accent-primary"
           />
-          Enable quiet hours
+          {t('settings.quietEnable')}
         </label>
         {enabled && (
           <div className="flex items-end gap-3">
             <div>
-              <Label htmlFor="quiet-start">From</Label>
+              <Label htmlFor="quiet-start">{t('settings.from')}</Label>
               <Input id="quiet-start" type="time" value={start} onChange={(e) => setStart(e.target.value)} className="w-32" />
             </div>
             <div>
-              <Label htmlFor="quiet-end">To</Label>
+              <Label htmlFor="quiet-end">{t('settings.to')}</Label>
               <Input id="quiet-end" type="time" value={end} onChange={(e) => setEnd(e.target.value)} className="w-32" />
             </div>
           </div>
         )}
-        {invalid && <p className="text-sm text-destructive">Start and end can’t be the same time.</p>}
+        {invalid && <p className="text-sm text-destructive">{t('settings.quietSame')}</p>}
         <Button onClick={() => mutation.mutate()} disabled={!dirty || invalid || mutation.isPending}>
-          {mutation.isPending ? 'Saving…' : 'Save quiet hours'}
+          {mutation.isPending ? t('common.saving') : t('settings.quietSave')}
         </Button>
       </CardContent>
     </Card>
@@ -617,9 +657,9 @@ function TimezoneCard() {
     onSuccess: (updated) => {
       queryClient.setQueryData(['app-settings'], updated)
       setTouched(false)
-      toast.success('Timezone updated.')
+      toast.success(t('settings.tzUpdated'))
     },
-    onError: (err) => toast.error(err instanceof ApiError ? err.message : 'Something went wrong'),
+    onError: (err) => toast.error(err instanceof ApiError ? err.message : t('common.error')),
   })
 
   const change = (value: string) => {
@@ -632,32 +672,32 @@ function TimezoneCard() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Timezone</CardTitle>
+        <CardTitle>{t('settings.tzTitle')}</CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
         <p className="text-sm text-muted-foreground">
-          Quiet hours are measured in this timezone, wherever the server runs.
+          {t('settings.tzIntro')}
         </p>
         <div className="space-y-2">
-          <Label htmlFor="tz">Family timezone</Label>
+          <Label htmlFor="tz">{t('settings.tzFamily')}</Label>
           {TIME_ZONES.length > 0 ? (
             <Select id="tz" value={selected} onChange={(e) => change(e.target.value)}>
-              <option value="">Server default{serverTz ? ` (${serverTz})` : ''}</option>
+              <option value="">{serverTz ? t('settings.tzServerDefaultZone', { zone: serverTz }) : t('settings.tzServerDefault')}</option>
               {TIME_ZONES.map((z) => (
                 <option key={z} value={z}>{z}</option>
               ))}
             </Select>
           ) : (
-            <Input id="tz" value={selected} onChange={(e) => change(e.target.value)} placeholder="e.g. Europe/Zagreb" />
+            <Input id="tz" value={selected} onChange={(e) => change(e.target.value)} placeholder={t('settings.tzPlaceholder')} />
           )}
           {DEVICE_TIME_ZONE && DEVICE_TIME_ZONE !== selected && (
             <button type="button" onClick={() => change(DEVICE_TIME_ZONE)} className="text-sm text-primary hover:underline">
-              Use this device’s timezone ({DEVICE_TIME_ZONE})
+              {t('settings.tzUseDevice', { zone: DEVICE_TIME_ZONE })}
             </button>
           )}
         </div>
         <Button onClick={() => mutation.mutate()} disabled={!dirty || mutation.isPending}>
-          {mutation.isPending ? 'Saving…' : 'Save timezone'}
+          {mutation.isPending ? t('common.saving') : t('settings.tzSave')}
         </Button>
       </CardContent>
     </Card>
@@ -677,19 +717,19 @@ function TagsCard() {
       setName('')
       setError(null)
     },
-    onError: (err) => setError(err instanceof ApiError ? err.message : 'Failed to create tag'),
+    onError: (err) => setError(err instanceof ApiError ? err.message : t('settings.tagCreateFailed')),
   })
 
   const deleteMutation = useMutation({
     mutationFn: (id: string) => tagsApi.remove(id),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['tags'] }),
-    onError: (err) => toast.error(err instanceof ApiError ? err.message : 'Failed to delete tag'),
+    onError: (err) => toast.error(err instanceof ApiError ? err.message : t('settings.tagDeleteFailed')),
   })
 
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Tags</CardTitle>
+        <CardTitle>{t('filters.tags')}</CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
         {tags && tags.length > 0 ? (
@@ -701,7 +741,7 @@ function TagsCard() {
                   type="button"
                   onClick={() => deleteMutation.mutate(tag.id)}
                   disabled={deleteMutation.isPending}
-                  aria-label={`Delete ${tag.name}`}
+                  aria-label={t('settings.deleteItem', { name: tag.name })}
                   className="ml-0.5 text-muted-foreground transition-colors hover:text-destructive disabled:opacity-50"
                 >
                   <XIcon />
@@ -710,14 +750,14 @@ function TagsCard() {
             ))}
           </div>
         ) : (
-          <p className="text-sm text-muted-foreground">No tags yet.</p>
+          <p className="text-sm text-muted-foreground">{t('settings.noTags')}</p>
         )}
         <form
           onSubmit={(e) => { e.preventDefault(); if (name.trim()) createMutation.mutate(name.trim()) }}
           className="flex gap-2"
         >
-          <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="New tag name" required />
-          <Button type="submit" variant="secondary" disabled={createMutation.isPending}>Add</Button>
+          <Input value={name} onChange={(e) => setName(e.target.value)} placeholder={t('settings.newTag')} required />
+          <Button type="submit" variant="secondary" disabled={createMutation.isPending}>{t('common.add')}</Button>
         </form>
         {error && <p className="text-sm text-destructive">{error}</p>}
       </CardContent>
@@ -731,10 +771,9 @@ function DangerZoneCard() {
 
   async function onFreshStart() {
     const ok = await confirm({
-      title: 'Fresh start',
-      message:
-        'Deletes all activity, points, redemptions, achievements, and cosmetics progress for everyone. Chores and schedules are kept. This cannot be undone.',
-      confirmLabel: 'Reset everything',
+      title: t('settings.freshStart'),
+      message: t('settings.freshStartConfirm'),
+      confirmLabel: t('settings.resetEverything'),
     })
     if (!ok) return
     setBusy(true)
@@ -748,9 +787,9 @@ function DangerZoneCard() {
       ]) {
         queryClient.invalidateQueries({ queryKey: key })
       }
-      toast.success('Fresh start complete. Points and history cleared.')
+      toast.success(t('settings.freshStartDone'))
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : 'Fresh start failed')
+      toast.error(err instanceof ApiError ? err.message : t('settings.freshStartFailed'))
     } finally {
       setBusy(false)
     }
@@ -759,15 +798,14 @@ function DangerZoneCard() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Danger zone</CardTitle>
+        <CardTitle>{t('settings.dangerZone')}</CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">
         <p className="text-sm text-muted-foreground">
-          Wipe all history and progress and put everyone back to 0 points. Chores and schedules stay.
-          Handy at the start of a new month. Cannot be undone.
+          {t('settings.dangerIntro')}
         </p>
         <Button type="button" variant="danger" disabled={busy} onClick={onFreshStart}>
-          {busy ? 'Resetting…' : 'Fresh start'}
+          {busy ? t('settings.resetting') : t('settings.freshStart')}
         </Button>
       </CardContent>
     </Card>

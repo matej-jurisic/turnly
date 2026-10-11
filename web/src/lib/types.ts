@@ -120,7 +120,7 @@ export type CustomRecurrenceMode = 'Interval' | 'DaysOfWeek' | 'DaysOfMonth'
 
 export type RecurrenceUnit = 'Day' | 'Week' | 'Month' | 'Year'
 
-export type RotationPeriod = 'EveryOccurrence' | 'Monthly'
+export type RotationPeriod = 'EveryOccurrence' | 'Daily' | 'Weekly' | 'Monthly' | 'Quarterly' | 'Yearly'
 
 export type AssignmentStrategy =
   | 'Random'
@@ -131,6 +131,8 @@ export type AssignmentStrategy =
   | 'RoundRobin'
   /** Everyone independently: each assignee has their own schedule (a track) and quota; no rotation. */
   | 'Independent'
+  /** Nobody is picked automatically: the chore goes back to unassigned until an admin assigns it. */
+  | 'Manual'
 
 export type SchedulingPreference =
   | 'FromScheduledDate'
@@ -179,6 +181,8 @@ export interface ChoreCompletion {
   pointsAwarded: number
   isSkip: boolean
   isExpired: boolean
+  /** On a paired chore, the partner credited alongside `completedBy`. */
+  partner?: User | null
 }
 
 /** A row in the chore history feed: a completion, a skip, an auto-expiry, or a manual reassignment. */
@@ -197,6 +201,8 @@ export interface ChoreHistoryEntry {
   fromAssignee?: User | null
   /** Reassignment only: new assignee. */
   toAssignee?: User | null
+  /** Completion/expiry on a paired chore: the partner who shares it with `actor`. */
+  partner?: User | null
 }
 
 /** One assignee's independent schedule on a track-mode (`Independent`) chore. */
@@ -256,8 +262,21 @@ export interface Chore extends RecurrenceFields {
   /** Fixed times-of-day ("HH:mm") for "N times a day"; empty for a single daily slot. Only set for
    * Daily / DaysOfWeek / DaysOfMonth schedules. */
   timesOfDay: string[]
+  /** Optional names for individual `timesOfDay` slots, keyed by "HH:mm" (e.g. "08:00" → "Morning").
+   * Sparse: unlabelled slots are absent. */
+  timeLabels: Record<string, string>
   dueAt?: string | null
+  /** Label of the slot `dueAt` falls on, resolved server-side; null when that slot has none. */
+  dueLabel?: string | null
   currentAssignee?: User | null
+  /** Fixed pairs who do the chore together, each `[userId, userId]`. A pair holds the turn, rotates
+   * and is credited as one. Empty when the chore isn't paired. */
+  pairs: string[][]
+  /** On a paired chore, who shares the current occurrence with `currentAssignee` (null when the
+   * holder has no partner, or the partner is frozen). */
+  currentPartner?: User | null
+  /** The partner coming up alongside `nextAssignee`, if any. */
+  nextPartner?: User | null
   /** Who the chore will rotate to next, for strategies whose outcome is fixed by current state
    * (null for the random strategies, one-time chores, and single-assignee chores). */
   nextAssignee?: User | null
@@ -339,12 +358,17 @@ export interface ChoreRequest extends RecurrenceFields {
   dueTime?: string | null
   /** Fixed times-of-day ("HH:mm") for "N times a day"; omit/empty for a single daily slot. */
   timesOfDay?: string[] | null
+  /** Names for the `timesOfDay` slots, keyed by "HH:mm"; omit/empty for none. */
+  timeLabels?: Record<string, string> | null
   assigneeIds: string[]
   currentAssigneeId: string | null
   tagNames: string[]
   notifications: ChoreNotificationInput[]
   /** Per-assignee quotas for `Independent` chores — one per assignee. Omitted for rotating chores. */
   tracks?: { userId: string; completionsRequired: number }[]
+  /** Fixed pairs who do the chore together, each `[userId, userId]`; nobody may be in two. Omitted
+   * for `Independent` chores. */
+  pairs?: string[][] | null
 }
 
 export type CreateChoreRequest = ChoreRequest
@@ -354,6 +378,8 @@ export interface CompleteChoreRequest {
   notes?: string | null
   /** Admin-only: credit the completion to another user instead of the caller. */
   completedByUserId?: string | null
+  /** When it was actually done, for logging after the fact. Omitted = now. */
+  completedAt?: string | null
 }
 
 export interface SkipChoreRequest {

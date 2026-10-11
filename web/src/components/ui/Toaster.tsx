@@ -1,5 +1,6 @@
 import { useToastStore, type ToastTone } from '@/lib/toast'
 import { cn } from '@/lib/utils'
+import { t } from '@/lib/i18n'
 
 const toneAccent: Record<ToastTone, string> = {
   success: 'border-l-success',
@@ -28,29 +29,29 @@ export function Toaster() {
 
   return (
     <div className="pointer-events-none fixed inset-x-4 bottom-4 z-[60] flex flex-col gap-2 sm:left-auto sm:w-full sm:max-w-sm">
-      {toasts.map((t) => (
+      {toasts.map((item) => (
         <div
-          key={t.id}
+          key={item.id}
           role="status"
           className={cn(
             'pointer-events-auto flex items-start gap-3 rounded-lg border border-l-4 border-border bg-card px-4 py-3 shadow-pop',
-            toneAccent[t.tone],
+            toneAccent[item.tone],
           )}
         >
           <span
             className={cn(
               'mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-xs font-medium',
-              toneText[t.tone],
+              toneText[item.tone],
             )}
             aria-hidden
           >
-            {toneGlyph[t.tone]}
+            {toneGlyph[item.tone]}
           </span>
-          <p className="flex-1 text-sm text-foreground">{t.message}</p>
+          <p className="flex-1 text-sm text-foreground">{item.message}</p>
           <button
-            onClick={() => dismiss(t.id)}
+            onClick={() => dismiss(item.id)}
             className="shrink-0 text-muted-foreground hover:text-foreground"
-            aria-label="Dismiss"
+            aria-label={t('common.dismiss')}
           >
             ✕
           </button>

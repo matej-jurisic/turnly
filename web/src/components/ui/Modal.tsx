@@ -4,6 +4,7 @@ import type { ReactNode } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { registerModal } from '@/lib/modalHistory'
 import { frameClasses } from '@/lib/cosmetics'
+import { t } from '@/lib/i18n'
 
 interface ModalProps {
   title: ReactNode
@@ -47,7 +48,7 @@ export function Modal({ title, onClose, children, widthClassName = 'max-w-md' }:
           <button
             onClick={onClose}
             className="text-muted-foreground hover:text-foreground"
-            aria-label="Close"
+            aria-label={t('common.close')}
           >
             ✕
           </button>

@@ -3,6 +3,7 @@ import { useAuthStore } from '@/store/auth'
 import { Avatar } from '@/components/ui/Modal'
 import { Badge } from '@/components/ui/Badge'
 import { CustomizationModal } from '@/components/CustomizationModal'
+import { t } from '@/lib/i18n'
 
 export function UserMenu({ onLogout }: { onLogout: () => void }) {
   const user = useAuthStore((s) => s.user)
@@ -31,7 +32,7 @@ export function UserMenu({ onLogout }: { onLogout: () => void }) {
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        aria-label="Account menu"
+        aria-label={t('userMenu.label')}
         aria-haspopup="menu"
         aria-expanded={open}
         className="rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-card"
@@ -48,7 +49,7 @@ export function UserMenu({ onLogout }: { onLogout: () => void }) {
             <p className="truncate text-sm text-foreground">{user.displayName}</p>
             <div className="mt-1 flex items-center gap-2">
               <span className="truncate text-xs text-muted-foreground">@{user.username}</span>
-              <Badge tone={user.role === 'Admin' ? 'violet' : 'neutral'}>{user.role}</Badge>
+              <Badge tone={user.role === 'Admin' ? 'violet' : 'neutral'}>{t(`role.${user.role}`)}</Badge>
             </div>
           </div>
 
@@ -62,7 +63,7 @@ export function UserMenu({ onLogout }: { onLogout: () => void }) {
             className="flex w-full items-center gap-2 px-3 py-2.5 text-sm text-foreground hover:bg-accent"
           >
             <PaletteIcon />
-            Customization
+            {t('userMenu.customization')}
           </button>
 
           <button
@@ -75,7 +76,7 @@ export function UserMenu({ onLogout }: { onLogout: () => void }) {
             className="flex w-full items-center gap-2 border-t border-border px-3 py-2.5 text-sm text-foreground hover:bg-accent"
           >
             <LogoutIcon />
-            Sign out
+            {t('auth.signOut')}
           </button>
         </div>
       )}

@@ -4,8 +4,9 @@ import { authApi, usersApi } from '@/lib/api'
 import type { Chore, LeaderboardEntry, User } from '@/lib/types'
 import { Card } from '@/components/ui/Card'
 import { Avatar } from '@/components/ui/Modal'
-import { choreDueStatus } from '@/lib/chore-format'
+import { choreDueStatus, holdsChore } from '@/lib/chore-format'
 import { cn } from '@/lib/utils'
+import { t } from '@/lib/i18n'
 
 /**
  * Right-hand info rail for the chore list (desktop `xl`+ only). Surfaces two glanceable widgets that
@@ -43,7 +44,7 @@ function SnapshotCard({ chores, currentUser }: { chores: Chore[]; currentUser: U
       (c) =>
         !c.isFrozen &&
         c.dueAt &&
-        (c.currentAssignee?.id === currentUser.id || c.tracks.some((t) => t.user.id === currentUser.id)),
+        (holdsChore(c, currentUser.id) || c.tracks.some((t) => t.user.id === currentUser.id)),
     )
     let overdue = 0
     let today = 0
@@ -57,12 +58,12 @@ function SnapshotCard({ chores, currentUser }: { chores: Chore[]; currentUser: U
 
   return (
     <Card className="p-4">
-      <h3 className="text-sm font-semibold text-foreground">Your snapshot</h3>
+      <h3 className="text-sm font-semibold text-foreground">{t('rail.snapshot')}</h3>
       <dl className="mt-2 space-y-1 text-sm">
-        <Row label="Points" value={points} />
-        <Row label="This week" value={weeklyPoints} />
-        <Row label="Due today" value={today} valueClass={today > 0 ? 'text-info' : undefined} />
-        <Row label="Overdue" value={overdue} valueClass={overdue > 0 ? 'text-destructive' : undefined} />
+        <Row label={t('nav.points')} value={points} />
+        <Row label={t('due.upcoming')} value={weeklyPoints} />
+        <Row label={t('rail.dueToday')} value={today} valueClass={today > 0 ? 'text-info' : undefined} />
+        <Row label={t('due.overdue')} value={overdue} valueClass={overdue > 0 ? 'text-destructive' : undefined} />
       </dl>
     </Card>
   )
@@ -95,7 +96,7 @@ function LeaderboardCard({ onSelectUser }: { onSelectUser: (entry: LeaderboardEn
   return (
     <Card className="overflow-hidden">
       <div className="border-b border-border px-4 py-3">
-        <h3 className="text-sm font-semibold text-foreground">Leaderboard · This week</h3>
+        <h3 className="text-sm font-semibold text-foreground">{t('rail.leaderboard')}</h3>
       </div>
       <ul className="divide-y divide-border">
         {top.map((entry, index) => (
