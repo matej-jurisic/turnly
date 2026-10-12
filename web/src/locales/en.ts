@@ -315,6 +315,9 @@ export const en = {
   'activity.deleteExpiredMessage': 'Delete this auto-expired entry from the log? The chore schedule is not changed.',
   'activity.deleteCompletionTitle': 'Delete completion',
   'activity.deleteCompletionMessage_one': 'Delete this completion? {count} point will be reversed and the chore schedule is not changed.',
+  'activity.markCompleted': 'Mark as completed',
+  'activity.editTime': 'Change completion time',
+  'activity.updateFailed': 'Failed to update entry',
   'activity.deleteCompletionMessage_other': 'Delete this completion? {count} points will be reversed and the chore schedule is not changed.',
 
   // Chore menu
@@ -440,6 +443,7 @@ export const en = {
 
   // Complete modal
   'complete.failed': 'Failed to complete',
+  'complete.filledExpired': 'Logged for the missed occurrence due {date}. The current one is still open.',
   'complete.title': 'Complete "{name}"',
   'complete.earnsFor': 'This earns {points} for the selected member.',
   'complete.youEarn': 'You\'ll earn {points}.',

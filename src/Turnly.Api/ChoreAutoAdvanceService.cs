@@ -1,3 +1,4 @@
+using Turnly.Api.Realtime;
 using Turnly.Core.Services;
 
 namespace Turnly.Api;
@@ -10,11 +11,14 @@ public class ChoreAutoAdvanceService : BackgroundService
     private static readonly TimeSpan Interval = TimeSpan.FromMinutes(1);
 
     private readonly IServiceScopeFactory _scopeFactory;
+    private readonly ChangeBroadcaster _broadcaster;
     private readonly ILogger<ChoreAutoAdvanceService> _logger;
 
-    public ChoreAutoAdvanceService(IServiceScopeFactory scopeFactory, ILogger<ChoreAutoAdvanceService> logger)
+    public ChoreAutoAdvanceService(
+        IServiceScopeFactory scopeFactory, ChangeBroadcaster broadcaster, ILogger<ChoreAutoAdvanceService> logger)
     {
         _scopeFactory = scopeFactory;
+        _broadcaster = broadcaster;
         _logger = logger;
     }
 
@@ -29,7 +33,10 @@ public class ChoreAutoAdvanceService : BackgroundService
                 var chores = scope.ServiceProvider.GetRequiredService<ChoreService>();
                 var advanced = await chores.AutoAdvanceAsync(DateTimeOffset.UtcNow, stoppingToken);
                 if (advanced > 0)
+                {
                     _logger.LogInformation("Auto-advanced {Count} incomplete chore occurrence(s).", advanced);
+                    _broadcaster.Publish();
+                }
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {

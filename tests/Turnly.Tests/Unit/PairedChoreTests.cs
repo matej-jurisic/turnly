@@ -289,6 +289,34 @@ public class PairedChoreTests
     }
 
     [Fact]
+    public async Task UpdateActivity_credits_both_partners_when_an_expired_entry_is_marked_done()
+    {
+        using var ctx = new TestContext();
+        var p = await SeedAsync(ctx);
+        var req = Paired(p.Ana, [p.Ana, p.Ben, p.Cy, p.Dee], [[p.Ana, p.Ben], [p.Cy, p.Dee]]) with
+        {
+            AutoAdvanceIncomplete = true
+        };
+        var chore = (await ctx.Chores.CreateAsync(req)).Value!;
+        await ctx.Chores.AutoAdvanceAsync(chore.DueAt!.Value.AddMinutes(1));
+        var expiredId = await ctx.Db.ChoreCompletions.Select(c => c.Id).SingleAsync();
+
+        // Credited to the other pair: the partner follows whoever is named, not who missed it.
+        var result = await ctx.Chores.UpdateActivityAsync(
+            expiredId, p.Admin, new UpdateActivityRequest(chore.DueAt!.Value, p.Dee));
+
+        Assert.True(result.Succeeded);
+        var row = await ctx.Db.ChoreCompletions.SingleAsync();
+        Assert.False(row.IsExpired);
+        Assert.Equal(p.Dee, row.CompletedByUserId);
+        Assert.Equal(p.Cy, row.PartnerUserId);
+        Assert.Equal(10, await PointsAsync(ctx, p.Dee));
+        Assert.Equal(10, await PointsAsync(ctx, p.Cy));
+        Assert.Equal(0, await PointsAsync(ctx, p.Ben));
+        Assert.Equal(2, await ctx.Db.PointsLog.CountAsync(e => e.ChoreCompletionId == expiredId));
+    }
+
+    [Fact]
     public async Task Stats_and_history_count_a_paired_completion_for_both()
     {
         using var ctx = new TestContext();

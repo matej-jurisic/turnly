@@ -189,6 +189,11 @@ public record ChoreDto(
     /// response to a self-completion so the client can show a celebration popup. Empty otherwise; not
     /// part of the chore's persistent state.</summary>
     public AchievementDto[] UnlockedAchievements { get; init; } = [];
+
+    /// <summary>Set only on a completion response whose backdated time landed in an occurrence that
+    /// had auto-expired: that occurrence's due date. The missed entry was filled in and the current
+    /// occurrence is still open, so the client says so instead of treating the chore as done.</summary>
+    public DateTimeOffset? FilledExpiredDueAt { get; init; }
 }
 
 /// <summary>One assignee's independent schedule on a track-mode chore: their own due date, quota,
@@ -381,6 +386,12 @@ public record ChoreOfferDto(Guid Id, UserDto FromUser, UserDto? ToUser, int Boun
 /// <summary><see cref="UserId"/> names whose track to reschedule on a track-mode chore (required
 /// there); ignored for rotating chores.</summary>
 public record RescheduleChoreRequest(DateTimeOffset DueAt, string? DueTime, Guid? UserId = null);
+
+/// <summary>Admin-only correction of a logged activity entry. On a completion it changes when the
+/// chore was done. On an auto-expired entry it turns the miss into a real completion by
+/// <see cref="CompletedByUserId"/> (required there, except on a per-person chore where it is always
+/// the person whose slot expired) at <see cref="CompletedAt"/>.</summary>
+public record UpdateActivityRequest(DateTimeOffset CompletedAt, Guid? CompletedByUserId = null);
 
 public record ChoreCompletionDto(
     Guid Id,

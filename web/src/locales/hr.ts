@@ -328,6 +328,9 @@ export const hr: Record<TKey | `${PluralKey}_few`, string> = {
   'activity.deleteCompletionTitle': 'Obriši izvršenje',
   'activity.deleteCompletionMessage_one': 'Obrisati ovo izvršenje? Oduzima se {count} bod, a raspored posla se ne mijenja.',
   'activity.deleteCompletionMessage_few': 'Obrisati ovo izvršenje? Oduzimaju se {count} boda, a raspored posla se ne mijenja.',
+  'activity.markCompleted': 'Označi kao obavljeno',
+  'activity.editTime': 'Promijeni vrijeme izvršenja',
+  'activity.updateFailed': 'Ažuriranje unosa nije uspjelo',
   'activity.deleteCompletionMessage_other': 'Obrisati ovo izvršenje? Oduzima se {count} bodova, a raspored posla se ne mijenja.',
 
   // Chore menu
@@ -453,6 +456,7 @@ export const hr: Record<TKey | `${PluralKey}_few`, string> = {
 
   // Complete modal
   'complete.failed': 'Označavanje nije uspjelo',
+  'complete.filledExpired': 'Upisano za propušteni termin s rokom {date}. Trenutni je i dalje otvoren.',
   'complete.title': 'Obavi "{name}"',
   'complete.earnsFor': 'Odabrani član dobiva {points}.',
   'complete.youEarn': 'Dobivate {points}.',

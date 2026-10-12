@@ -1,17 +1,21 @@
+import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { Chore, ChoreHistoryEntry } from '@/lib/types'
-import { choresApi, historyApi, ApiError } from '@/lib/api'
+import { choresApi, historyApi, usersApi, ApiError } from '@/lib/api'
 import { confirm } from '@/lib/confirm'
 import { toast } from '@/lib/toast'
 import { useAuthStore } from '@/store/auth'
 import { Modal, Avatar } from '@/components/ui/Modal'
 import { Badge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
-import { SkipIcon, TrashIcon } from '@/components/chores/icons'
+import { Input, Label, Select } from '@/components/ui/Field'
+import { TimeField } from '@/components/ui/TimeField'
+import { CheckIcon, EditIcon, SkipIcon, TrashIcon } from '@/components/chores/icons'
 import {
   calendarDaysAgo, choreDueStatus, choreHasDueTime, completionProgressLabel, dueStatus, formatDate, formatGrace,
   isIndependent, notificationRecipientsLabel, notificationTimingLabel, notificationTypeLabel,
   relativeDayLabel, repeatLabel, showStreak, trackIsDone, trackStatusText, strategyLabel, schedulingLabel, rotationPeriodLabel, holdsChore, pairLabel,
+  toLocalDateInput, toLocalDueInstant,
 } from '@/lib/chore-format'
 import { plural, t, tRich } from '@/lib/i18n'
 
@@ -341,7 +345,7 @@ export function ChoreDetailsModal({ chore, onClose, onComplete }: ChoreDetailsMo
 
         <ChoreStats choreId={chore.id} />
 
-        <ActivityList choreId={chore.id} />
+        <ActivityList chore={chore} />
       </div>
 
       {onComplete && !chore.isFrozen && (
@@ -442,11 +446,20 @@ function ChoreStats({ choreId }: { choreId: string }) {
   )
 }
 
+/** A completion logged after its occurrence was due: the one kind whose time an admin can correct. */
+function isLateCompletion(entry: ChoreHistoryEntry): boolean {
+  return entry.kind === 'completion' && !!entry.occurrenceDueAt
+    && new Date(entry.at).getTime() > new Date(entry.occurrenceDueAt).getTime()
+}
+
 /** Per-chore activity log (completions, skips, and auto-expired slots). Admins can delete entries to
- * fix up history; deletion reverses the entry's points but doesn't reschedule the chore. */
-function ActivityList({ choreId }: { choreId: string }) {
+ * fix up history, mark an auto-expired slot as completed, and correct the time of a late completion;
+ * none of these reschedule the chore. */
+function ActivityList({ chore }: { chore: Chore }) {
+  const choreId = chore.id
   const isAdmin = useAuthStore((s) => s.user?.role === 'Admin')
   const queryClient = useQueryClient()
+  const [editingId, setEditingId] = useState<string | null>(null)
 
   const { data: activity, isLoading } = useQuery({
     queryKey: ['history', { choreId }],
@@ -510,6 +523,17 @@ function ActivityList({ choreId }: { choreId: string }) {
                 ) : (
                   <Badge tone="violet">{t('common.ptsPlus', { count: entry.pointsAwarded })}</Badge>
                 )}
+                {isAdmin && (entry.kind === 'expired' || isLateCompletion(entry)) && (
+                  <button
+                    type="button"
+                    onClick={() => setEditingId(editingId === entry.id ? null : entry.id)}
+                    aria-label={entry.kind === 'expired' ? t('activity.markCompleted') : t('activity.editTime')}
+                    title={entry.kind === 'expired' ? t('activity.markCompleted') : t('activity.editTime')}
+                    className="inline-flex h-7 w-7 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  >
+                    {entry.kind === 'expired' ? <CheckIcon /> : <EditIcon />}
+                  </button>
+                )}
                 {isAdmin && (
                   <button
                     type="button"
@@ -526,9 +550,93 @@ function ActivityList({ choreId }: { choreId: string }) {
             {entry.notes && (
               <p className="mt-1 text-muted-foreground italic">{entry.notes}</p>
             )}
+            {isAdmin && editingId === entry.id && (
+              <ActivityEditForm chore={chore} entry={entry} onClose={() => setEditingId(null)} />
+            )}
           </div>
         ))}
       </div>
     </div>
+  )
+}
+
+/** Inline admin form under an activity entry. An auto-expired entry gets "who" and "when" and becomes
+ * a completion; a completion only gets "when". */
+function ActivityEditForm({ chore, entry, onClose }: { chore: Chore; entry: ChoreHistoryEntry; onClose: () => void }) {
+  const queryClient = useQueryClient()
+  const isExpired = entry.kind === 'expired'
+  // A per-person chore's expired slot belongs to one schedule, so there is nobody to choose.
+  const pickWho = isExpired && !isIndependent(chore)
+
+  // An expired entry is stamped with when it expired, so the occurrence's due time is the better guess.
+  const initial = new Date(isExpired ? entry.occurrenceDueAt ?? entry.at : entry.at)
+  const [date, setDate] = useState(() => toLocalDateInput(initial))
+  const [time, setTime] = useState(() => initial.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }))
+  const [who, setWho] = useState(entry.actor?.id ?? '')
+  const [error, setError] = useState<string | null>(null)
+
+  // Same list as completing on someone's behalf: any household member can be credited.
+  const { data: users } = useQuery({ queryKey: ['users'], queryFn: usersApi.list, enabled: pickWho })
+  const completedByUserId = who || users?.[0]?.id || ''
+
+  const mutation = useMutation({
+    mutationFn: () =>
+      choresApi.updateActivity(entry.id, {
+        completedAt: toLocalDueInstant(date, time),
+        completedByUserId: pickWho ? completedByUserId : null,
+      }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['history'] })
+      void queryClient.invalidateQueries({ queryKey: ['chores'] })
+      void queryClient.invalidateQueries({ queryKey: ['me'] })
+      void queryClient.invalidateQueries({ queryKey: ['leaderboard'] })
+      onClose()
+    },
+    onError: (err) => setError(err instanceof ApiError ? err.message : t('activity.updateFailed')),
+  })
+
+  return (
+    <form
+      onSubmit={(e) => {
+        e.preventDefault()
+        setError(null)
+        mutation.mutate()
+      }}
+      className="mt-2.5 space-y-3 border-t border-border pt-2.5"
+    >
+      {pickWho && (
+        <div>
+          <Label htmlFor={`activity-who-${entry.id}`}>{t('complete.completedBy')}</Label>
+          <Select id={`activity-who-${entry.id}`} value={completedByUserId} onChange={(e) => setWho(e.target.value)}>
+            {(users ?? (entry.actor ? [entry.actor] : [])).map((u) => (
+              <option key={u.id} value={u.id}>{u.displayName}</option>
+            ))}
+          </Select>
+        </div>
+      )}
+      <div>
+        <Label htmlFor={`activity-date-${entry.id}`}>{t('complete.completedAt')}</Label>
+        <div className="flex gap-2">
+          <Input
+            id={`activity-date-${entry.id}`}
+            type="date"
+            value={date}
+            max={toLocalDateInput(new Date())}
+            onChange={(e) => setDate(e.target.value)}
+            required
+          />
+          <div className="w-28 shrink-0">
+            <TimeField value={time} onChange={setTime} ariaLabel={t('complete.timeLabel')} />
+          </div>
+        </div>
+      </div>
+      {error && <p className="text-sm text-destructive">{error}</p>}
+      <div className="flex justify-end gap-2">
+        <Button type="button" size="sm" variant="secondary" onClick={onClose}>{t('common.cancel')}</Button>
+        <Button type="submit" size="sm" disabled={mutation.isPending || !date || !time || (pickWho && !completedByUserId)}>
+          {mutation.isPending ? t('common.saving') : isExpired ? t('activity.markCompleted') : t('common.save')}
+        </Button>
+      </div>
+    </form>
   )
 }

@@ -7,6 +7,7 @@ using Microsoft.IdentityModel.Tokens;
 using Turnly.Api;
 using Turnly.Api.Auth;
 using Turnly.Api.Endpoints;
+using Turnly.Api.Realtime;
 using Turnly.Core;
 using Turnly.Core.Auth;
 using Turnly.Core.Data;
@@ -22,6 +23,8 @@ builder.Services.ConfigureHttpJsonOptions(options =>
 
 builder.Services.Configure<RefreshCookieOptions>(builder.Configuration.GetSection("Auth:RefreshCookie"));
 builder.Services.AddSingleton<RefreshCookieManager>();
+// Fans "something changed" out to the open /api/events streams so other clients refetch.
+builder.Services.AddSingleton<ChangeBroadcaster>();
 
 // Background scheduler that fires due chore notifications (idle until VAPID keys are configured).
 builder.Services.AddHostedService<NotificationSchedulerService>();
@@ -85,6 +88,7 @@ if (corsOrigins.Length > 0)
 
 app.UseAuthentication();
 app.UseAuthorization();
+app.UseChangeBroadcast();
 
 app.MapSetupEndpoints();
 app.MapAuthEndpoints();
@@ -97,6 +101,7 @@ app.MapNotificationEndpoints();
 app.MapSettingsEndpoints();
 app.MapAchievementEndpoints();
 app.MapGachaEndpoints();
+app.MapEventEndpoints();
 
 // SPA fallback: any non-API route serves the built frontend.
 app.MapFallbackToFile("index.html");

@@ -4,6 +4,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { authApi, choresApi } from '@/lib/api'
 import { confirm } from '@/lib/confirm'
 import { unregisterNativePush } from '@/lib/native-push'
+import { useLiveUpdates } from '@/lib/live'
 import { useAuthStore } from '@/store/auth'
 import { UserMenu } from '@/components/UserMenu'
 import { NotificationsBell } from '@/components/NotificationsBell'
@@ -21,6 +22,7 @@ export function Layout() {
   const navigate = useNavigate()
   const location = useLocation()
   const queryClient = useQueryClient()
+  useLiveUpdates()
   // The chore list runs full-width so its right-hand info rail can anchor to the screen edge; it
   // re-imposes its own centered column internally. Every other page stays at the standard max-w-5xl.
   const fullWidth = location.pathname === '/chores'

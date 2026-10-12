@@ -242,14 +242,48 @@ public class ChoreService
                 return Result.Fail<ChoreDto>(Error.Validation("A chore can't be completed in the future."));
             completedAt = backdated > now ? now : backdated.ToUniversalTime();
 
-            // Never before the latest entry already logged (for a track chore: that person's own), so
-            // history stays in order and "last completion" keeps pointing at the newest row.
-            // SQLite can't compare DateTimeOffset in SQL, so check client-side.
-            var loggedAt = await _db.ChoreCompletions
-                .Where(x => x.ChoreId == chore.Id && (track == null || x.CompletedByUserId == userId))
-                .Select(x => x.CompletedAt)
+            // The chore's log (for a track chore: that person's own entries and expired slots).
+            // SQLite can't compare DateTimeOffset in SQL, so the time checks below run client-side.
+            var logged = await _db.ChoreCompletions
+                .Where(x => x.ChoreId == chore.Id
+                    && (track == null || x.CompletedByUserId == userId || (x.IsExpired && x.PreviousAssigneeId == userId)))
                 .ToListAsync(ct);
-            if (loggedAt.Any(t => t > completedAt))
+
+            // The time may fall inside an occurrence that has since auto-expired: the next expiry
+            // after it, with no entry of another occurrence in between (which would mean a different
+            // occurrence was the open one back then). That missed slot is what was really done, so
+            // fill it in rather than completing the current occurrence.
+            var expired = logged
+                .Where(x => x.IsExpired && x.CompletedAt >= completedAt)
+                .OrderBy(x => x.CompletedAt).ThenBy(x => x.OccurrenceDueAt)
+                .FirstOrDefault();
+            if (expired is not null && !logged.Any(x => x.OccurrenceDueAt != expired.OccurrenceDueAt
+                    && x.CompletedAt > completedAt && x.CompletedAt < expired.CompletedAt))
+            {
+                FillExpired(chore, expired, user, completedAt);
+                if (!string.IsNullOrWhiteSpace(req.Notes))
+                    expired.Notes = req.Notes.Trim();
+                await _db.SaveChangesAsync(ct);
+
+                var earned = await _achievements.EvaluateForUserAsync(userId, now, ct);
+                if (expired.PartnerUserId is { } partnerId)
+                    await _achievements.EvaluateForUserAsync(partnerId, now, ct);
+
+                // The schedule, assignee and any live offer belong to the current occurrence, which
+                // this didn't touch.
+                var filled = await GetAsync(chore.Id, ct: ct);
+                if (!filled.Succeeded)
+                    return filled;
+                return Result.Success(filled.Value! with
+                {
+                    FilledExpiredDueAt = expired.OccurrenceDueAt ?? expired.CompletedAt,
+                    UnlockedAchievements = userId == actingUserId ? [.. earned] : [],
+                });
+            }
+
+            // Otherwise never before the latest entry already logged, so history stays in order and
+            // "last completion" keeps pointing at the newest row.
+            if (logged.Any(x => x.CompletedAt > completedAt))
                 return Result.Fail<ChoreDto>(Error.Validation("That's earlier than this chore's last logged entry. Pick a later time."));
         }
 
@@ -266,21 +300,7 @@ public class ChoreService
         };
         _db.ChoreCompletions.Add(completion);
 
-        if (chore.Points != 0)
-        {
-            foreach (var credited in partner is null ? new[] { user } : [user, partner])
-            {
-                _db.PointsLog.Add(new PointsLogEntry
-                {
-                    UserId = credited.Id,
-                    Delta = chore.Points,
-                    Type = PointsLogType.Completion,
-                    ChoreCompletionId = completion.Id,
-                    Description = chore.Name
-                });
-                credited.Points += chore.Points;
-            }
-        }
+        AwardPoints(chore, completion, user, partner);
 
         if (track is not null)
         {
@@ -846,6 +866,122 @@ public class ChoreService
         _db.ChoreCompletions.Remove(completion);
         await _db.SaveChangesAsync(ct);
         return Result.Success();
+    }
+
+    /// <summary>Admin-only correction of a historical activity entry. A completion gets a new
+    /// timestamp (e.g. it was logged late but done on time). An auto-expired entry becomes a real
+    /// completion: credited to the given user (and their partner on a paired chore), stamped with the
+    /// given time, and awarded the chore's current points. Like <see cref="DeleteActivityAsync"/> this
+    /// is history cleanup, so the chore's current schedule and assignee are left alone.</summary>
+    public async Task<Result> UpdateActivityAsync(Guid completionId, Guid actingUserId, UpdateActivityRequest req, CancellationToken ct = default)
+    {
+        var actor = await _db.Users.FindAsync([actingUserId], ct);
+        if (actor is null)
+            return Result.Fail(Error.NotFound("User not found."));
+        if (actor.Role != UserRole.Admin)
+            return Result.Fail(Error.Forbidden("Only admins can edit activity entries."));
+
+        var completion = await _db.ChoreCompletions.FirstOrDefaultAsync(c => c.Id == completionId, ct);
+        if (completion is null)
+            return Result.Fail(Error.NotFound("Activity entry not found."));
+        if (completion.IsSkip)
+            return Result.Fail(Error.Validation("A skipped entry has no completion time to change."));
+
+        var chore = await _db.Chores
+            .Include(c => c.Assignees)
+            .FirstOrDefaultAsync(c => c.Id == completion.ChoreId, ct);
+        if (chore is null)
+            return Result.Fail(Error.NotFound("Chore not found."));
+
+        var now = DateTimeOffset.UtcNow;
+        // Same minute of client-clock slack as a backdated completion.
+        if (req.CompletedAt > now.AddMinutes(1))
+            return Result.Fail(Error.Validation("A chore can't be completed in the future."));
+        var completedAt = req.CompletedAt > now ? now : req.CompletedAt.ToUniversalTime();
+
+        // On a track chore an expired slot belongs to one person's schedule (snapshotted in
+        // PreviousAssigneeId), so it can only be credited to them.
+        var trackOwnerId = IsIndependent(chore) ? completion.CompletedByUserId ?? completion.PreviousAssigneeId : null;
+
+        User? user = null;
+        if (completion.IsExpired)
+        {
+            if ((req.CompletedByUserId ?? trackOwnerId) is not { } userId)
+                return Result.Fail(Error.Validation("Choose who completed it."));
+            if (trackOwnerId is not null && userId != trackOwnerId)
+                return Result.Fail(Error.Validation("This chore is shared per person, so an expired entry can only be credited to the person who missed it."));
+            user = await _db.Users.FindAsync([userId], ct);
+            if (user is null)
+                return Result.Fail(Error.NotFound("User not found."));
+        }
+
+        // The entry may move freely within its own occurrence, but not past an entry of another one
+        // (for a track chore: that person's own): history stays in order and "last completion" keeps
+        // pointing at the newest occurrence. SQLite can't compare DateTimeOffset in SQL, so check
+        // client-side.
+        var others = await _db.ChoreCompletions
+            .Where(x => x.ChoreId == chore.Id && x.Id != completion.Id)
+            .Select(x => new { x.CompletedAt, x.OccurrenceDueAt, x.CompletedByUserId, x.PreviousAssigneeId })
+            .ToListAsync(ct);
+        var crossesAnother = others
+            .Where(x => x.OccurrenceDueAt != completion.OccurrenceDueAt)
+            .Where(x => trackOwnerId is null || (x.CompletedByUserId ?? x.PreviousAssigneeId) == trackOwnerId)
+            .Any(x => x.CompletedAt < completion.CompletedAt ? x.CompletedAt > completedAt
+                : x.CompletedAt > completion.CompletedAt && x.CompletedAt < completedAt);
+        if (crossesAnother)
+            return Result.Fail(Error.Validation("That time would move this entry past another one in this chore's log. Pick a time closer to the original."));
+
+        if (user is not null)
+            FillExpired(chore, completion, user, completedAt);
+        else
+            completion.CompletedAt = completedAt;
+
+        await _db.SaveChangesAsync(ct);
+
+        // A new completion, or one that now counts as on time, can unlock a badge.
+        foreach (var credited in new[] { completion.CompletedByUserId, completion.PartnerUserId })
+            if (credited is { } creditedId)
+                await _achievements.EvaluateForUserAsync(creditedId, now, ct);
+
+        return Result.Success();
+    }
+
+    /// <summary>Turns an auto-expired row into a real completion by <paramref name="user"/> (and their
+    /// partner on a paired chore) at <paramref name="completedAt"/>, awarding the chore's current
+    /// points. The row keeps its occurrence, so nothing about the schedule moves. Does not save.</summary>
+    private void FillExpired(Chore chore, ChoreCompletion expired, User user, DateTimeOffset completedAt)
+    {
+        var partner = chore.PartnerOf(user.Id);
+        expired.IsExpired = false;
+        expired.CompletedByUserId = user.Id;
+        expired.PartnerUserId = partner?.Id;
+        expired.PointsAwarded = chore.Points;
+        expired.CompletedAt = completedAt;
+        // Completion rows on a track chore carry no assignee snapshot (nothing rotates).
+        if (IsIndependent(chore))
+            expired.PreviousAssigneeId = null;
+        AwardPoints(chore, expired, user, partner);
+    }
+
+    /// <summary>Credits a completion's points to the completer and, on a paired chore, their partner:
+    /// one <see cref="PointsLogEntry"/> per person, linked to the same completion. Does not save.</summary>
+    private void AwardPoints(Chore chore, ChoreCompletion completion, User user, User? partner)
+    {
+        if (chore.Points == 0)
+            return;
+
+        foreach (var credited in partner is null ? new[] { user } : [user, partner])
+        {
+            _db.PointsLog.Add(new PointsLogEntry
+            {
+                UserId = credited.Id,
+                Delta = chore.Points,
+                Type = PointsLogType.Completion,
+                ChoreCompletionId = completion.Id,
+                Description = chore.Name
+            });
+            credited.Points += chore.Points;
+        }
     }
 
     public async Task<List<ChoreHistoryEntryDto>> GetHistoryAsync(

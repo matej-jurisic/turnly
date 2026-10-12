@@ -297,6 +297,9 @@ export interface Chore extends RecurrenceFields {
   /** Achievements the completing user just unlocked, returned only on a self-completion response so
    * the client can show a celebration popup. Absent/empty otherwise. */
   unlockedAchievements?: Achievement[]
+  /** Only on a completion response whose custom time landed in an occurrence that had auto-expired:
+   * that occurrence's due date. The missed entry was filled in; the current occurrence is still open. */
+  filledExpiredDueAt?: string | null
   /** When true the chore is paused: completions/skips blocked, no auto-advance, no notifications. */
   isFrozen: boolean
   /** A live offer waiting to be claimed, or null when the chore isn't up for grabs. */
@@ -373,6 +376,13 @@ export interface ChoreRequest extends RecurrenceFields {
 
 export type CreateChoreRequest = ChoreRequest
 export type UpdateChoreRequest = ChoreRequest
+
+/** Admin-only correction of an activity entry: a new completion time, or (on an auto-expired
+ * entry) who actually did it and when. */
+export interface UpdateActivityRequest {
+  completedAt: string
+  completedByUserId?: string | null
+}
 
 export interface CompleteChoreRequest {
   notes?: string | null

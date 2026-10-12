@@ -2332,4 +2332,198 @@ public class ChoreServiceTests
         var entity = await ctx.Db.Chores.FindAsync(chore.Id);
         Assert.Equal(originalDue, entity!.DueAt);
     }
+
+    // ── UpdateActivityAsync ───────────────────────────────────────────────────────────────────
+
+    private static async Task<(Guid ChoreId, Guid ExpiredId)> SeedExpiredAsync(TestContext ctx, Guid assignee)
+    {
+        var chore = (await ctx.Chores.CreateAsync(
+            NewChore(assignee, [assignee], start: Start) with { AutoAdvanceIncomplete = true })).Value!;
+        await ctx.Chores.AutoAdvanceAsync(Start.AddHours(1));
+        return (chore.Id, await ctx.Db.ChoreCompletions.Where(c => c.IsExpired).Select(c => c.Id).SingleAsync());
+    }
+
+    [Fact]
+    public async Task UpdateActivity_turns_an_expired_entry_into_a_completion()
+    {
+        using var ctx = new TestContext();
+        var (admin, member) = await SeedUsersAsync(ctx);
+        var (choreId, expiredId) = await SeedExpiredAsync(ctx, member);
+        var dueBefore = (await ctx.Db.Chores.FindAsync(choreId))!.DueAt;
+        var doneAt = Start.AddMinutes(-30);
+
+        var result = await ctx.Chores.UpdateActivityAsync(expiredId, admin, new UpdateActivityRequest(doneAt, member));
+
+        Assert.True(result.Succeeded);
+        var row = await ctx.Db.ChoreCompletions.SingleAsync();
+        Assert.False(row.IsExpired);
+        Assert.Equal(member, row.CompletedByUserId);
+        Assert.Equal(doneAt, row.CompletedAt);
+        Assert.Equal(10, row.PointsAwarded);
+        Assert.Equal(10, (await ctx.Db.Users.FindAsync(member))!.Points);
+        Assert.Equal(expiredId, (await ctx.Db.PointsLog.SingleAsync()).ChoreCompletionId);
+        // History cleanup only: the schedule stays where auto-advance left it.
+        Assert.Equal(dueBefore, (await ctx.Db.Chores.FindAsync(choreId))!.DueAt);
+    }
+
+    [Fact]
+    public async Task UpdateActivity_requires_a_completer_for_an_expired_entry()
+    {
+        using var ctx = new TestContext();
+        var (admin, member) = await SeedUsersAsync(ctx);
+        var (_, expiredId) = await SeedExpiredAsync(ctx, member);
+
+        var result = await ctx.Chores.UpdateActivityAsync(expiredId, admin, new UpdateActivityRequest(Start));
+
+        Assert.False(result.Succeeded);
+        Assert.Equal(ErrorType.Validation, result.Error!.Type);
+        Assert.True((await ctx.Db.ChoreCompletions.SingleAsync()).IsExpired);
+    }
+
+    [Fact]
+    public async Task UpdateActivity_changes_when_a_completion_was_done()
+    {
+        using var ctx = new TestContext();
+        var (admin, member) = await SeedUsersAsync(ctx);
+        var chore = (await ctx.Chores.CreateAsync(NewChore(member, [member], start: Start))).Value!;
+        await ctx.Chores.CompleteAsync(chore.Id, member, new CompleteChoreRequest(null));
+        var completionId = await ctx.Db.ChoreCompletions.Select(c => c.Id).SingleAsync();
+        var doneAt = Start.AddMinutes(-10);
+
+        var result = await ctx.Chores.UpdateActivityAsync(completionId, admin, new UpdateActivityRequest(doneAt));
+
+        Assert.True(result.Succeeded);
+        var row = await ctx.Db.ChoreCompletions.SingleAsync();
+        Assert.Equal(doneAt, row.CompletedAt);
+        Assert.Equal(member, row.CompletedByUserId);
+        Assert.Equal(10, (await ctx.Db.Users.FindAsync(member))!.Points); // not credited twice
+        Assert.Single(ctx.Db.PointsLog);
+    }
+
+    [Fact]
+    public async Task UpdateActivity_forbids_non_admins()
+    {
+        using var ctx = new TestContext();
+        var (_, member) = await SeedUsersAsync(ctx);
+        var (_, expiredId) = await SeedExpiredAsync(ctx, member);
+
+        var result = await ctx.Chores.UpdateActivityAsync(expiredId, member, new UpdateActivityRequest(Start, member));
+
+        Assert.False(result.Succeeded);
+        Assert.Equal(ErrorType.Forbidden, result.Error!.Type);
+    }
+
+    [Fact]
+    public async Task UpdateActivity_rejects_a_future_time()
+    {
+        using var ctx = new TestContext();
+        var (admin, member) = await SeedUsersAsync(ctx);
+        var (_, expiredId) = await SeedExpiredAsync(ctx, member);
+
+        var result = await ctx.Chores.UpdateActivityAsync(
+            expiredId, admin, new UpdateActivityRequest(DateTimeOffset.UtcNow.AddHours(1), member));
+
+        Assert.False(result.Succeeded);
+        Assert.Equal(ErrorType.Validation, result.Error!.Type);
+    }
+
+    [Fact]
+    public async Task UpdateActivity_rejects_a_time_that_crosses_another_occurrence()
+    {
+        using var ctx = new TestContext();
+        var (admin, member) = await SeedUsersAsync(ctx);
+        var (_, firstId) = await SeedExpiredAsync(ctx, member);
+        await ctx.Chores.AutoAdvanceAsync(Start.AddDays(1).AddHours(1));
+        var secondId = await ctx.Db.ChoreCompletions.Where(c => c.Id != firstId).Select(c => c.Id).SingleAsync();
+
+        // The second day's entry can't be moved to before the first day's.
+        var result = await ctx.Chores.UpdateActivityAsync(secondId, admin, new UpdateActivityRequest(Start, member));
+
+        Assert.False(result.Succeeded);
+        Assert.Equal(ErrorType.Validation, result.Error!.Type);
+        Assert.True((await ctx.Db.ChoreCompletions.FindAsync(secondId))!.IsExpired);
+    }
+
+    [Fact]
+    public async Task UpdateActivity_rejects_a_skip()
+    {
+        using var ctx = new TestContext();
+        var (admin, member) = await SeedUsersAsync(ctx);
+        var chore = (await ctx.Chores.CreateAsync(NewChore(member, [member], start: Start))).Value!;
+        await ctx.Chores.SkipAsync(chore.Id, member, new SkipChoreRequest(null));
+        var skipId = await ctx.Db.ChoreCompletions.Select(c => c.Id).SingleAsync();
+
+        var result = await ctx.Chores.UpdateActivityAsync(skipId, admin, new UpdateActivityRequest(Start));
+
+        Assert.False(result.Succeeded);
+        Assert.Equal(ErrorType.Validation, result.Error!.Type);
+    }
+
+    // ── CompleteAsync: backdating into an expired occurrence ──────────────────────────────────
+
+    [Fact]
+    public async Task CompleteAsync_backdated_into_an_expired_occurrence_fills_it_instead()
+    {
+        using var ctx = new TestContext();
+        var (_, member) = await SeedUsersAsync(ctx);
+        var (choreId, expiredId) = await SeedExpiredAsync(ctx, member);
+        var dueBefore = (await ctx.Db.Chores.FindAsync(choreId))!.DueAt;
+        var doneAt = Start.AddMinutes(-30);
+
+        var result = await ctx.Chores.CompleteAsync(choreId, member, new CompleteChoreRequest("did it", CompletedAt: doneAt));
+
+        Assert.True(result.Succeeded);
+        var row = await ctx.Db.ChoreCompletions.SingleAsync(); // no second row for the current occurrence
+        Assert.Equal(expiredId, row.Id);
+        Assert.False(row.IsExpired);
+        Assert.Equal(member, row.CompletedByUserId);
+        Assert.Equal(doneAt, row.CompletedAt);
+        Assert.Equal(Start, row.OccurrenceDueAt);
+        Assert.Equal("did it", row.Notes);
+        Assert.Equal(10, (await ctx.Db.Users.FindAsync(member))!.Points);
+        // The current occurrence is still open.
+        Assert.Equal(dueBefore, result.Value!.DueAt);
+        Assert.Equal(Start, result.Value.FilledExpiredDueAt);
+    }
+
+    [Fact]
+    public async Task CompleteAsync_backdated_only_fills_the_occurrence_that_was_open_then()
+    {
+        using var ctx = new TestContext();
+        var (_, member) = await SeedUsersAsync(ctx);
+        var chore = (await ctx.Chores.CreateAsync(
+            NewChore(member, [member], start: Start) with { AutoAdvanceIncomplete = true })).Value!;
+        // Day one done, day two expired.
+        await ctx.Chores.CompleteAsync(chore.Id, member, new CompleteChoreRequest(null, CompletedAt: Start.AddMinutes(10)));
+        await ctx.Chores.AutoAdvanceAsync(Start.AddDays(1).AddHours(1));
+
+        // Before day one's completion: day one was the open occurrence, not the expired day two.
+        var tooEarly = await ctx.Chores.CompleteAsync(chore.Id, member, new CompleteChoreRequest(null, CompletedAt: Start.AddMinutes(5)));
+        Assert.False(tooEarly.Succeeded);
+        Assert.Equal(ErrorType.Validation, tooEarly.Error!.Type);
+        Assert.Single(ctx.Db.ChoreCompletions.Where(c => c.IsExpired));
+
+        // After it: day two was open, so its expired slot is filled.
+        var filled = await ctx.Chores.CompleteAsync(chore.Id, member, new CompleteChoreRequest(null, CompletedAt: Start.AddHours(12)));
+        Assert.True(filled.Succeeded);
+        Assert.Equal(Start.AddDays(1), filled.Value!.FilledExpiredDueAt);
+        Assert.Equal(2, await ctx.Db.ChoreCompletions.CountAsync());
+        Assert.Empty(ctx.Db.ChoreCompletions.Where(c => c.IsExpired));
+    }
+
+    [Fact]
+    public async Task CompleteAsync_backdated_after_the_expiry_completes_the_current_occurrence()
+    {
+        using var ctx = new TestContext();
+        var (_, member) = await SeedUsersAsync(ctx);
+        var (choreId, expiredId) = await SeedExpiredAsync(ctx, member);
+
+        var result = await ctx.Chores.CompleteAsync(choreId, member, new CompleteChoreRequest(null, CompletedAt: Start.AddHours(2)));
+
+        Assert.True(result.Succeeded);
+        Assert.Null(result.Value!.FilledExpiredDueAt);
+        Assert.True((await ctx.Db.ChoreCompletions.FindAsync(expiredId))!.IsExpired);
+        Assert.Equal(2, await ctx.Db.ChoreCompletions.CountAsync());
+        Assert.Equal(Start.AddDays(2), result.Value.DueAt);
+    }
 }

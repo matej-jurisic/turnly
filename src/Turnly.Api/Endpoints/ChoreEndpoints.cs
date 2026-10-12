@@ -166,5 +166,16 @@ public static class ChoreEndpoints
             var result = await chores.DeleteActivityAsync(id, userId, ct);
             return result.Succeeded ? Results.NoContent() : result.Error!.ToProblem();
         }).RequireAuthorization("Admin");
+
+        // Admin-only correction of a historical activity entry: a new completion time, or turning
+        // an auto-expired slot into a real completion. The schedule is untouched, as with delete.
+        completions.MapPut("/{id:guid}/activity", async (Guid id, UpdateActivityRequest req,
+            ClaimsPrincipal principal, ChoreService chores, CancellationToken ct) =>
+        {
+            if (principal.GetUserId() is not { } userId)
+                return Results.Unauthorized();
+            var result = await chores.UpdateActivityAsync(id, userId, req, ct);
+            return result.Succeeded ? Results.NoContent() : result.Error!.ToProblem();
+        }).RequireAuthorization("Admin");
     }
 }

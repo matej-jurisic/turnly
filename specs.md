@@ -100,6 +100,15 @@
   (expired)** and the chore advances to the next occurrence (and rotates the assignee) without waiting
   for a person to act. An optional window (minutes/hours/days after the due time) gives a grace period
   before the occurrence is considered missed.
+- **Completing with a custom time fills a missed occurrence** - when the chosen time falls inside an
+  occurrence that was already recorded as missed (expired), that missed entry becomes the completion
+  (with points) and the current occurrence stays open, instead of the current one being completed.
+- **Correcting the activity log** (admin) - in a chore's details, under Activity, an admin can mark a
+  missed (expired) entry as completed by choosing who did it and when, and can change the time of a
+  completion that was logged after it was due. The person (and their partner on a paired chore) gets
+  the chore's points. The chore's current schedule and assignee do not change, and the time can't be
+  in the future or jump past an entry of another occurrence. On a per-person chore a missed entry
+  can only be credited to the person whose slot it was.
 - **Start date / datetime** — when the first occurrence begins
 
 ### Scheduling Preference on Completion
@@ -276,6 +285,7 @@ receives, and an admin cannot set them on someone's behalf.
 - Upcoming chores (next 7 days)
 - Filterable by tag and assignee
 - **Chore views** — list, compact, and calendar layouts (the chosen view persists per browser). Admins get a fourth **Config** view: one table of every chore's settings (points, schedule, assignment, completion rules, reminders) with an edit button per row
+- **Live updates** - changes made by anyone else (a completion, a reassignment, a new chore, an offer) and chores the server moves on its own show up on open screens within a moment, with no reload. A screen that was in the background catches up when it is reopened
 
 ---
 
@@ -349,6 +359,7 @@ receives, and an admin cannot set them on someone's behalf.
 - **ORM:** Entity Framework Core
 - **Auth:** JWT access tokens + long-lived refresh tokens (6 months)
 - **Push notifications:** Web Push via self-hosted VAPID keys
+- **Live updates:** Server-Sent Events (`GET /api/events`), in-process, no extra infrastructure
 - **Testing:** xUnit — unit tests for business logic (recurrence, points, assignment strategies), integration tests for API endpoints
 
 ### Frontend

@@ -3,7 +3,8 @@ import { useMutation, useQuery } from '@tanstack/react-query'
 import { choresApi, usersApi, ApiError } from '@/lib/api'
 import { celebrate } from '@/lib/confetti'
 import { celebrateAchievements } from '@/lib/achievementCelebration'
-import { isIndependent, toLocalDateInput, toLocalDueInstant } from '@/lib/chore-format'
+import { formatDate, isIndependent, toLocalDateInput, toLocalDueInstant } from '@/lib/chore-format'
+import { toast } from '@/lib/toast'
 import { useAuthStore } from '@/store/auth'
 import type { Chore, User } from '@/lib/types'
 import { Button } from '@/components/ui/Button'
@@ -57,6 +58,8 @@ export function CompleteModal({ chore, onClose, onDone }: CompleteModalProps) {
     onSuccess: (completed) => {
       celebrate()
       celebrateAchievements(completed.unlockedAchievements)
+      if (completed.filledExpiredDueAt)
+        toast.success(t('complete.filledExpired', { date: formatDate(completed.filledExpiredDueAt) }))
       onDone()
     },
     onError: (err) => setError(err instanceof ApiError ? err.message : t('complete.failed')),

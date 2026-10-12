@@ -10,7 +10,7 @@ progress), per-occurrence skip, backdated completions (set when you actually did
 to take, optionally with a points bounty), Web Push notifications (per-chore
 reminder/due/follow-up schedule via self-hosted VAPID keys, with per-user quiet hours and
 per-category delivery controls), and UX
-polish (swipe actions, completion confetti, admin complete-on-behalf and activity-entry deletion).
+polish (swipe actions, completion confetti, admin complete-on-behalf, activity-entry deletion and correction: mark an auto-expired entry as completed, or fix the time of a late completion).
 **Shared chores** can also be set to "Everyone (independent)", giving each assignee their own
 schedule and per-person quota — one chore for "everyone does the dishes once a week" without anyone
 blocking anyone else. Jobs that take two people can use **fixed pairs**: the pair holds the turn together, rotates as one, and both get the points when either marks it done. Rotating chores can **hand over once a day, week, month, quarter or year** instead of every occurrence
@@ -31,7 +31,8 @@ crafted item, published drop rates, and one-per-slot equipping. For a clean slat
 **fresh start** (Settings → Danger zone) that wipes all activity, point history, redemptions,
 achievements, and cosmetics progress and resets everyone's points to 0, while keeping every chore and its
 schedule intact. The interface is available in **English and Croatian**, picked per device under
-Settings → Language. See [`specs.md`](./specs.md) for the full product spec and feature list.
+Settings → Language. Open screens **update live** when someone else changes something, so nobody has to
+reload to see a chore get done. See [`specs.md`](./specs.md) for the full product spec and feature list.
 
 ## Stack
 

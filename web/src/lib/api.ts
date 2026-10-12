@@ -9,6 +9,7 @@ import type {
   Chore,
   ChoreHistoryEntry,
   CompleteChoreRequest,
+  UpdateActivityRequest,
   CreateAwardRequest,
   CreateChoreRequest,
   CreateUserRequest,
@@ -47,7 +48,7 @@ import { t } from '@/lib/i18n'
  * server, so we prefix the user-chosen backend origin. Resolved per request because the native
  * server can be set/changed at runtime via the server picker.
  */
-function apiBase(): string {
+export function apiBase(): string {
   if (isNative()) {
     const origin = getServerOrigin()
     if (origin) return `${origin}/api`
@@ -215,6 +216,8 @@ export const choresApi = {
     request<void>(`/completions/${completionId}`, { method: 'DELETE' }),
   deleteActivity: (completionId: string) =>
     request<void>(`/completions/${completionId}/activity`, { method: 'DELETE' }),
+  updateActivity: (completionId: string, body: UpdateActivityRequest) =>
+    request<void>(`/completions/${completionId}/activity`, { method: 'PUT', body: json(body) }),
   freeze: (id: string) => request<Chore>(`/chores/${id}/freeze`, { method: 'POST', body: json({}) }),
   unfreeze: (id: string) => request<Chore>(`/chores/${id}/unfreeze`, { method: 'POST', body: json({}) }),
 }
