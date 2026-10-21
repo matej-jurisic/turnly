@@ -7,7 +7,7 @@ Turnly is feature-complete. It provides foundation
 with today/overdue/upcoming views (list, compact, and calendar layouts, plus an admin-only config table of every chore's settings), per-user point totals,
 filtering, and global search, a history/stats view, a Rewards page with awards and point redemption (with next-goal
 progress), per-occurrence skip, backdated completions (set when you actually did it), admin reassignment, and chore offers (put a chore you're holding up for anyone
-to take, optionally with a points bounty), Web Push notifications (per-chore
+to take, optionally with a points bounty), nudges (remind whoever holds a chore, with an optional note), Web Push notifications (per-chore
 reminder/due/follow-up schedule via self-hosted VAPID keys, with per-user quiet hours and
 per-category delivery controls), and UX
 polish (swipe actions, completion confetti, admin complete-on-behalf, activity-entry deletion and correction: mark an auto-expired entry as completed, or fix the time of a late completion).
@@ -174,7 +174,7 @@ configures under **Settings** (falling back to the server's host zone when unset
 Under **Settings → What notifies you**, each person decides how every kind of notification reaches
 them: **Push** (buzz your devices, default), **Inbox** (record it in the bell without buzzing), or
 **Off** (don't send it at all). The categories cover chore reminders, chores coming due, overdue
-chases, chores put up for grabs, and claims on chores you offered. App messages such as the test push are
+chases, chores put up for grabs, claims on chores you offered, and nudges from other members. App messages such as the test push are
 always delivered.
 
 To silence one specific chore instead of a whole category, use **Mute** on that chore's menu. A mute

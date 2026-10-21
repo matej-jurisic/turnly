@@ -34,6 +34,7 @@ public class ResetService
         await _db.ChoreCompletions.ExecuteDeleteAsync(ct);
         await _db.ChoreAssignments.ExecuteDeleteAsync(ct);
         await _db.ChoreOffers.ExecuteDeleteAsync(ct);
+        await _db.ChoreNudges.ExecuteDeleteAsync(ct);
         await _db.PointsLog.ExecuteDeleteAsync(ct);
         await _db.Redemptions.ExecuteDeleteAsync(ct);
         await _db.UserAchievements.ExecuteDeleteAsync(ct);

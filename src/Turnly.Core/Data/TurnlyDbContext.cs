@@ -2,6 +2,7 @@ using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.ChangeTracking;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
+using Turnly.Core.Common;
 using Turnly.Core.Entities;
 
 namespace Turnly.Core.Data;
@@ -30,6 +31,7 @@ public class TurnlyDbContext : DbContext
     public DbSet<UserNotification> UserNotifications => Set<UserNotification>();
     public DbSet<UserNotificationPreference> UserNotificationPreferences => Set<UserNotificationPreference>();
     public DbSet<ChoreMute> ChoreMutes => Set<ChoreMute>();
+    public DbSet<ChoreNudge> ChoreNudges => Set<ChoreNudge>();
     public DbSet<AppSetting> AppSettings => Set<AppSetting>();
     public DbSet<UserAchievement> UserAchievements => Set<UserAchievement>();
     public DbSet<UserCosmetic> UserCosmetics => Set<UserCosmetic>();
@@ -313,6 +315,29 @@ public class TurnlyDbContext : DbContext
             e.HasOne(x => x.User)
                 .WithMany()
                 .HasForeignKey(x => x.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        b.Entity<ChoreNudge>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Note).HasMaxLength(Validators.MaxNudgeNoteLength);
+            // The cooldown lookup: has this sender nudged this person about this chore lately?
+            e.HasIndex(x => new { x.ChoreId, x.FromUserId, x.ToUserId });
+
+            e.HasOne(x => x.Chore)
+                .WithMany()
+                .HasForeignKey(x => x.ChoreId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // A nudge is only a rate-limit record, so it goes with either participant.
+            e.HasOne(x => x.FromUser)
+                .WithMany()
+                .HasForeignKey(x => x.FromUserId)
+                .OnDelete(DeleteBehavior.Cascade);
+            e.HasOne(x => x.ToUser)
+                .WithMany()
+                .HasForeignKey(x => x.ToUserId)
                 .OnDelete(DeleteBehavior.Cascade);
         });
 

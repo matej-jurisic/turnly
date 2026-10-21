@@ -699,6 +699,92 @@ public class ChoreService
         });
     }
 
+    /// <summary>How long a sender waits before nudging the same person about the same chore again.</summary>
+    public static readonly TimeSpan NudgeCooldown = TimeSpan.FromMinutes(30);
+
+    /// <summary>Sends a reminder, with an optional note, to whoever owes the chore right now. Anyone in
+    /// the household can nudge, assigned or not. With no <c>ToUserId</c> it reaches every current
+    /// holder (the assignee and their partner, or every other assignee with an open track on a
+    /// per-person chore), skipping anyone this sender nudged within <see cref="NudgeCooldown"/>.
+    /// Returns who was actually nudged.</summary>
+    public async Task<Result<List<UserDto>>> NudgeAsync(Guid id, Guid userId, NudgeChoreRequest req, CancellationToken ct = default)
+    {
+        var chore = await _db.Chores
+            .Include(c => c.Assignees)
+            .Include(c => c.AssigneeTracks)
+            .FirstOrDefaultAsync(c => c.Id == id, ct);
+        if (chore is null)
+            return Result.Fail<List<UserDto>>(Error.NotFound("Chore not found."));
+        if (chore.IsFrozen)
+            return Result.Fail<List<UserDto>>(Error.Validation("This chore is paused, so there's nothing to nudge about."));
+        if (Validators.NudgeNote(req.Note) is { } noteError)
+            return Result.Fail<List<UserDto>>(noteError);
+
+        var actor = await _db.Users.FindAsync([userId], ct);
+        if (actor is null)
+            return Result.Fail<List<UserDto>>(Error.NotFound("User not found."));
+
+        // Who owes this occurrence. Frozen users are away, so they're never chased.
+        var holderIds = IsIndependent(chore)
+            ? chore.AssigneeTracks.Where(t => t.DueAt != null).Select(t => t.UserId).ToHashSet()
+            // On-demand chores are never due but are always the holder's to do.
+            : chore.DueAt is null && chore.RepeatType != RepeatType.OnDemand ? [] : chore.CurrentHolderIds().ToHashSet();
+        var candidates = chore.Assignees
+            .Where(a => a.Id != userId && !a.IsFrozen && holderIds.Contains(a.Id))
+            .ToList();
+
+        List<User> targets;
+        if (req.ToUserId is { } target)
+        {
+            if (target == userId)
+                return Result.Fail<List<UserDto>>(Error.Validation("You can't nudge yourself."));
+            var person = candidates.FirstOrDefault(a => a.Id == target);
+            if (person is null)
+                return Result.Fail<List<UserDto>>(Error.Validation("That person isn't holding this chore right now."));
+            targets = [person];
+        }
+        else
+        {
+            if (candidates.Count == 0)
+                return Result.Fail<List<UserDto>>(Error.Validation("Nobody else is holding this chore right now."));
+            targets = candidates;
+        }
+
+        // SQLite can't compare a DateTimeOffset in SQL, so the cooldown check runs client-side. Only
+        // this sender's rows for this chore are loaded, which the pruning below keeps to a handful.
+        var now = DateTimeOffset.UtcNow;
+        var previous = await _db.ChoreNudges
+            .Where(n => n.ChoreId == chore.Id && n.FromUserId == userId)
+            .ToListAsync(ct);
+        var stale = previous.Where(n => now - n.CreatedAt >= NudgeCooldown).ToList();
+        _db.ChoreNudges.RemoveRange(stale);
+        var cooling = previous.Except(stale).Select(n => n.ToUserId).ToHashSet();
+
+        var ready = targets.Where(t => !cooling.Contains(t.Id)).ToList();
+        if (ready.Count == 0)
+        {
+            // Still persist the pruning, even though nothing is sent.
+            await _db.SaveChangesAsync(ct);
+            var minutes = (int)Math.Ceiling(NudgeCooldown.TotalMinutes);
+            return Result.Fail<List<UserDto>>(Error.Validation(targets.Count == 1
+                ? $"You already nudged {targets[0].DisplayName} about this chore. Try again in a bit (once every {minutes} minutes)."
+                : $"You already nudged everyone on this chore. Try again in a bit (once every {minutes} minutes)."));
+        }
+
+        var note = string.IsNullOrWhiteSpace(req.Note) ? null : req.Note.Trim();
+        foreach (var person in ready)
+            _db.ChoreNudges.Add(new ChoreNudge { ChoreId = chore.Id, FromUserId = userId, ToUserId = person.Id, Note = note, CreatedAt = now });
+
+        var body = note is null
+            ? $"{actor.DisplayName} nudged you about this chore."
+            : $"{actor.DisplayName} nudged you: {note}";
+        await _notifications.NotifyUsersAsync(ready.Select(u => u.Id).ToList(), NotificationTitle(chore), body,
+            chore.Id, NotificationCategory.Nudge, ct);
+
+        await _db.SaveChangesAsync(ct);
+        return Result.Success(ready.Select(u => UserDto.FromEntity(u)).ToList());
+    }
+
     private static string NotificationTitle(Chore chore) =>
         string.IsNullOrWhiteSpace(chore.Emoji) ? chore.Name : $"{chore.Emoji} {chore.Name}";
 

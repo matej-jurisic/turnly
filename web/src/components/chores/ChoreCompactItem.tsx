@@ -25,6 +25,7 @@ export interface ChoreItemProps {
   onSkip: () => void
   onReassign: () => void
   onOffer: () => void
+  onNudge: () => void
   onReschedule: () => void
   onEdit: () => void
   onCopy: () => void

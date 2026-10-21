@@ -10,12 +10,12 @@ import { Badge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
 import { Input, Label, Select } from '@/components/ui/Field'
 import { TimeField } from '@/components/ui/TimeField'
-import { CheckIcon, DotsIcon, EditIcon, SkipIcon, TrashIcon } from '@/components/chores/icons'
+import { CheckIcon, DotsIcon, EditIcon, NudgeIcon, SkipIcon, TrashIcon } from '@/components/chores/icons'
 import {
   calendarDaysAgo, choreDueStatus, choreHasDueTime, completionProgressLabel, dueStatus, formatDate, formatGrace,
   isIndependent, notificationRecipientsLabel, notificationTimingLabel, notificationTypeLabel,
   relativeDayLabel, repeatLabel, showStreak, trackIsDone, trackStatusText, strategyLabel, schedulingLabel, rotationPeriodLabel, holdsChore, pairLabel,
-  toLocalDateInput, toLocalDueInstant, canComplete, isOnDemand, occurrenceLabel,
+  toLocalDateInput, toLocalDueInstant, canComplete, isOnDemand, occurrenceLabel, nudgeCandidates,
 } from '@/lib/chore-format'
 import { plural, t, tRich } from '@/lib/i18n'
 import { dayStartMs } from '@/lib/day-start'
@@ -24,9 +24,11 @@ interface ChoreDetailsModalProps {
   chore: Chore
   onClose: () => void
   onComplete?: () => void
+  /** Opens the nudge dialog; the button only shows when there's someone to nudge. */
+  onNudge?: () => void
 }
 
-export function ChoreDetailsModal({ chore, onClose, onComplete }: ChoreDetailsModalProps) {
+export function ChoreDetailsModal({ chore, onClose, onComplete, onNudge }: ChoreDetailsModalProps) {
   const queryClient = useQueryClient()
   const isAdmin = useAuthStore((s) => s.user?.role === 'Admin')
   const meId = useAuthStore((s) => s.user?.id)
@@ -69,6 +71,8 @@ export function ChoreDetailsModal({ chore, onClose, onComplete }: ChoreDetailsMo
     },
     onError: (err) => toast.error(err instanceof ApiError ? err.message : t('details.withdrawFailed')),
   })
+
+  const canNudge = Boolean(onNudge) && nudgeCandidates(chore, meId).length > 0
 
   const offerBusy = claimMutation.isPending || withdrawMutation.isPending
 
@@ -328,19 +332,27 @@ export function ChoreDetailsModal({ chore, onClose, onComplete }: ChoreDetailsMo
         <ActivityList chore={chore} />
       </div>
 
-      {onComplete && !chore.isFrozen && (
-        <div className="mt-4 flex justify-end border-t border-border pt-4">
-          <button
-            type="button"
-            onClick={onComplete}
-            disabled={!canComplete(chore)}
-            aria-label={t('chore.markComplete')}
-            className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-primary text-primary-foreground transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-30"
-          >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <path d="M20 6 9 17l-5-5" />
-            </svg>
-          </button>
+      {((onComplete && !chore.isFrozen) || canNudge) && (
+        <div className="mt-4 flex items-center justify-end gap-2 border-t border-border pt-4">
+          {canNudge && (
+            <Button size="sm" variant="secondary" className="gap-2" onClick={onNudge}>
+              <NudgeIcon />
+              {t('menu.nudge')}
+            </Button>
+          )}
+          {onComplete && !chore.isFrozen && (
+            <button
+              type="button"
+              onClick={onComplete}
+              disabled={!canComplete(chore)}
+              aria-label={t('chore.markComplete')}
+              className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-primary text-primary-foreground transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-30"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M20 6 9 17l-5-5" />
+              </svg>
+            </button>
+          )}
         </div>
       )}
     </Modal>

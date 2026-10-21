@@ -408,6 +408,39 @@ namespace Turnly.Core.Migrations
                     b.ToTable("ChoreNotifications");
                 });
 
+            modelBuilder.Entity("Turnly.Core.Entities.ChoreNudge", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("ChoreId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("FromUserId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Note")
+                        .HasMaxLength(200)
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("ToUserId")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("FromUserId");
+
+                    b.HasIndex("ToUserId");
+
+                    b.HasIndex("ChoreId", "FromUserId", "ToUserId");
+
+                    b.ToTable("ChoreNudges");
+                });
+
             modelBuilder.Entity("Turnly.Core.Entities.ChoreOffer", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1018,6 +1051,33 @@ namespace Turnly.Core.Migrations
                         .IsRequired();
 
                     b.Navigation("Chore");
+                });
+
+            modelBuilder.Entity("Turnly.Core.Entities.ChoreNudge", b =>
+                {
+                    b.HasOne("Turnly.Core.Entities.Chore", "Chore")
+                        .WithMany()
+                        .HasForeignKey("ChoreId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Turnly.Core.Entities.User", "FromUser")
+                        .WithMany()
+                        .HasForeignKey("FromUserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Turnly.Core.Entities.User", "ToUser")
+                        .WithMany()
+                        .HasForeignKey("ToUserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Chore");
+
+                    b.Navigation("FromUser");
+
+                    b.Navigation("ToUser");
                 });
 
             modelBuilder.Entity("Turnly.Core.Entities.ChoreOffer", b =>

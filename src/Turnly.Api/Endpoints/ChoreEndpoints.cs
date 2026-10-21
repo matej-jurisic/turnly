@@ -113,6 +113,17 @@ public static class ChoreEndpoints
             return result.Succeeded ? Results.Ok(result.Value) : result.Error!.ToProblem();
         });
 
+        // Remind whoever holds the chore, with an optional note. Any member can nudge; the service
+        // works out who owes it and applies the per-recipient cooldown.
+        group.MapPost("/{id:guid}/nudge", async (Guid id, NudgeChoreRequest req,
+            ClaimsPrincipal principal, ChoreService chores, CancellationToken ct) =>
+        {
+            if (principal.GetUserId() is not { } userId)
+                return Results.Unauthorized();
+            var result = await chores.NudgeAsync(id, userId, req, ct);
+            return result.Succeeded ? Results.Ok(result.Value) : result.Error!.ToProblem();
+        });
+
         // Manually reschedule the current occurrence's due date/time (admin only).
         group.MapPost("/{id:guid}/reschedule", async (Guid id, RescheduleChoreRequest req,
             ChoreService chores, CancellationToken ct) =>

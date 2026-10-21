@@ -267,6 +267,19 @@ export function holdsChore(chore: Pick<Chore, 'currentAssignee' | 'currentPartne
   return Boolean(userId) && (chore.currentAssignee?.id === userId || chore.currentPartner?.id === userId)
 }
 
+/** Who the viewer can nudge about this chore: whoever owes the current occurrence (the assignee and
+ * their partner, or everyone with an open track on a per-person chore), minus the viewer and anyone
+ * on leave. Mirrors `ChoreService.NudgeAsync`; the server still has the final say. */
+export function nudgeCandidates(chore: Chore, meId?: string | null): User[] {
+  if (chore.isFrozen) return []
+  const holders = isIndependent(chore)
+    ? chore.tracks.filter((tr) => tr.dueAt).map((tr) => tr.user)
+    : chore.dueAt || isOnDemand(chore)
+      ? [chore.currentAssignee, chore.currentPartner].filter((u): u is User => Boolean(u))
+      : []
+  return holders.filter((u) => u.id !== meId && !u.isFrozen)
+}
+
 /** Whether to surface a chore's on-time streak: only for recurring chores with a streak worth
  * showing (a streak of 1 isn't). For track-mode chores this reflects the viewer's own streak. */
 export function showStreak(chore: Pick<Chore, 'repeatType' | 'currentStreak'>): boolean {

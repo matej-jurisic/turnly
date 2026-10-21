@@ -36,6 +36,10 @@
     - Both partners get the chore's notifications, and both names show wherever the current assignee does. A missed (auto-expired) occurrence counts as missed for both.
     - A frozen partner is treated as away: the other carries the turn alone and is the only one credited. Freezing the person nominally holding the chore leaves it with their partner rather than rotating it away. While someone is frozen their pairs drop out of the rotation; a partner left with no other pair takes turns alone.
     - Paired chores can't be offered (one partner can't hand over a joint turn, and a claim would commit the claimer's partner); an admin can still reassign one to another pair. Not available on `Everyone (independent)` chores, which have no shared turn.
+- **Nudge** — anyone in the household (assigned to the chore or not) can send a reminder to whoever owes its current occurrence, with an optional note of up to 200 characters. By default it reaches everyone holding the chore: the assignee and their partner on a paired chore, or every other assignee with an open schedule on an `Everyone (independent)` chore. A specific holder can be picked instead. Available from the chore's menu and its details dialog.
+    - You can't nudge yourself, someone who isn't holding the chore, anyone on leave, or anyone about a paused chore.
+    - A sender can nudge the same person about the same chore at most once every 30 minutes. Nudging "everyone" skips whoever is still cooling down and says who was reached.
+    - Nudges are their own notification category, so the recipient's delivery settings, chore mutes and quiet hours apply. The chore itself doesn't change.
 - **Assignment strategy** — determines how the next assignee is picked on each recurrence:
     - `Random` — pick any assignee at random
     - `Least Assigned` — pick the assignee who has been assigned this chore fewest times
@@ -243,7 +247,7 @@ receives, and an admin cannot set them on someone's behalf.
   The categories are: **chore reminders** (nudges before the due time), **chore due** (at the due
   time), **overdue chases** (follow-ups after the due time), **chores up for grabs** (someone puts a chore
   up for grabs), **replies to your offers** (someone claims a chore you
-  offered), and **app messages** (test pushes and account notices - always delivered, so a test push
+  offered), **nudges** (someone reminds you about a chore you hold), and **app messages** (test pushes and account notices - always delivered, so a test push
   can never be silently swallowed).
 - **Mute a chore** — silence one specific chore from its menu, rather than a whole category. A mute is
   yours alone: everyone else still gets notified normally. It can be indefinite or set to lapse at a
@@ -252,7 +256,7 @@ receives, and an admin cannot set them on someone's behalf.
   way: nothing can promote a notification back up. A mute or an active quiet-hours window downgrades a
   push to an inbox record (you are saying "don't interrupt me", not "pretend it never happened"), while
   **Off** is the only setting that discards a notification outright.
-- Quiet hours and these preferences apply to **every** notification, including offer notifications,
+- Quiet hours and these preferences apply to **every** notification, including offer and nudge notifications,
   not only the scheduled per-chore ones.
 - A **fresh start** keeps these settings: they are preferences, not activity.
 

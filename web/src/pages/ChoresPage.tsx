@@ -20,6 +20,7 @@ import { Card } from '@/components/ui/Card'
 import { ChoreFormModal } from '@/components/chores/ChoreFormModal'
 import { ReassignModal } from '@/components/chores/ReassignModal'
 import { OfferModal } from '@/components/chores/OfferModal'
+import { NudgeModal } from '@/components/chores/NudgeModal'
 import { OfferBoard } from '@/components/chores/OfferBoard'
 import { CopyChoreModal } from '@/components/chores/CopyChoreModal'
 import { RescheduleModal } from '@/components/chores/RescheduleModal'
@@ -47,6 +48,7 @@ export function ChoresPage() {
   const [completing, setCompleting] = useState<Chore | null>(null)
   const [reassigning, setReassigning] = useState<Chore | null>(null)
   const [offering, setOffering] = useState<Chore | null>(null)
+  const [nudging, setNudging] = useState<Chore | null>(null)
   const [rescheduling, setRescheduling] = useState<Chore | null>(null)
   const [copying, setCopying] = useState<Chore | null>(null)
   const [details, setDetails] = useState<Chore | null>(null)
@@ -206,6 +208,7 @@ export function ChoresPage() {
     },
     onReassign: () => setReassigning(chore),
     onOffer: () => setOffering(chore),
+    onNudge: () => setNudging(chore),
     onReschedule: () => setRescheduling(chore),
     onEdit: () => setEditing(chore),
     onCopy: () => setCopying(chore),
@@ -364,6 +367,10 @@ export function ChoresPage() {
         />
       )}
 
+      {nudging && (
+        <NudgeModal chore={nudging} onClose={() => setNudging(null)} />
+      )}
+
       {rescheduling && (
         <RescheduleModal
           chore={rescheduling}
@@ -391,6 +398,7 @@ export function ChoresPage() {
           chore={details}
           onClose={() => setDetails(null)}
           onComplete={() => { setCompleting(details); setDetails(null) }}
+          onNudge={() => { setNudging(details); setDetails(null) }}
         />
       )}
 

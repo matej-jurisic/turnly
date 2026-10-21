@@ -23,6 +23,9 @@ public enum NotificationCategory
     /// <summary>Something happened to an offer *you* made: it was claimed or declined.</summary>
     OfferResponse = 4,
 
+    /// <summary>Another member nudged you about a chore you hold, optionally with a note.</summary>
+    Nudge = 6,
+
     /// <summary>App-level messages (test pushes and anything not tied to a chore or offer). Cannot be
     /// turned off - see <see cref="Turnly.Core.Notifications.NotificationRouter"/>.</summary>
     System = 5

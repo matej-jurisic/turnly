@@ -389,6 +389,10 @@ public record ReassignChoreRequest(Guid AssigneeId, Guid? PartnerId = null);
 /// (optional) sweetener, capped at the offerer's balance.</summary>
 public record OfferChoreRequest(int BountyPoints = 0);
 
+/// <summary>Pings whoever owes a chore. <see cref="ToUserId"/> null nudges everyone currently holding
+/// it (the assignee and their partner, or every other assignee on a per-person chore).</summary>
+public record NudgeChoreRequest(Guid? ToUserId = null, string? Note = null);
+
 /// <summary>A live offer waiting to be claimed. Surfaced on <see cref="ChoreDto.OpenOffer"/> so the UI
 /// can show the "up for grabs" state, the bounty, and the claim action.</summary>
 public record ChoreOfferDto(Guid Id, UserDto FromUser, int BountyPoints)

@@ -477,6 +477,7 @@ const CATEGORY_COPY: Record<NotificationCategory, { label: string; hint: string 
   ChoreOverdue: localized({}, { label: 'category.ChoreOverdue.label', hint: 'category.ChoreOverdue.hint' }),
   OfferReceived: localized({}, { label: 'category.OfferReceived.label', hint: 'category.OfferReceived.hint' }),
   OfferResponse: localized({}, { label: 'category.OfferResponse.label', hint: 'category.OfferResponse.hint' }),
+  Nudge: localized({}, { label: 'category.Nudge.label', hint: 'category.Nudge.hint' }),
   System: localized({}, { label: 'category.System.label', hint: 'category.System.hint' }),
 }
 

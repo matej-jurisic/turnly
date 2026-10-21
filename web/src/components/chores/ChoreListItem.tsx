@@ -26,6 +26,7 @@ export function ChoreListItem({
   onSkip,
   onReassign,
   onOffer,
+  onNudge,
   onReschedule,
   onEdit,
   onCopy,
@@ -48,6 +49,7 @@ export function ChoreListItem({
   onSkip: () => void
   onReassign: () => void
   onOffer: () => void
+  onNudge: () => void
   onReschedule: () => void
   onEdit: () => void
   onCopy: () => void
@@ -120,6 +122,7 @@ export function ChoreListItem({
                   onSkip={onSkip}
                   onReassign={onReassign}
                   onOffer={onOffer}
+                  onNudge={onNudge}
                   onReschedule={onReschedule}
                   onEdit={onEdit}
                   onCopy={onCopy}

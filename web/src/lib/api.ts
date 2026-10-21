@@ -29,6 +29,7 @@ import type {
   PushSubscribeRequest,
   ReassignChoreRequest,
   OfferChoreRequest,
+  NudgeChoreRequest,
   RescheduleChoreRequest,
   Redemption,
   SetupRequest,
@@ -209,6 +210,9 @@ export const choresApi = {
   claimOffer: (id: string) =>
     request<Chore>(`/chores/${id}/offer/claim`, { method: 'POST', body: json({}) }),
   withdrawOffer: (id: string) => request<Chore>(`/chores/${id}/offer`, { method: 'DELETE' }),
+  /** Returns who was actually nudged (anyone still on the sender's cooldown is left out). */
+  nudge: (id: string, body: NudgeChoreRequest) =>
+    request<User[]>(`/chores/${id}/nudge`, { method: 'POST', body: json(body) }),
   reschedule: (id: string, body: RescheduleChoreRequest) =>
     request<Chore>(`/chores/${id}/reschedule`, { method: 'POST', body: json(body) }),
   undoCompletion: (completionId: string) =>

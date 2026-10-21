@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import type { Chore } from '@/lib/types'
-import { isIndependent } from '@/lib/chore-format'
+import { isIndependent, nudgeCandidates } from '@/lib/chore-format'
 import {
   DotsIcon, InfoIcon, SkipIcon, ReassignIcon, UndoIcon, CalendarIcon, EditIcon, CopyIcon, TrashIcon,
-  PauseIcon, PlayIcon, BellIcon, BellOffIcon,
+  PauseIcon, PlayIcon, BellIcon, BellOffIcon, NudgeIcon,
 } from '@/components/chores/icons'
 import { t } from '@/lib/i18n'
 
@@ -23,6 +23,7 @@ export interface ChoreMenuProps {
   onSkip: () => void
   onReassign: () => void
   onOffer: () => void
+  onNudge: () => void
   onReschedule: () => void
   onEdit: () => void
   onCopy: () => void
@@ -31,7 +32,7 @@ export interface ChoreMenuProps {
   onUnfreeze?: () => void
 }
 
-export function ChoreMenu({ chore, isAdmin, meId, undoPending, skipPending, deletePending, freezePending, mutePending, onDetails, onToggleMute, onUndo, onSkip, onReassign, onOffer, onReschedule, onEdit, onCopy, onDelete, onFreeze, onUnfreeze }: ChoreMenuProps) {
+export function ChoreMenu({ chore, isAdmin, meId, undoPending, skipPending, deletePending, freezePending, mutePending, onDetails, onToggleMute, onUndo, onSkip, onReassign, onOffer, onNudge, onReschedule, onEdit, onCopy, onDelete, onFreeze, onUnfreeze }: ChoreMenuProps) {
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
 
@@ -47,6 +48,8 @@ export function ChoreMenu({ chore, isAdmin, meId, undoPending, skipPending, dele
   // A pair's turn isn't one member's to hand over, so paired chores can't be offered at all.
   const canOffer = !isIndependent(chore) && chore.assignees.length > 1 && chore.pairs.length === 0
     && chore.currentAssignee?.id === meId && !chore.openOffer && !chore.isFrozen
+  // Anyone can chase whoever owes the chore, as long as that's somebody other than themselves.
+  const canNudge = nudgeCandidates(chore, meId).length > 0
   const canReschedule = isAdmin && Boolean(chore.dueAt) && !isIndependent(chore)
 
   useEffect(() => {
@@ -119,6 +122,16 @@ export function ChoreMenu({ chore, isAdmin, meId, undoPending, skipPending, dele
             >
               <ReassignIcon />
               {t('menu.offer')}
+            </button>
+          )}
+          {canNudge && (
+            <button
+              type="button"
+              onClick={() => { setOpen(false); onNudge() }}
+              className="flex w-full items-center gap-2 px-3 py-2 text-sm text-foreground transition-colors hover:bg-accent"
+            >
+              <NudgeIcon />
+              {t('menu.nudge')}
             </button>
           )}
           {hasUndo && (

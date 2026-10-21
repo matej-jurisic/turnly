@@ -15,6 +15,10 @@ export function Input({ className, ...props }: React.InputHTMLAttributes<HTMLInp
   return <input className={cn(fieldClasses, className)} {...props} />
 }
 
+export function Textarea({ className, ...props }: React.TextareaHTMLAttributes<HTMLTextAreaElement>) {
+  return <textarea className={cn(fieldClasses, 'resize-none', className)} {...props} />
+}
+
 export function Select({ className, ...props }: React.SelectHTMLAttributes<HTMLSelectElement>) {
   return <select className={cn(fieldClasses, className)} {...props} />
 }

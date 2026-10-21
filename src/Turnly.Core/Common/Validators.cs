@@ -18,6 +18,7 @@ public static class Validators
     public const int MaxNotificationOffset = 365;
     public const int MaxTimesOfDay = 24;
     public const int MaxTimeLabelLength = 32;
+    public const int MaxNudgeNoteLength = 200;
 
     public static Error? Username(string? username)
     {
@@ -50,6 +51,13 @@ public static class Validators
             return Error.Validation("Chore name is required.");
         if (value.Length > MaxChoreNameLength)
             return Error.Validation($"Chore name must be at most {MaxChoreNameLength} characters.");
+        return null;
+    }
+
+    public static Error? NudgeNote(string? note)
+    {
+        if (note is not null && note.Trim().Length > MaxNudgeNoteLength)
+            return Error.Validation($"A nudge note must be at most {MaxNudgeNoteLength} characters.");
         return null;
     }
 

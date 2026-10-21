@@ -325,6 +325,7 @@ export type NotificationCategory =
   | 'ChoreOverdue'
   | 'OfferReceived'
   | 'OfferResponse'
+  | 'Nudge'
   | 'System'
 
 /** How far a notification is allowed to reach you. `InboxOnly` still records it in the bell. */
@@ -410,6 +411,13 @@ export interface ReassignChoreRequest {
   assigneeId: string
   /** On a paired chore, which of the assignee's pairs takes it. */
   partnerId?: string | null
+}
+
+/** Omit `toUserId` to nudge everyone currently holding the chore. */
+export interface NudgeChoreRequest {
+  toUserId?: string | null
+  /** Optional note shown in the notification. At most 200 characters. */
+  note?: string | null
 }
 
 export interface OfferChoreRequest {
