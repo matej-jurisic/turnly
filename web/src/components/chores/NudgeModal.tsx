@@ -56,7 +56,6 @@ export function NudgeModal({ chore, onClose }: { chore: Chore; onClose: () => vo
             rows={3}
             maxLength={MAX_NOTE}
             value={note}
-            placeholder={t('nudgeModal.notePlaceholder')}
             onChange={(e) => setNote(e.target.value)}
           />
           <div className="flex justify-between gap-3 text-xs text-muted-foreground">
