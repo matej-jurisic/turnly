@@ -30,16 +30,123 @@ public class PairedChoreTests
         ctx.Db.Users.Where(u => u.Id == userId).Select(u => u.Points).SingleAsync();
 
     [Fact]
-    public async Task CreateAsync_rejects_a_person_in_two_pairs()
+    public async Task CreateAsync_rejects_the_same_pair_twice()
     {
         using var ctx = new TestContext();
         var p = await SeedAsync(ctx);
 
         var result = await ctx.Chores.CreateAsync(
-            Paired(p.Ana, [p.Ana, p.Ben, p.Cy], [[p.Ana, p.Ben], [p.Ana, p.Cy]]));
+            Paired(p.Ana, [p.Ana, p.Ben, p.Cy], [[p.Ana, p.Ben], [p.Ben, p.Ana]]));
 
         Assert.False(result.Succeeded);
         Assert.Equal(ErrorType.Validation, result.Error!.Type);
+    }
+
+    [Fact]
+    public async Task Overlapping_pairs_each_take_their_own_turn()
+    {
+        using var ctx = new TestContext();
+        var p = await SeedAsync(ctx);
+        var chore = (await ctx.Chores.CreateAsync(
+            Paired(p.Ana, [p.Ana, p.Ben, p.Cy], [[p.Ana, p.Ben], [p.Ana, p.Cy], [p.Ben, p.Cy]]))).Value!;
+
+        // With no pair named, the holder starts on their first one.
+        Assert.Equal(p.Ben, chore.CurrentPartner!.Id);
+        Assert.Equal((p.Ana, p.Cy), (chore.NextAssignee!.Id, chore.NextPartner!.Id));
+
+        var first = (await ctx.Chores.CompleteAsync(chore.Id, p.Ana, new CompleteChoreRequest(null))).Value!;
+        Assert.Equal((p.Ana, p.Cy), (first.CurrentAssignee!.Id, first.CurrentPartner!.Id));
+
+        // Cy closes it: the credit goes to the pair holding the turn, not Cy's other pair.
+        var second = (await ctx.Chores.CompleteAsync(chore.Id, p.Cy, new CompleteChoreRequest(null))).Value!;
+        Assert.Equal((p.Ben, p.Cy), (second.CurrentAssignee!.Id, second.CurrentPartner!.Id));
+        Assert.Equal(20, await PointsAsync(ctx, p.Ana));
+        Assert.Equal(10, await PointsAsync(ctx, p.Ben));
+        Assert.Equal(10, await PointsAsync(ctx, p.Cy));
+
+        var third = (await ctx.Chores.CompleteAsync(chore.Id, p.Ben, new CompleteChoreRequest(null))).Value!;
+        Assert.Equal((p.Ana, p.Ben), (third.CurrentAssignee!.Id, third.CurrentPartner!.Id));
+    }
+
+    [Fact]
+    public async Task LeastCompleted_tells_overlapping_pairs_apart()
+    {
+        using var ctx = new TestContext();
+        var p = await SeedAsync(ctx);
+        var chore = (await ctx.Chores.CreateAsync(Paired(p.Ana, [p.Ana, p.Ben, p.Cy],
+            [[p.Ana, p.Ben], [p.Ana, p.Cy]], AssignmentStrategy.LeastCompleted))).Value!;
+
+        // Ana has now done it once, but only as half of Ana & Ben: Ana & Cy is still owed a turn.
+        var first = (await ctx.Chores.CompleteAsync(chore.Id, p.Ana, new CompleteChoreRequest(null))).Value!;
+        Assert.Equal((p.Ana, p.Cy), (first.CurrentAssignee!.Id, first.CurrentPartner!.Id));
+
+        var second = (await ctx.Chores.CompleteAsync(chore.Id, p.Ana, new CompleteChoreRequest(null))).Value!;
+        Assert.Equal((p.Ana, p.Ben), (second.CurrentAssignee!.Id, second.CurrentPartner!.Id));
+    }
+
+    [Fact]
+    public async Task CreateAsync_starts_on_the_named_pair_and_rejects_a_partner_outside_the_pairs()
+    {
+        using var ctx = new TestContext();
+        var p = await SeedAsync(ctx);
+        Guid[][] pairs = [[p.Ana, p.Ben], [p.Ana, p.Cy]];
+
+        var chore = (await ctx.Chores.CreateAsync(
+            Paired(p.Ana, [p.Ana, p.Ben, p.Cy, p.Dee], pairs) with { CurrentPartnerId = p.Cy })).Value!;
+        Assert.Equal(p.Cy, chore.CurrentPartner!.Id);
+
+        var bad = await ctx.Chores.CreateAsync(
+            Paired(p.Ana, [p.Ana, p.Ben, p.Cy, p.Dee], pairs) with { CurrentPartnerId = p.Dee });
+        Assert.Equal(ErrorType.Validation, bad.Error!.Type);
+    }
+
+    [Fact]
+    public async Task ReassignAsync_places_the_named_pair()
+    {
+        using var ctx = new TestContext();
+        var p = await SeedAsync(ctx);
+        var chore = (await ctx.Chores.CreateAsync(
+            Paired(p.Ana, [p.Ana, p.Ben, p.Cy], [[p.Ana, p.Ben], [p.Ana, p.Cy]]))).Value!;
+
+        // Same person, another of their pairs: a real move, not the "already theirs" no-op.
+        var moved = (await ctx.Chores.ReassignAsync(chore.Id, p.Admin, new ReassignChoreRequest(p.Ana, p.Cy))).Value!;
+        Assert.Equal((p.Ana, p.Cy), (moved.CurrentAssignee!.Id, moved.CurrentPartner!.Id));
+
+        var bad = await ctx.Chores.ReassignAsync(chore.Id, p.Admin, new ReassignChoreRequest(p.Ben, p.Cy));
+        Assert.Equal(ErrorType.Validation, bad.Error!.Type);
+    }
+
+    [Fact]
+    public async Task UndoCompletionAsync_gives_the_turn_back_to_the_same_pair()
+    {
+        using var ctx = new TestContext();
+        var p = await SeedAsync(ctx);
+        var chore = (await ctx.Chores.CreateAsync(
+            Paired(p.Ana, [p.Ana, p.Ben, p.Cy], [[p.Ana, p.Ben], [p.Ana, p.Cy], [p.Ben, p.Cy]]) with { CurrentPartnerId = p.Cy })).Value!;
+        await ctx.Chores.CompleteAsync(chore.Id, p.Ana, new CompleteChoreRequest(null));
+        var completionId = (await ctx.Db.ChoreCompletions.SingleAsync()).Id;
+
+        await ctx.Chores.UndoCompletionAsync(completionId, p.Ana);
+
+        var after = (await ctx.Chores.GetAsync(chore.Id)).Value!;
+        Assert.Equal((p.Ana, p.Cy), (after.CurrentAssignee!.Id, after.CurrentPartner!.Id));
+    }
+
+    [Fact]
+    public async Task A_frozen_member_takes_only_their_own_pairs_out_of_the_rotation()
+    {
+        using var ctx = new TestContext();
+        var p = await SeedAsync(ctx);
+        var chore = (await ctx.Chores.CreateAsync(
+            Paired(p.Ana, [p.Ana, p.Ben, p.Cy], [[p.Ana, p.Ben], [p.Ana, p.Cy], [p.Ben, p.Cy]]))).Value!;
+        await ctx.Users.FreezeAsync(p.Cy);
+
+        // Ana & Ben is the only pair left, so there is nobody to rotate to.
+        var done = (await ctx.Chores.CompleteAsync(chore.Id, p.Ben, new CompleteChoreRequest(null))).Value!;
+
+        Assert.Equal((p.Ana, p.Ben), (done.CurrentAssignee!.Id, done.CurrentPartner!.Id));
+        Assert.Null(done.NextAssignee);
+        Assert.Equal(0, await PointsAsync(ctx, p.Cy));
     }
 
     [Fact]

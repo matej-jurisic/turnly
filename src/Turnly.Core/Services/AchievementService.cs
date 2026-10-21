@@ -138,8 +138,9 @@ public class AchievementService
             var rows = await _db.ChoreCompletions
                 .Where(c => choreIds.Contains(c.ChoreId))
                 .ToListAsync(ct);
+            var lateGrace = await AppSettingsService.ReadLateGraceByChoreAsync(_db, ct);
             foreach (var group in rows.GroupBy(c => c.ChoreId))
-                maxStreak = Math.Max(maxStreak, StreakCalculator.CurrentStreak(group, userId));
+                maxStreak = Math.Max(maxStreak, StreakCalculator.CurrentStreak(group, userId, lateGrace.GetValueOrDefault(group.Key)));
         }
 
         return new AchievementStats(completions, maxStreak, pointsEarned, redemptions, distinctChores, distinctTags);

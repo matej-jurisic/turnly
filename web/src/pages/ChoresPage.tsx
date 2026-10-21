@@ -24,9 +24,9 @@ import { OfferBoard } from '@/components/chores/OfferBoard'
 import { CopyChoreModal } from '@/components/chores/CopyChoreModal'
 import { RescheduleModal } from '@/components/chores/RescheduleModal'
 import {
-  ChoreFilters, emptyFilters, type ChoreFilterState, type ChoreView,
+  ChoreFilters, emptyFilters, mineFilters, type ChoreFilterState, type ChoreView,
 } from '@/components/chores/ChoreFilters'
-import { choreDueStatus } from '@/lib/chore-format'
+import { choreDueStatus, isOnDemand } from '@/lib/chore-format'
 import { cn } from '@/lib/utils'
 import { t } from '@/lib/i18n'
 
@@ -51,7 +51,7 @@ export function ChoresPage() {
   const [copying, setCopying] = useState<Chore | null>(null)
   const [details, setDetails] = useState<Chore | null>(null)
   const [railUser, setRailUser] = useState<LeaderboardEntry | null>(null)
-  const [filters, setFilters] = useState<ChoreFilterState>(emptyFilters)
+  const [pickedFilters, setFilters] = useState<ChoreFilterState | null>(null)
   const [storedView, setView] = useState<ChoreView>(
     () => (localStorage.getItem(VIEW_KEY) as ChoreView | null) ?? 'list',
   )
@@ -138,7 +138,15 @@ export function ChoresPage() {
     return [...map.values()].sort((a, b) => a.displayName.localeCompare(b.displayName))
   }, [chores])
 
-  const { overdue, today, upcoming, later, paused, filtered } = useMemo(() => {
+  // Until the user picks something, open on the "Mine" quick view when it's offered (more than one
+  // member to distinguish).
+  const meId = currentUser?.id
+  const filters = useMemo<ChoreFilterState>(
+    () => pickedFilters ?? (meId && allAssignees.length > 1 ? mineFilters(meId) : emptyFilters),
+    [pickedFilters, meId, allAssignees.length],
+  )
+
+  const { overdue, today, upcoming, later, anytime, paused, filtered } = useMemo(() => {
     const filtered = (chores ?? []).filter((c) => {
       // OR within each dimension, AND across dimensions.
       if (filters.tags.length && !filters.tags.some((t) => c.tags.includes(t))) return false
@@ -157,8 +165,9 @@ export function ChoresPage() {
     const paused = filtered.filter((c) => c.isFrozen)
     const active = filtered.filter((c) => !c.isFrozen)
     const buckets = { overdue: [] as Chore[], today: [] as Chore[], upcoming: [] as Chore[], later: [] as Chore[] }
-    for (const c of active) buckets[choreDueStatus(c)].push(c)
-    return { ...buckets, paused, filtered }
+    for (const c of active) if (!isOnDemand(c)) buckets[choreDueStatus(c)].push(c)
+    const anytime = active.filter(isOnDemand)
+    return { ...buckets, anytime, paused, filtered }
   }, [chores, filters])
 
   const itemProps = (chore: Chore) => ({
@@ -269,6 +278,7 @@ export function ChoresPage() {
                 { title: t('due.today'), tone: undefined, items: today },
                 { title: t('due.upcoming'), tone: undefined, items: upcoming },
                 { title: t('due.later'), tone: undefined, items: later },
+                { title: t('due.anytime'), tone: undefined, items: anytime },
                 { title: t('chores.paused'), tone: 'neutral' as const, items: paused },
               ])
                 .filter((s) => s.items.length > 0)

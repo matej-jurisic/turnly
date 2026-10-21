@@ -5,6 +5,7 @@ import { authApi, choresApi } from '@/lib/api'
 import { confirm } from '@/lib/confirm'
 import { unregisterNativePush } from '@/lib/native-push'
 import { useLiveUpdates } from '@/lib/live'
+import { useDayStartSync } from '@/lib/day-start'
 import { useAuthStore } from '@/store/auth'
 import { UserMenu } from '@/components/UserMenu'
 import { NotificationsBell } from '@/components/NotificationsBell'
@@ -12,6 +13,7 @@ import { SearchBar, SearchIcon } from '@/components/SearchBar'
 import { ChoreDetailsModal } from '@/components/ChoreDetailsModal'
 import { UserDetailsModal } from '@/components/UserDetailsModal'
 import { CompleteModal } from '@/components/CompleteModal'
+import { UpdateBanner } from '@/components/UpdateBanner'
 import type { Chore, LeaderboardEntry } from '@/lib/types'
 import { cn } from '@/lib/utils'
 import { t } from '@/lib/i18n'
@@ -23,6 +25,7 @@ export function Layout() {
   const location = useLocation()
   const queryClient = useQueryClient()
   useLiveUpdates()
+  useDayStartSync()
   // The chore list runs full-width so its right-hand info rail can anchor to the screen edge; it
   // re-imposes its own centered column internally. Every other page stays at the standard max-w-5xl.
   const fullWidth = location.pathname === '/chores'
@@ -130,6 +133,7 @@ export function Layout() {
 
       {/* Main column */}
       <div className="flex min-h-screen flex-col md:pl-60">
+        <UpdateBanner />
         <header className="sticky top-0 z-20 flex h-16 items-center border-b border-border bg-card px-4 md:px-6">
           {/* Left: mobile menu + logo */}
           <div className="flex items-center gap-2 md:hidden">

@@ -18,6 +18,12 @@ public static class SettingsEndpoints
             return result.Succeeded ? Results.Ok(result.Value) : result.Error!.ToProblem();
         }).RequireAuthorization("Admin");
 
+        group.MapPut("/day-start", async (UpdateDayStartRequest req, AppSettingsService settings, CancellationToken ct) =>
+        {
+            var result = await settings.SetDayStartAsync(req.DayStart, ct);
+            return result.Succeeded ? Results.Ok(result.Value) : result.Error!.ToProblem();
+        }).RequireAuthorization("Admin");
+
         // "Fresh start": wipe all activity/point history/gacha/achievements and zero balances,
         // keeping chores (and their schedules) intact. Irreversible, admin-only.
         group.MapPost("/fresh-start", async (ResetService reset, CancellationToken ct) =>

@@ -78,6 +78,8 @@ export function SettingsPage() {
 
       {isAdmin && <TimezoneCard />}
 
+      {isAdmin && <DayStartCard />}
+
       {isAdmin && <TagsCard />}
 
       <Card>
@@ -698,6 +700,52 @@ function TimezoneCard() {
         </div>
         <Button onClick={() => mutation.mutate()} disabled={!dirty || mutation.isPending}>
           {mutation.isPending ? t('common.saving') : t('settings.tzSave')}
+        </Button>
+      </CardContent>
+    </Card>
+  )
+}
+
+function DayStartCard() {
+  const queryClient = useQueryClient()
+  const { data } = useQuery({ queryKey: ['app-settings'], queryFn: settingsApi.get })
+  // Null until the admin edits, so the field shows the server value without mirroring it into state.
+  const [draft, setDraft] = useState<string | null>(null)
+  const value = draft ?? data?.dayStart ?? ''
+
+  const mutation = useMutation({
+    mutationFn: () => settingsApi.updateDayStart(value),
+    onSuccess: (updated) => {
+      queryClient.setQueryData(['app-settings'], updated)
+      setDraft(null)
+      toast.success(t('settings.dayStartUpdated'))
+    },
+    onError: (err) => toast.error(err instanceof ApiError ? err.message : t('common.error')),
+  })
+
+  // "HH:mm" strings compare correctly as text. The server enforces the same noon limit.
+  const invalid = value > '12:00'
+  const dirty = data ? value !== data.dayStart : false
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>{t('settings.dayStartTitle')}</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="space-y-2">
+          <Label htmlFor="day-start">{t('settings.dayStartLabel')}</Label>
+          <Input
+            id="day-start"
+            type="time"
+            value={value}
+            onChange={(e) => setDraft(e.target.value)}
+            className="w-32"
+          />
+        </div>
+        {invalid && <p className="text-sm text-destructive">{t('settings.dayStartTooLate')}</p>}
+        <Button onClick={() => mutation.mutate()} disabled={!dirty || !value || invalid || mutation.isPending}>
+          {mutation.isPending ? t('common.saving') : t('settings.dayStartSave')}
         </Button>
       </CardContent>
     </Card>

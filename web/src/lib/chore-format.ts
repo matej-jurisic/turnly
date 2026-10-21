@@ -1,4 +1,5 @@
 import type {
+  ChoreHistoryEntry,
   AssignmentStrategy,
   Chore,
   ChoreNotification,
@@ -13,6 +14,7 @@ import type {
 } from '@/lib/types'
 import { locale, localized, plural, t } from '@/lib/i18n'
 import type { TKey } from '@/lib/i18n'
+import { dayStartMs } from '@/lib/day-start'
 
 // ── option lists (for <Select>) ──────────────────────────────────────────────
 
@@ -21,6 +23,7 @@ const option = <V extends string>(value: V, label: TKey) => localized({ value },
 
 export const REPEAT_OPTIONS: { value: RepeatType; label: string }[] = [
   option('OneTime', 'repeat.OneTime'),
+  option('OnDemand', 'repeat.OnDemand'),
   option('Daily', 'repeat.Daily'),
   option('Weekly', 'repeat.Weekly'),
   option('Monthly', 'repeat.Monthly'),
@@ -110,7 +113,7 @@ export function formatGrace(minutes: number): string {
 /** Whether a repeat type / custom mode is interval-style (the only case where Smart scheduling
  * applies — fixed-slot DaysOfWeek/DaysOfMonth recurrences always hold their grid). */
 export function isIntervalStyle(repeatType: RepeatType, customMode?: CustomRecurrenceMode | null): boolean {
-  if (repeatType === 'OneTime') return false
+  if (repeatType === 'OneTime' || repeatType === 'OnDemand') return false
   if (repeatType !== 'Custom') return true
   return customMode === 'Interval'
 }
@@ -224,16 +227,33 @@ export function completionProgressLabel(chore: Chore): string {
   return `${chore.occurrenceProgress ?? 0}/${chore.completionsRequired} ${period}`
 }
 
+/** Whether a chore has no schedule at all: never due, done whenever it's needed. */
+export function isOnDemand(chore: Pick<Chore, 'repeatType'>): boolean {
+  return chore.repeatType === 'OnDemand'
+}
+
+/** Whether a chore has something to complete right now: a due occurrence, or an on-demand chore,
+ * which always does. */
+export function canComplete(chore: Pick<Chore, 'repeatType' | 'dueAt' | 'isFrozen'>): boolean {
+  return (Boolean(chore.dueAt) || isOnDemand(chore)) && !chore.isFrozen
+}
+
 /** Whether a chore uses per-assignee independent schedules (track mode). */
 export function isIndependent(chore: Pick<Chore, 'assignmentStrategy'>): boolean {
   return chore.assignmentStrategy === 'Independent'
 }
 
-/** A person's fixed partner on a paired chore, or undefined when they take their turn alone. */
-export function partnerOf(chore: Pick<Chore, 'pairs' | 'assignees'>, userId?: string | null): User | undefined {
-  const pair = chore.pairs.find((p) => p.includes(userId ?? ''))
-  const partnerId = pair?.find((id) => id !== userId)
-  return chore.assignees.find((u) => u.id === partnerId && !u.isFrozen)
+/** Whoever can take a turn on a chore: each fixed pair, then each assignee outside every pair,
+ * alone. A pair with a frozen member is away, so it doesn't count. */
+export function turnUnits(chore: Pick<Chore, 'pairs' | 'assignees'>): { user: User; partner?: User }[] {
+  const active = (id: string) => chore.assignees.find((u) => u.id === id && !u.isFrozen)
+  const pairs = chore.pairs.flatMap(([a, b]) => {
+    const user = active(a)
+    const partner = active(b)
+    return user && partner ? [{ user, partner }] : []
+  })
+  const alone = chore.assignees.filter((u) => !pairs.some((p) => p.user.id === u.id || p.partner.id === u.id))
+  return [...pairs, ...alone.map((user) => ({ user }))]
 }
 
 /** "Ana & Ben" for a pair, or just the one name. */
@@ -250,7 +270,7 @@ export function holdsChore(chore: Pick<Chore, 'currentAssignee' | 'currentPartne
 /** Whether to surface a chore's on-time streak: only for recurring chores with a streak worth
  * showing (a streak of 1 isn't). For track-mode chores this reflects the viewer's own streak. */
 export function showStreak(chore: Pick<Chore, 'repeatType' | 'currentStreak'>): boolean {
-  return chore.repeatType !== 'OneTime' && chore.currentStreak >= 2
+  return chore.repeatType !== 'OneTime' && chore.repeatType !== 'OnDemand' && chore.currentStreak >= 2
 }
 
 /** A track's own progress pill, e.g. "1/2 this week" (or "Done" once the quota is met). */
@@ -260,22 +280,11 @@ export function trackProgressLabel(chore: Chore, track: ChoreTrack): string {
   return `${track.progress}/${track.completionsRequired} ${period}`
 }
 
-/** Short badge text for a live offer: who the chore is waiting on. Targeted offers name the
- * recipient so the offerer can see at a glance where the chore went. */
-export function offerBadgeText(offer: ChoreOffer, meId?: string): string {
-  if (!offer.toUser) return t('offer.upForGrabs')
-  return offer.toUser.id === meId ? t('offer.toYou') : t('offer.toName', { name: offer.toUser.displayName })
-}
-
 /** Full sentence describing a live offer, used as the badge tooltip / accessible label. */
 export function offerSentence(offer: ChoreOffer, meId?: string): string {
-  const from = offer.fromUser.displayName
-  const to = offer.toUser?.displayName
-  if (offer.fromUser.id === meId) {
-    return to ? t('offer.sentence.youToName', { to }) : t('offer.sentence.youOpen')
-  }
-  if (offer.toUser?.id === meId) return t('offer.sentence.nameToYou', { from })
-  return to ? t('offer.sentence.nameToName', { from, to }) : t('offer.sentence.nameOpen', { from })
+  return offer.fromUser.id === meId
+    ? t('offer.sentence.youOpen')
+    : t('offer.sentence.nameOpen', { from: offer.fromUser.displayName })
 }
 
 const NOTIFICATION_UNIT_KEYS = {
@@ -363,9 +372,14 @@ function startOfDay(d: Date): Date {
   return new Date(d.getFullYear(), d.getMonth(), d.getDate())
 }
 
-/** Whole calendar days between `iso` and today (positive = in the past). */
+/** The calendar day an instant belongs to on the household clock (see `householdNow`). */
+function householdDay(d: Date): Date {
+  return startOfDay(new Date(d.getTime() - dayStartMs()))
+}
+
+/** Whole household days between `iso` and today (positive = in the past). */
 export function calendarDaysAgo(iso: string): number {
-  return Math.round((startOfDay(new Date()).getTime() - startOfDay(new Date(iso)).getTime()) / 86_400_000)
+  return Math.round((householdDay(new Date()).getTime() - householdDay(new Date(iso)).getTime()) / 86_400_000)
 }
 
 /** Relative day label: "today", "yesterday", "N days ago", or "in N days". */
@@ -388,6 +402,20 @@ export function relativeTimeLabel(iso: string): string {
   return formatDate(iso)
 }
 
+/** The occurrence a history entry was for: its due date, the slot's time on timed chores, and the
+ * slot label when it has one ("18/10/2026 08:00 · Morning"). Empty for entries with no occurrence. */
+export function occurrenceLabel(
+  entry: Pick<ChoreHistoryEntry, 'occurrenceDueAt' | 'occurrenceLabel'>,
+  hasDueTime: boolean,
+): string {
+  if (!entry.occurrenceDueAt) return ''
+  let label = formatDate(entry.occurrenceDueAt)
+  if (hasDueTime) {
+    label += ` ${new Date(entry.occurrenceDueAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}`
+  }
+  return entry.occurrenceLabel ? `${label} · ${entry.occurrenceLabel}` : label
+}
+
 /** Full date and time, for tooltips. */
 export function formatDateTime(iso: string): string {
   return new Date(iso).toLocaleString(locale())
@@ -400,8 +428,9 @@ export function choreHasDueTime(chore: Pick<Chore, 'dueTime' | 'timesOfDay'>): b
 
 /**
  * Buckets a due instant. By default the overdue boundary is day-granular (a chore due today stays
- * "today" until midnight). Pass `hasTime` for chores with a concrete due time, so they flip to
- * "overdue" the moment that time passes instead of waiting for the next calendar day.
+ * "today" until the household's day start, midnight unless the admin moved it). Pass `hasTime` for
+ * chores with a concrete due time, so they flip to "overdue" the moment that time passes instead of
+ * waiting for the next day. "Today" and the week ahead are household days for both kinds.
  */
 export function dueStatus(
   dueAt?: string | null,
@@ -410,12 +439,15 @@ export function dueStatus(
   if (!dueAt) return 'later'
   const due = new Date(dueAt)
   const now = new Date()
-  const todayStart = startOfDay(now)
+  const todayStart = householdDay(now)
   const tomorrowStart = new Date(todayStart.getTime() + 86_400_000)
   const weekEnd = new Date(todayStart.getTime() + 7 * 86_400_000)
-  if (hasTime ? due < now : due < todayStart) return 'overdue'
-  if (due < tomorrowStart) return 'today'
-  if (due <= weekEnd) return 'upcoming'
+  // An all-day due is stamped at the end of its own calendar day, so it already names its day; a
+  // timed one belongs to whichever household day its instant falls in.
+  const dueDay = hasTime ? new Date(due.getTime() - dayStartMs()) : due
+  if (hasTime ? due < now : dueDay < todayStart) return 'overdue'
+  if (dueDay < tomorrowStart) return 'today'
+  if (dueDay <= weekEnd) return 'upcoming'
   return 'later'
 }
 
@@ -444,4 +476,23 @@ export function trackStatusText(chore: Chore, track: ChoreTrack): string {
     : track.started ? t('track.doneNext', { when: relativeDayLabel(track.dueAt) })
     : t('track.due', { when: relativeDayLabel(track.dueAt) })
   return progress ? `${progress} · ${base}` : base
+}
+
+/** Whether a logged entry beat its occurrence's deadline. An all-day chore (`hasDueTime` false) stays
+ * on time until the household's day start, mirroring the server's `Chore.LateGrace`. */
+export function beatDeadline(at: string, occurrenceDueAt: string, hasDueTime: boolean): boolean {
+  const grace = hasDueTime ? 0 : dayStartMs()
+  return new Date(at).getTime() <= new Date(occurrenceDueAt).getTime() + grace
+}
+
+/** History rows label a completion "on time" / "late", or "rescue" when someone stepped in for a
+ * chore that was overdue in another person's hands (decided by the server). */
+export function timelinessLabel(entry: ChoreHistoryEntry, onTime: boolean): string {
+  if (entry.isRescue) return t('history.rescueLower')
+  return onTime ? t('history.onTimeLower') : t('history.lateLower')
+}
+
+export function timelinessClass(entry: ChoreHistoryEntry, onTime: boolean): string {
+  if (entry.isRescue) return 'text-info'
+  return onTime ? 'text-success' : 'text-destructive'
 }

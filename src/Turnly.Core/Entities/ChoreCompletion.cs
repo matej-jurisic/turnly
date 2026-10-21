@@ -42,4 +42,24 @@ public class ChoreCompletion
     /// <summary>The chore's current assignee before this completion (possibly) rotated it;
     /// restored on undo. A plain snapshot, not a navigation.</summary>
     public Guid? PreviousAssigneeId { get; set; }
+
+    /// <summary>On a paired chore, who held the turn together with <see cref="PreviousAssigneeId"/>
+    /// (<see cref="Chore.HeldPartnerId"/> at the time); restored on undo. A plain snapshot.</summary>
+    public Guid? PreviousPartnerId { get; set; }
+
+    /// <summary>A late completion logged by someone other than the person (or pair) who held the
+    /// chore: they stepped in for an overdue chore, so it counts as late for nobody. Always false on
+    /// <see cref="Enums.AssignmentStrategy.Independent"/> chores, which snapshot no holder.</summary>
+    /// <param name="lateGrace">How long past its due instant the occurrence still counts as on time
+    /// (<see cref="Chore.LateGrace"/>).</param>
+    public bool IsRescue(TimeSpan lateGrace) =>
+        IsRescue(IsSkip, IsExpired, CompletedAt, OccurrenceDueAt, CompletedByUserId, PartnerUserId, PreviousAssigneeId, PreviousPartnerId, lateGrace);
+
+    /// <summary>The same rule over bare columns, for readers that project instead of loading rows.</summary>
+    public static bool IsRescue(bool isSkip, bool isExpired, DateTimeOffset completedAt, DateTimeOffset? occurrenceDueAt,
+        Guid? completedByUserId, Guid? partnerUserId, Guid? previousAssigneeId, Guid? previousPartnerId, TimeSpan lateGrace) =>
+        !isSkip && !isExpired
+        && occurrenceDueAt is { } due && completedAt > due + lateGrace
+        && previousAssigneeId is { } holder && holder != completedByUserId && holder != partnerUserId
+        && (previousPartnerId is not { } coHolder || (coHolder != completedByUserId && coHolder != partnerUserId));
 }

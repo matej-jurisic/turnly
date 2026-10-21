@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { Chore, ChoreHistoryEntry } from '@/lib/types'
 import { choresApi, historyApi, usersApi, ApiError } from '@/lib/api'
@@ -10,14 +10,15 @@ import { Badge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
 import { Input, Label, Select } from '@/components/ui/Field'
 import { TimeField } from '@/components/ui/TimeField'
-import { CheckIcon, EditIcon, SkipIcon, TrashIcon } from '@/components/chores/icons'
+import { CheckIcon, DotsIcon, EditIcon, SkipIcon, TrashIcon } from '@/components/chores/icons'
 import {
   calendarDaysAgo, choreDueStatus, choreHasDueTime, completionProgressLabel, dueStatus, formatDate, formatGrace,
   isIndependent, notificationRecipientsLabel, notificationTimingLabel, notificationTypeLabel,
   relativeDayLabel, repeatLabel, showStreak, trackIsDone, trackStatusText, strategyLabel, schedulingLabel, rotationPeriodLabel, holdsChore, pairLabel,
-  toLocalDateInput, toLocalDueInstant,
+  toLocalDateInput, toLocalDueInstant, canComplete, isOnDemand, occurrenceLabel,
 } from '@/lib/chore-format'
 import { plural, t, tRich } from '@/lib/i18n'
+import { dayStartMs } from '@/lib/day-start'
 
 interface ChoreDetailsModalProps {
   chore: Chore
@@ -41,10 +42,7 @@ export function ChoreDetailsModal({ chore, onClose, onComplete }: ChoreDetailsMo
 
   const offer = chore.openOffer
   const isMyOffer = offer?.fromUser.id === meId
-  // Targeted offers are claimable only by their recipient; open ones by any other assignee.
-  const isOfferTarget = offer?.toUser?.id === meId
-  const canClaim = !!offer && !isMyOffer
-    && (offer.toUser ? isOfferTarget : chore.assignees.some((u) => u.id === meId))
+  const canClaim = !!offer && !isMyOffer && chore.assignees.some((u) => u.id === meId)
 
   // A claim moves points between two people, so the balances on screen go stale too.
   const invalidateOffer = () => {
@@ -63,16 +61,6 @@ export function ChoreDetailsModal({ chore, onClose, onComplete }: ChoreDetailsMo
     onError: (err) => toast.error(err instanceof ApiError ? err.message : t('offer.claimFailed')),
   })
 
-  const declineOfferMutation = useMutation({
-    mutationFn: () => choresApi.declineOffer(chore.id),
-    onSuccess: () => {
-      toast.success(t('details.offerDeclined'))
-      invalidateOffer()
-      onClose()
-    },
-    onError: (err) => toast.error(err instanceof ApiError ? err.message : t('common.actionFailed')),
-  })
-
   const withdrawMutation = useMutation({
     mutationFn: () => choresApi.withdrawOffer(chore.id),
     onSuccess: () => {
@@ -82,7 +70,7 @@ export function ChoreDetailsModal({ chore, onClose, onComplete }: ChoreDetailsMo
     onError: (err) => toast.error(err instanceof ApiError ? err.message : t('details.withdrawFailed')),
   })
 
-  const offerBusy = claimMutation.isPending || declineOfferMutation.isPending || withdrawMutation.isPending
+  const offerBusy = claimMutation.isPending || withdrawMutation.isPending
 
   const onSkipTrack = async (userId: string, name: string) => {
     if (await confirm({
@@ -101,7 +89,8 @@ export function ChoreDetailsModal({ chore, onClose, onComplete }: ChoreDetailsMo
     </span>
   )
 
-  const showSchedulingPref = chore.repeatType !== 'OneTime'
+  const scheduled = !isOnDemand(chore)
+  const showSchedulingPref = chore.repeatType !== 'OneTime' && scheduled
 
   const overdueDays = chore.dueAt && choreDueStatus(chore) === 'overdue'
     ? calendarDaysAgo(chore.dueAt)
@@ -118,17 +107,9 @@ export function ChoreDetailsModal({ chore, onClose, onComplete }: ChoreDetailsMo
           <div>
             <div className="rounded-lg border border-border bg-accent/50 px-3 py-2.5 text-sm">
               <p className="text-muted-foreground">
-                {tRich(
-                  isMyOffer
-                    ? (offer.toUser ? 'offer.sentence.youToName' : 'offer.sentence.youOpen')
-                    : isOfferTarget ? 'offer.sentence.nameToYou'
-                    : offer.toUser ? 'offer.sentence.nameToName'
-                    : 'offer.sentence.nameOpen',
-                  {
-                    from: <strong className="text-foreground">{offer.fromUser.displayName}</strong>,
-                    to: <strong className="text-foreground">{offer.toUser?.displayName}</strong>,
-                  },
-                )}.
+                {tRich(isMyOffer ? 'offer.sentence.youOpen' : 'offer.sentence.nameOpen', {
+                  from: <strong className="text-foreground">{offer.fromUser.displayName}</strong>,
+                })}.
                 {offer.bountyPoints > 0 && (
                   <> {tRich('offer.bountyEarns', {
                     points: <strong className="text-foreground">{plural('points', offer.bountyPoints)}</strong>,
@@ -141,9 +122,6 @@ export function ChoreDetailsModal({ chore, onClose, onComplete }: ChoreDetailsMo
                     <Button size="sm" onClick={() => claimMutation.mutate()} disabled={offerBusy}>
                       {offer.bountyPoints > 0 ? t('offer.claimFor', { count: offer.bountyPoints }) : t('offer.claim')}
                     </Button>
-                  )}
-                  {isOfferTarget && (
-                    <Button size="sm" variant="secondary" onClick={() => declineOfferMutation.mutate()} disabled={offerBusy}>{t('offer.decline')}</Button>
                   )}
                   {(isMyOffer || isAdmin) && (
                     <Button size="sm" variant="secondary" onClick={() => withdrawMutation.mutate()} disabled={offerBusy}>{t('offer.withdraw')}</Button>
@@ -241,7 +219,7 @@ export function ChoreDetailsModal({ chore, onClose, onComplete }: ChoreDetailsMo
                     (holdsChore(chore, u.id)
                       ? 'bg-primary/10 text-primary ring-1 ring-primary'
                       : (u.id === chore.nextAssignee?.id || u.id === chore.nextPartner?.id)
-                        ? 'bg-accent text-muted-foreground ring-1 ring-border'
+                        ? 'bg-info/10 text-info ring-1 ring-info'
                         : 'bg-accent text-muted-foreground')
                   }
                 >
@@ -306,7 +284,7 @@ export function ChoreDetailsModal({ chore, onClose, onComplete }: ChoreDetailsMo
               ) : null}
             </div>
           )}
-          {chore.repeatType !== 'OneTime' && (
+          {chore.repeatType !== 'OneTime' && scheduled && (
             <div>
               <dt className="text-xs text-muted-foreground">{t('details.autoAdvance')}</dt>
               <dd className="text-foreground">{chore.autoAdvanceIncomplete ? t('common.on') : t('common.off')}</dd>
@@ -317,10 +295,12 @@ export function ChoreDetailsModal({ chore, onClose, onComplete }: ChoreDetailsMo
               ) : null}
             </div>
           )}
-          <div>
-            <dt className="text-xs text-muted-foreground">{t('details.startDate')}</dt>
-            <dd className="text-foreground">{formatDate(chore.startDate)}</dd>
-          </div>
+          {scheduled && (
+            <div>
+              <dt className="text-xs text-muted-foreground">{t('details.startDate')}</dt>
+              <dd className="text-foreground">{formatDate(chore.startDate)}</dd>
+            </div>
+          )}
           <div>
             <dt className="text-xs text-muted-foreground">{t('details.added')}</dt>
             <dd className="text-foreground">{formatDate(chore.createdAt)}</dd>
@@ -353,7 +333,7 @@ export function ChoreDetailsModal({ chore, onClose, onComplete }: ChoreDetailsMo
           <button
             type="button"
             onClick={onComplete}
-            disabled={!chore.dueAt}
+            disabled={!canComplete(chore)}
             aria-label={t('chore.markComplete')}
             className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-primary text-primary-foreground transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-30"
           >
@@ -446,10 +426,12 @@ function ChoreStats({ choreId }: { choreId: string }) {
   )
 }
 
-/** A completion logged after its occurrence was due: the one kind whose time an admin can correct. */
-function isLateCompletion(entry: ChoreHistoryEntry): boolean {
+/** A completion logged after its occurrence was due: the one kind whose time an admin can correct.
+ * An all-day chore is on time until the household's day start, matching the server's streaks. */
+function isLateCompletion(entry: ChoreHistoryEntry, chore: Chore): boolean {
+  const grace = choreHasDueTime(chore) ? 0 : dayStartMs()
   return entry.kind === 'completion' && !!entry.occurrenceDueAt
-    && new Date(entry.at).getTime() > new Date(entry.occurrenceDueAt).getTime()
+    && new Date(entry.at).getTime() > new Date(entry.occurrenceDueAt).getTime() + grace
 }
 
 /** Per-chore activity log (completions, skips, and auto-expired slots). Admins can delete entries to
@@ -499,56 +481,55 @@ function ActivityList({ chore }: { chore: Chore }) {
       <div className="space-y-2">
         {(activity ?? []).map((entry) => (
           <div key={entry.id} className="rounded-lg border border-border bg-accent/50 px-3 py-2.5 text-sm">
-            <div className="flex items-center justify-between gap-2">
-              <div className="flex min-w-0 items-center gap-2">
-                <span className="shrink-0">
-                  <Avatar
-                    color={entry.actor?.avatarColor ?? 'var(--muted)'}
-                    name={entry.actor?.displayName ?? '-'}
-                    size={20}
-                  />
-                </span>
-                <div className="min-w-0">
-                  <p className="break-words text-foreground">
+            <div className="flex items-start gap-2">
+              <span className="mt-0.5 shrink-0">
+                <Avatar
+                  color={entry.actor?.avatarColor ?? 'var(--muted)'}
+                  name={entry.actor?.displayName ?? '-'}
+                  size={20}
+                />
+              </span>
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="min-w-0 truncate text-foreground">
                     {entry.kind === 'expired' ? t('activity.autoExpired') : entry.actor && pairLabel(entry.actor, entry.partner)}
                   </p>
-                  <p className="text-xs text-muted-foreground">{formatDate(entry.at)}</p>
+                  <div className="flex shrink-0 items-center gap-1.5 whitespace-nowrap">
+                    {entry.kind === 'expired' ? (
+                      <Badge tone="amber">{t('details.expired')}</Badge>
+                    ) : entry.kind === 'skip' ? (
+                      <Badge tone="neutral">{t('details.skipped')}</Badge>
+                    ) : (
+                      <>
+                        {entry.isRescue && <Badge tone="violet">{t('details.rescue')}</Badge>}
+                        <span className="text-xs font-medium text-foreground">{t('common.ptsPlus', { count: entry.pointsAwarded })}</span>
+                      </>
+                    )}
+                  </div>
                 </div>
+                <p className="mt-0.5 flex flex-wrap gap-x-1.5 text-xs text-muted-foreground">
+                  <span className="whitespace-nowrap">{formatDate(entry.at)}</span>
+                  {entry.occurrenceDueAt && (
+                    <span className="whitespace-nowrap">· {t('activity.forOccurrence', { due: occurrenceLabel(entry, choreHasDueTime(chore)) })}</span>
+                  )}
+                </p>
               </div>
-              <div className="flex shrink-0 items-center gap-2">
-                {entry.kind === 'expired' ? (
-                  <Badge tone="amber">{t('details.expired')}</Badge>
-                ) : entry.kind === 'skip' ? (
-                  <Badge tone="neutral">{t('details.skipped')}</Badge>
-                ) : (
-                  <Badge tone="violet">{t('common.ptsPlus', { count: entry.pointsAwarded })}</Badge>
-                )}
-                {isAdmin && (entry.kind === 'expired' || isLateCompletion(entry)) && (
-                  <button
-                    type="button"
-                    onClick={() => setEditingId(editingId === entry.id ? null : entry.id)}
-                    aria-label={entry.kind === 'expired' ? t('activity.markCompleted') : t('activity.editTime')}
-                    title={entry.kind === 'expired' ? t('activity.markCompleted') : t('activity.editTime')}
-                    className="inline-flex h-7 w-7 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                  >
-                    {entry.kind === 'expired' ? <CheckIcon /> : <EditIcon />}
-                  </button>
-                )}
-                {isAdmin && (
-                  <button
-                    type="button"
-                    onClick={() => onDelete(entry)}
-                    disabled={deleteMutation.isPending}
-                    aria-label={t('activity.deleteEntry')}
-                    className="inline-flex h-7 w-7 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
-                  >
-                    <TrashIcon />
-                  </button>
-                )}
-              </div>
+              {isAdmin && (
+                <ActivityMenu
+                  fixLabel={
+                    entry.kind === 'expired'
+                      ? t('activity.markCompleted')
+                      : isLateCompletion(entry, chore) ? t('activity.editTime') : null
+                  }
+                  fixIcon={entry.kind === 'expired' ? <CheckIcon /> : <EditIcon />}
+                  deletePending={deleteMutation.isPending}
+                  onFix={() => setEditingId(editingId === entry.id ? null : entry.id)}
+                  onDelete={() => onDelete(entry)}
+                />
+              )}
             </div>
             {entry.notes && (
-              <p className="mt-1 text-muted-foreground italic">{entry.notes}</p>
+              <p className="mt-1 ml-7 break-words text-muted-foreground italic">{entry.notes}</p>
             )}
             {isAdmin && editingId === entry.id && (
               <ActivityEditForm chore={chore} entry={entry} onClose={() => setEditingId(null)} />
@@ -556,6 +537,64 @@ function ActivityList({ chore }: { chore: Chore }) {
           </div>
         ))}
       </div>
+    </div>
+  )
+}
+
+/** Admin actions for one activity entry, folded into a "more" popover so the row keeps its width. */
+function ActivityMenu({ fixLabel, fixIcon, deletePending, onFix, onDelete }: {
+  fixLabel: string | null
+  fixIcon: React.ReactNode
+  deletePending: boolean
+  onFix: () => void
+  onDelete: () => void
+}) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [open])
+
+  return (
+    <div ref={ref} className="relative -my-1 -mr-1.5 shrink-0">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-label={t('menu.more')}
+        aria-expanded={open}
+        className="inline-flex h-8 w-8 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      >
+        <DotsIcon />
+      </button>
+      {open && (
+        <div className="absolute right-0 top-full z-20 mt-1 min-w-[160px] rounded-lg border border-border bg-card py-1 shadow-pop">
+          {fixLabel && (
+            <button
+              type="button"
+              onClick={() => { setOpen(false); onFix() }}
+              className="flex w-full items-center gap-2 px-3 py-2 text-sm text-foreground transition-colors hover:bg-accent"
+            >
+              {fixIcon}
+              {fixLabel}
+            </button>
+          )}
+          <button
+            type="button"
+            disabled={deletePending}
+            onClick={() => { setOpen(false); onDelete() }}
+            className="flex w-full items-center gap-2 px-3 py-2 text-sm text-destructive transition-colors hover:bg-destructive/10 disabled:opacity-50"
+          >
+            <TrashIcon />
+            {t('activity.deleteEntry')}
+          </button>
+        </div>
+      )}
     </div>
   )
 }

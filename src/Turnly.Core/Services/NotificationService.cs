@@ -692,7 +692,7 @@ public class NotificationService
         // loaded Assignees, so resolve the name without an extra include.
         var assignee = chore.Assignees.FirstOrDefault(a => a.Id == assigneeId)?.DisplayName;
         // A paired chore names both people doing it.
-        if (assignee is not null && chore.PartnerOf(assigneeId) is { } partner)
+        if (assignee is not null && assigneeId == chore.CurrentAssigneeId && chore.CurrentPartner() is { } partner)
             assignee = $"{assignee} & {partner.DisplayName}";
         var prefix = assignee is null ? "" : $"{assignee} - ";
         var points = chore.Points > 0 ? $" ({chore.Points} pts)" : "";

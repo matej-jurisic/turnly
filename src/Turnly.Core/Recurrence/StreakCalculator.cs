@@ -15,7 +15,9 @@ public static class StreakCalculator
     /// *closed* it (the latest completion) is this user — so on a rotating chore the streak follows
     /// the individual and stops as soon as someone else takes a turn. Null counts the schedule's
     /// streak regardless of who completed each occurrence (the chore- or track-wide streak).</param>
-    public static int CurrentStreak(IEnumerable<ChoreCompletion> completions, Guid? userId = null)
+    /// <param name="lateGrace">How long past its due instant an occurrence still counts as on time
+    /// (<see cref="Chore.LateGrace"/>: the household day start for an all-day chore).</param>
+    public static int CurrentStreak(IEnumerable<ChoreCompletion> completions, Guid? userId = null, TimeSpan lateGrace = default)
     {
         // An occurrence is the set of rows sharing one OccurrenceDueAt (the existing grouping key).
         var occurrences = completions
@@ -32,7 +34,7 @@ public static class StreakCalculator
             // The closing completion (latest) decides on-time-ness — so a multi-completion occurrence
             // counts only once fully done — and, when scoped, whose streak it is.
             var closing = occ.OrderByDescending(c => c.CompletedAt).First();
-            if (closing.CompletedAt > occ.Key) break; // late
+            if (closing.CompletedAt > occ.Key + lateGrace) break; // late
             // Closed by someone else. A partner on a paired chore closed it too.
             if (userId is { } uid && closing.CompletedByUserId != uid && closing.PartnerUserId != uid) break;
             streak++;

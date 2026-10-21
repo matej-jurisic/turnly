@@ -29,11 +29,14 @@ export interface ProfileUpdate {
   quietHoursEnd?: string | null
 }
 
-/** App-wide settings (admin). `timeZone` is the configured family zone (null = unset, falls back to
- * `serverTimeZone`); it's the zone quiet hours are evaluated against server-side. */
+/** App-wide settings (admin-editable, readable by everyone). `timeZone` is the configured family
+ * zone (null = unset, falls back to `serverTimeZone`); it's the zone quiet hours are evaluated
+ * against server-side. `dayStart` ("HH:mm", "00:00" = midnight) is when the household's day rolls
+ * over: a chore with no due time stays due until then. */
 export interface AppSettings {
   timeZone: string | null
   serverTimeZone: string
+  dayStart: string
 }
 
 export interface LeaderboardEntry {
@@ -114,7 +117,7 @@ export interface UpdateUserRequest {
   role: UserRole
 }
 
-export type RepeatType = 'OneTime' | 'Daily' | 'Weekly' | 'Monthly' | 'Yearly' | 'Custom'
+export type RepeatType = 'OneTime' | 'Daily' | 'Weekly' | 'Monthly' | 'Yearly' | 'Custom' | 'OnDemand'
 
 export type CustomRecurrenceMode = 'Interval' | 'DaysOfWeek' | 'DaysOfMonth'
 
@@ -203,6 +206,10 @@ export interface ChoreHistoryEntry {
   toAssignee?: User | null
   /** Completion/expiry on a paired chore: the partner who shares it with `actor`. */
   partner?: User | null
+  /** A late completion by someone who didn't hold the chore: shown as a rescue, not as late. */
+  isRescue?: boolean
+  /** Slot label of the occurrence this entry was for ("Morning"), when that slot has one. */
+  occurrenceLabel?: string | null
 }
 
 /** One assignee's independent schedule on a track-mode (`Independent`) chore. */
@@ -270,7 +277,7 @@ export interface Chore extends RecurrenceFields {
   dueLabel?: string | null
   currentAssignee?: User | null
   /** Fixed pairs who do the chore together, each `[userId, userId]`. A pair holds the turn, rotates
-   * and is credited as one. Empty when the chore isn't paired. */
+   * and is credited as one; a person may be in several. Empty when the chore isn't paired. */
   pairs: string[][]
   /** On a paired chore, who shares the current occurrence with `currentAssignee` (null when the
    * holder has no partner, or the partner is frozen). */
@@ -331,15 +338,13 @@ export interface NotificationPreference {
 }
 
 /**
- * A chore put up for someone else to take. The chore stays with `fromUser` until someone claims it.
- * `toUser` null means an open offer any other assignee can claim, first come first served; set, it's
- * aimed at that one person, who can claim or decline. `bountyPoints` is already escrowed from
- * `fromUser` and pays out to whoever claims.
+ * A chore put up for grabs: any other assignee can claim it, first come first served. The chore stays
+ * with `fromUser` until someone does. `bountyPoints` is already escrowed from `fromUser` and pays out
+ * to whoever claims.
  */
 export interface ChoreOffer {
   id: string
   fromUser: User
-  toUser?: User | null
   bountyPoints: number
 }
 
@@ -369,9 +374,11 @@ export interface ChoreRequest extends RecurrenceFields {
   notifications: ChoreNotificationInput[]
   /** Per-assignee quotas for `Independent` chores — one per assignee. Omitted for rotating chores. */
   tracks?: { userId: string; completionsRequired: number }[]
-  /** Fixed pairs who do the chore together, each `[userId, userId]`; nobody may be in two. Omitted
-   * for `Independent` chores. */
+  /** Fixed pairs who do the chore together, each `[userId, userId]`; a person may be in several.
+   * Omitted for `Independent` chores. */
   pairs?: string[][] | null
+  /** Which of the current assignee's pairs holds the turn (null: they hold it alone). */
+  currentPartnerId?: string | null
 }
 
 export type CreateChoreRequest = ChoreRequest
@@ -401,11 +408,11 @@ export interface SkipChoreRequest {
 /** Admin-only direct move. Members offer the chore instead. */
 export interface ReassignChoreRequest {
   assigneeId: string
+  /** On a paired chore, which of the assignee's pairs takes it. */
+  partnerId?: string | null
 }
 
 export interface OfferChoreRequest {
-  /** Omit for an open offer any other assignee can claim; set to aim it at one person. */
-  toUserId?: string | null
   /** Points paid to whoever claims it. Deducted up front, capped at the offerer's balance. */
   bountyPoints: number
 }
@@ -522,8 +529,18 @@ export interface UserStats {
   onTimeCount: number
   overdueCount: number
   missedCount: number
+  rescueCount: number
+  weeklyTimeliness: TimelinessCounts
+  monthlyTimeliness: TimelinessCounts
   avatarEmoji?: string | null
   equippedFrameKey?: string | null
+}
+
+export interface TimelinessCounts {
+  onTime: number
+  overdue: number
+  rescue: number
+  missed: number
 }
 
 export interface UserWeeklyCount {
@@ -557,4 +574,11 @@ export interface Achievement {
   progress: number
   earned: boolean
   earnedAt?: string | null
+}
+
+/** What the server currently ships (`/api/version`): the deployed frontend's build id and the newest
+ * published APK's versionCode. Either is null when unknown. */
+export interface AppVersion {
+  web: string | null
+  android: number | null
 }

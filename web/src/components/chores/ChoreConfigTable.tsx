@@ -129,7 +129,7 @@ function ScheduleCell({ chore }: { chore: Chore }) {
   return (
     <>
       <div className="text-foreground">{repeatLabel(chore)}</div>
-      {times.length > 1 ? (
+      {chore.repeatType === 'OnDemand' ? null : times.length > 1 ? (
         // repeatLabel collapses 3+ slots to a count, so spell every slot out here.
         <Sub>
           {times
@@ -139,7 +139,7 @@ function ScheduleCell({ chore }: { chore: Chore }) {
       ) : (
         <Sub>{chore.dueTime ? t('config.at', { time: formatDueTime(chore.dueTime) }) : t('config.noTime')}</Sub>
       )}
-      <Sub>{t('config.starts', { date: formatDate(chore.startDate) })}</Sub>
+      {chore.repeatType !== 'OnDemand' && <Sub>{t('config.starts', { date: formatDate(chore.startDate) })}</Sub>}
     </>
   )
 }
@@ -182,7 +182,7 @@ function AssignmentCell({ chore }: { chore: Chore }) {
 }
 
 function CompletionCell({ chore }: { chore: Chore }) {
-  const recurring = chore.repeatType !== 'OneTime'
+  const recurring = chore.repeatType !== 'OneTime' && chore.repeatType !== 'OnDemand'
   return (
     <>
       <div className="text-foreground">

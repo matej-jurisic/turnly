@@ -33,6 +33,11 @@ export const emptyFilters: ChoreFilterState = {
   tags: [], assignees: [], includeNext: false, due: [], repeat: [],
 }
 
+/** The "Mine" quick view: chores the member currently holds. Also the page's default on open. */
+export function mineFilters(userId: string): ChoreFilterState {
+  return { ...emptyFilters, assignees: [userId] }
+}
+
 /** Number of active filter values (the "includeNext" modifier isn't counted on its own). */
 export function filterCount(f: ChoreFilterState): number {
   return f.tags.length + f.assignees.length + f.due.length + f.repeat.length
@@ -108,11 +113,11 @@ export function ChoreFilters({
   const count = filterCount(value)
   useOutsideClose(open, ref, () => setOpen(false))
 
-  // Quick-filter presets: each applies an exact filter state (and toggles back off when active).
+  // Quick-filter presets: each applies an exact filter state.
   // "Mine"/"My turn next" only make sense with more than one member to distinguish.
   const presets: { label: string; state: ChoreFilterState }[] = []
   if (currentUserId && assignees.length > 1) {
-    presets.push({ label: t('filters.mine'), state: { ...emptyFilters, assignees: [currentUserId] } })
+    presets.push({ label: t('filters.mine'), state: mineFilters(currentUserId) })
   }
   presets.push({ label: t('due.overdue'), state: { ...emptyFilters, due: ['overdue'] } })
   presets.push({ label: t('due.today'), state: { ...emptyFilters, due: ['today'] } })
@@ -229,7 +234,8 @@ export function ChoreFilters({
   )
 }
 
-/** Round "Quick views" button + preset dropdown. Active tint when a preset is currently applied. */
+/** Quick-view select: picks a preset filter state. Shows "Custom" when the filters were hand-tuned
+ * into something no preset matches. */
 function QuickViews({
   value,
   onChange,
@@ -239,49 +245,50 @@ function QuickViews({
   onChange: (next: ChoreFilterState) => void
   presets: { label: string; state: ChoreFilterState }[]
 }) {
-  const [open, setOpen] = useState(false)
-  const ref = useRef<HTMLDivElement>(null)
-  useOutsideClose(open, ref, () => setOpen(false))
-  const activePreset = presets.find((p) => sameFilters(value, p.state))
+  const activeIndex = presets.findIndex((p) => sameFilters(value, p.state))
+  const custom = activeIndex < 0 && filterCount(value) > 0
+  const selected = activeIndex >= 0 ? String(activeIndex) : custom ? 'custom' : ''
+  const selectedLabel = activeIndex >= 0 ? presets[activeIndex].label : custom ? t('filters.custom') : t('filters.allChores')
 
   return (
-    <div ref={ref} className="relative">
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        aria-expanded={open}
+    // The native arrow can't be positioned, so it's hidden and replaced with our own chevron.
+    // A native select is as wide as its longest option, so an invisible copy of the selected label
+    // sizes the wrapper and the select fills it.
+    <div className={'relative mr-auto min-w-0 ' + (activeIndex >= 0 ? 'text-primary' : 'text-foreground')}>
+      <span aria-hidden="true" className="invisible block h-9 truncate border pl-3.5 pr-9 text-sm leading-[34px]">
+        {selectedLabel}
+      </span>
+      <select
+        value={selected}
+        onChange={(e) => {
+          const i = e.target.value
+          onChange(i === '' ? emptyFilters : presets[Number(i)].state)
+        }}
         aria-label={t('filters.quickViews')}
-        title={activePreset ? t('filters.quickView', { name: activePreset.label }) : t('filters.quickViews')}
-        className={iconButtonClass(!!activePreset)}
+        title={t('filters.quickViews')}
+        className={
+          'absolute inset-0 h-9 w-full min-w-0 appearance-none truncate rounded-full border bg-card pl-3.5 pr-9 text-sm text-inherit transition-colors focus:outline-none focus:ring-2 focus:ring-ring ' +
+          (activeIndex >= 0 ? 'border-primary' : 'border-border hover:bg-accent')
+        }
       >
-        <FunnelIcon />
-      </button>
-
-      {open && (
-        <div className="absolute right-0 top-full z-20 mt-2 w-44 max-w-[calc(100vw-2rem)] rounded-lg border border-border bg-card p-1 shadow-pop">
-          {presets.map((p) => {
-            const active = sameFilters(value, p.state)
-            return (
-              <button
-                key={p.label}
-                type="button"
-                onClick={() => {
-                  onChange(active ? emptyFilters : p.state)
-                  setOpen(false)
-                }}
-                className={
-                  'flex w-full items-center justify-between rounded-md px-2.5 py-1.5 text-left text-sm transition-colors ' +
-                  (active ? 'bg-primary/10 text-primary' : 'text-foreground hover:bg-accent')
-                }
-              >
-                {p.label}
-                {active && <CheckIcon />}
-              </button>
-            )
-          })}
-        </div>
-      )}
+        <option value="">{t('filters.allChores')}</option>
+        {presets.map((p, i) => (
+          <option key={p.label} value={String(i)}>{p.label}</option>
+        ))}
+        {custom && <option value="custom" disabled>{t('filters.custom')}</option>}
+      </select>
+      <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center opacity-70">
+        <ChevronDownIcon />
+      </span>
     </div>
+  )
+}
+
+function ChevronDownIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <polyline points="6 9 12 15 18 9" />
+    </svg>
   )
 }
 
@@ -389,14 +396,6 @@ function SlidersIcon() {
       <line x1="1" y1="14" x2="7" y2="14" />
       <line x1="9" y1="8" x2="15" y2="8" />
       <line x1="17" y1="16" x2="23" y2="16" />
-    </svg>
-  )
-}
-
-function FunnelIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
     </svg>
   )
 }

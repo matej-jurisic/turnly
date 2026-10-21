@@ -5,7 +5,7 @@ namespace Turnly.Core.Recurrence;
 /// <summary>
 /// Pure recurrence math for both the basic repeat types (Phase 2) and the custom modes plus
 /// scheduling preferences (Phase 3). Given the occurrence that was just completed it returns the
-/// next occurrence's due date — or null when nothing follows (one-time chores).
+/// next occurrence's due date — or null when nothing follows (one-time and on-demand chores).
 ///
 /// <para>A chore's "complete N times per occurrence" count is NOT handled here: it depends on how
 /// many completions exist for the current occurrence, which is database state. That gate lives in
@@ -30,7 +30,7 @@ public static class RecurrenceCalculator
     }
 
     /// <summary>The next due date after completing the <paramref name="scheduledDue"/> occurrence,
-    /// honouring the scheduling preference. Returns null for one-time chores. <paramref name="grace"/>
+    /// honouring the scheduling preference. Returns null for one-time and on-demand chores. <paramref name="grace"/>
     /// only applies to <see cref="SchedulingPreference.SmartScheduling"/>.</summary>
     public static DateTimeOffset? NextDue(
         RecurrenceRule rule,
@@ -40,7 +40,7 @@ public static class RecurrenceCalculator
         DateTimeOffset now,
         TimeSpan? grace = null)
     {
-        if (rule.Type == RepeatType.OneTime)
+        if (rule.Type is RepeatType.OneTime or RepeatType.OnDemand)
             return null;
 
         if (pref == SchedulingPreference.SmartScheduling)

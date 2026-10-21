@@ -35,8 +35,7 @@ export function OfferBoard({ chores, meId, onSelect }: { chores: Chore[]; meId?:
   const claimable = chores.filter((c) => {
     const offer = c.openOffer
     if (!offer || !meId || offer.fromUser.id === meId) return false
-    // Targeted offers are for their recipient only; open ones for any other assignee.
-    return offer.toUser ? offer.toUser.id === meId : c.assignees.some((u) => u.id === meId)
+    return c.assignees.some((u) => u.id === meId)
   })
 
   if (claimable.length === 0) return null
@@ -58,7 +57,7 @@ export function OfferBoard({ chores, meId, onSelect }: { chores: Chore[]; meId?:
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-sm text-foreground">{chore.name}</span>
                   <span className="block truncate text-xs text-muted-foreground">
-                    {t(offer.toUser ? 'board.fromForYou' : 'board.from', { name: offer.fromUser.displayName })}
+                    {t('board.from', { name: offer.fromUser.displayName })}
                   </span>
                 </span>
               </button>

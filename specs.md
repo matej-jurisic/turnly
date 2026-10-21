@@ -25,15 +25,16 @@
 - **Assignees** — list of users eligible to be assigned this chore; must include at least one user
 - **Current assignee** — the specific user currently assigned to this chore instance; must be selected from the assignees list on creation (a `Manual` chore may instead be left unassigned)
 - **Reassign occurrence** — the current assignee for a single occurrence can be manually overridden (e.g. "you take today's") without changing the chore's assignment strategy; the override applies only to the current occurrence and the strategy resumes on the next recurrence. Reassigning directly is **admin-only** and takes effect immediately.
-- **Offer a chore** — anyone holding a chore can put its current occurrence up for someone else to take, optionally attaching a **points bounty**. An offer is either **open** (every other assignee is notified, first to claim it gets it) or **targeted** at one person, who can claim or decline. The chore does not move until someone claims it. Offers you can take appear in an "Up for grabs" band at the top of the chore list, on every screen size. A chore with a live offer carries a badge naming who it is waiting on ("To Alice", "To you", or "Up for grabs") with its bounty, so the offerer can see where the chore went.
-    - The bounty is deducted from the offerer when the offer is made and paid to whoever claims it, so a payout can never bounce. It is refunded in full if the offer is declined, withdrawn, superseded by a newer offer, or if the occurrence goes away (the offerer completes or skips it, an admin reassigns, freeze rotation moves it, or it auto-advances unclaimed).
+- **Offer a chore** — anyone holding a chore can put its current occurrence up for grabs, optionally attaching a **points bounty**. There is no recipient to pick: every other assignee is notified and the first to claim it gets it. The chore does not move until someone claims it. Offers you can take appear in an "Up for grabs" band at the top of the chore list, on every screen size. A chore with a live offer carries an "Up for grabs" badge with its bounty in the chore list, for everyone including the offerer.
+    - The bounty is deducted from the offerer when the offer is made and paid to whoever claims it, so a payout can never bounce. It is refunded in full if the offer is withdrawn, superseded by a newer offer, or if the occurrence goes away (the offerer completes or skips it, an admin reassigns, freeze rotation moves it, or it auto-advances unclaimed).
     - A bounty can't exceed the offerer's balance. Bounties are transfers between members, so they don't count toward lifetime-points achievements.
     - Only one live offer exists per chore at a time (a newer offer supersedes the older). The offerer, or an admin, can withdraw one.
 - **Pairs** — for a job two people have to do together, an admin can set fixed pairs on the chore (e.g. Ana & Ben, Cy & Dee). Optional, set in the chore form from the chore's assignees.
-    - A pair is one unit: it holds the turn together and the assignment strategy rotates between whole pairs, so partners never mix. Assignees left out of every pair still take their turn alone, and a person can only be in one pair per chore.
-    - Either partner marks it done and the occurrence closes for both: each gets the chore's full points, and the completion counts toward both partners' stats, streaks and achievements. Either of them (or an admin) can undo it, which takes the points back from both.
+    - A pair is one unit: it holds the turn together and the assignment strategy rotates between whole pairs. Assignees left out of every pair still take their turn alone.
+    - Pairs can overlap: one person can be in several (Ana & Ben, Ana & Cy, Ben & Cy), and each pair is its own turn in the rotation, so someone in three pairs comes up three times per round. The only rule is that the same pair isn't listed twice. Where the chore form or the admin's Reassign dialog picks who holds the chore, it lists each pair separately.
+    - Either partner marks it done and the occurrence closes for both: each gets the chore's full points, and the completion counts toward both partners' stats, streaks and achievements. Either of them (or an admin) can undo it, which takes the points back from both. The credit goes to the pair holding the turn, not to the completer's other pairs. Someone outside the holding pair who completes it brings their own partner only if they have exactly one pair; otherwise they are credited alone.
     - Both partners get the chore's notifications, and both names show wherever the current assignee does. A missed (auto-expired) occurrence counts as missed for both.
-    - A frozen partner is treated as away: the other carries the turn alone and is the only one credited. Freezing the person nominally holding the chore leaves it with their partner rather than rotating it away.
+    - A frozen partner is treated as away: the other carries the turn alone and is the only one credited. Freezing the person nominally holding the chore leaves it with their partner rather than rotating it away. While someone is frozen their pairs drop out of the rotation; a partner left with no other pair takes turns alone.
     - Paired chores can't be offered (one partner can't hand over a joint turn, and a claim would commit the claimer's partner); an admin can still reassign one to another pair. Not available on `Everyone (independent)` chores, which have no shared turn.
 - **Assignment strategy** — determines how the next assignee is picked on each recurrence:
     - `Random` — pick any assignee at random
@@ -76,6 +77,11 @@
 
 - **Repeat types:**
     - One-time
+    - On demand — no schedule and no due date: the chore can be completed whenever it's needed, as
+      often as needed. Every completion awards points and counts as a turn, so a rotating chore hands
+      over after each one. No start date, due time, completion count, scheduling preference,
+      auto-advance or reminders; it can't be skipped, rescheduled or use per-person scheduling. Listed
+      under its own "Anytime" section on the chores page
     - Daily
     - Weekly
     - Monthly
@@ -147,6 +153,7 @@ Per-chore notification schedule — a list of notification entries, each with:
 - Points are per-user, accumulated over time
 - **Points log** — each user has a full history of point changes: earnings (per completion), deductions (per redemption), and **manual admin adjustments**
 - **Manual point adjustment** — an admin can grant or deduct points from any user with an optional reason; the change is recorded in that user's points log
+- **Rescue** - when someone other than the person (or pair) holding a chore completes it after it went overdue, the completion is a rescue: it counts as late for nobody (neither the rescuer's nor the holder's late count), and history shows it as "rescue" instead of "on time" or "late". The rescuer still gets the points and the completion count. Does not apply to `Everyone (independent)` chores, where nobody can do another person's share. The chore's on-time streak still resets, since the occurrence itself was not done on time.
 - **On-time streak** — each chore tracks how many of its most recent occurrences were completed on or before the due date; a late completion, a skip, or a missed (expired) occurrence resets the streak to 0. For `Everyone (independent)` chores the streak is tracked per assignee.
 
 ---
@@ -234,8 +241,8 @@ receives, and an admin cannot set them on someone's behalf.
     - **Inbox** — record it in your inbox without buzzing your devices
     - **Off** — don't send it at all (no push, no inbox row)
   The categories are: **chore reminders** (nudges before the due time), **chore due** (at the due
-  time), **overdue chases** (follow-ups after the due time), **offers to you** (someone offers you a
-  chore or puts one up for grabs), **replies to your offers** (someone claims or declines a chore you
+  time), **overdue chases** (follow-ups after the due time), **chores up for grabs** (someone puts a chore
+  up for grabs), **replies to your offers** (someone claims a chore you
   offered), and **app messages** (test pushes and account notices - always delivered, so a test push
   can never be silently swallowed).
 - **Mute a chore** — silence one specific chore from its menu, rather than a whole category. A mute is
@@ -302,8 +309,8 @@ receives, and an admin cannot set them on someone's behalf.
 ## History & Stats
 
 - Completion log: chore, completed by, timestamp — filterable by tag, assignee, and chore
-- Per-user completion count (weekly / monthly / all time)
-- Per-chore completion history
+- Per-user completion count (weekly / monthly / all time), with that period's on-time / late / rescue / missed breakdown (on time + late + rescues adds up to the count)
+- Per-chore completion history: each entry shows when it happened and which occurrence it was for (due date, the slot time on timed chores, and the slot label when it has one)
 - Simple bar chart: completions per user per week
 
 ---
@@ -322,6 +329,8 @@ receives, and an admin cannot set them on someone's behalf.
 - Installable on iOS and Android via browser
 - Works offline (read-only, queues completions for sync)
 - App-like experience: no browser chrome, splash screen, home screen icon
+- **Update banner** - after a redeploy, a tab still running the old version shows a small banner
+  above the top bar with a Reload button (dismissable for the session)
 
 ## Standalone Android app
 
@@ -336,6 +345,8 @@ receives, and an admin cannot set them on someone's behalf.
 - **Native push** via Firebase Cloud Messaging - reminders arrive as system notifications and deep-link
   the chore on tap (the same schedule as Web Push). Optional: the app and server run fine without
   Firebase (push disabled, in-app inbox still works)
+- **Update banner** - when the server has a newer APK published than the installed one, the app shows
+  a small banner with a Download link (served by the Turnly server from `Releases:Path`)
 
 ---
 
@@ -348,6 +359,13 @@ receives, and an admin cannot set them on someone's behalf.
 - **Family timezone** — an admin sets the instance's timezone (IANA or Windows id) in settings; it is
   used to evaluate per-user quiet hours against local wall-clock time. Falls back to the server's host
   zone when unset.
+- **Day start** — an admin sets when the household's day rolls over (midnight by default, up to
+  12:00). A chore with no due time stays "due today" until then instead of going overdue at 00:00:
+  with a 05:00 day start, Monday's chore done at 01:00 on Tuesday is still on time, keeps the on-time
+  streak, schedules its next occurrence as if done on Monday, and auto-advance waits until 05:00 (plus
+  the chore's completion window) before marking it missed. Chores with a due time are unaffected: they
+  go overdue the moment that time passes. The "today" and "upcoming" groupings follow the same day.
+  Reminders still fire relative to the stored due time.
 
 ---
 

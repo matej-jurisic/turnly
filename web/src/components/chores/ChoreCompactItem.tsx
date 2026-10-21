@@ -1,8 +1,8 @@
 import type { Chore } from '@/lib/types'
 import { Badge } from '@/components/ui/Badge'
 import {
-  choreHasDueTime, dueStatus, formatDueDate, isIndependent, nextDueTimeLabel,
-  offerBadgeText, offerSentence, showStreak, pairLabel,
+  canComplete, choreHasDueTime, dueStatus, formatDueDate, isIndependent, isOnDemand, nextDueTimeLabel,
+  offerSentence, showStreak, pairLabel,
 } from '@/lib/chore-format'
 import { BellOffIcon, CheckIcon, ReassignIcon } from '@/components/chores/icons'
 import { t } from '@/lib/i18n'
@@ -53,7 +53,7 @@ function assigneeLabel(chore: Chore): string {
  * below. Same actions as `ChoreListItem`, less chrome. */
 export function ChoreCompactItem(props: ChoreItemProps) {
   const { chore, meId, onComplete, onDetails } = props
-  const canComplete = Boolean(chore.dueAt) && !chore.isFrozen
+  const completable = canComplete(chore)
   const status = dueStatus(chore.dueAt, choreHasDueTime(chore))
   const assignee = assigneeLabel(chore)
   const offer = chore.openOffer
@@ -64,7 +64,7 @@ export function ChoreCompactItem(props: ChoreItemProps) {
       <button
         type="button"
         onClick={onComplete}
-        disabled={!canComplete}
+        disabled={!completable}
         aria-label={t('chore.markComplete')}
         className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-30"
       >
@@ -99,7 +99,7 @@ export function ChoreCompactItem(props: ChoreItemProps) {
           {offer && (
             <Badge tone="amber" className="min-w-0 gap-1" title={offerLabel} aria-label={offerLabel}>
               <ReassignIcon />
-              <span className="truncate">{offerBadgeText(offer, meId)}</span>
+              <span className="truncate">{t('offer.upForGrabs')}</span>
               {offer.bountyPoints > 0 && <span className="shrink-0">+{offer.bountyPoints}</span>}
             </Badge>
           )}
@@ -107,8 +107,10 @@ export function ChoreCompactItem(props: ChoreItemProps) {
             <Badge tone="neutral" className="ml-auto shrink-0">{t('chores.paused')}</Badge>
           ) : chore.dueAt ? (
             <Badge tone={DUE_TONE[status]} className="ml-auto shrink-0">
-              {formatDueDate(chore.dueAt)}{nextDueTimeLabel(chore) && ` · ${nextDueTimeLabel(chore)}`}
+              {t('chores.dueDate', { date: formatDueDate(chore.dueAt) })}{nextDueTimeLabel(chore) && ` · ${nextDueTimeLabel(chore)}`}
             </Badge>
+          ) : isOnDemand(chore) ? (
+            <Badge tone="neutral" className="ml-auto shrink-0">{t('repeat.OnDemand')}</Badge>
           ) : null}
         </div>
       </button>

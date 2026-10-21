@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { Fragment, useLayoutEffect, useRef, useState } from 'react'
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ApiError, choresApi, historyApi, tagsApi, usersApi } from '@/lib/api'
 import { toast } from '@/lib/toast'
@@ -11,7 +11,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { Avatar } from '@/components/ui/Modal'
 import { TrashIcon } from '@/components/chores/icons'
 import { cn } from '@/lib/utils'
-import { formatDateTime, pairLabel, relativeTimeLabel } from '@/lib/chore-format'
+import { beatDeadline, choreHasDueTime, dueStatus, formatDateTime, pairLabel, relativeTimeLabel, timelinessClass, timelinessLabel } from '@/lib/chore-format'
 import { locale, localized, plural, t } from '@/lib/i18n'
 
 interface Segment {
@@ -91,16 +91,13 @@ export function HistoryPage() {
   const assigneeSegments = [...assigneeMap.values()].sort((a, b) => b.count - a.count)
 
   // Donut chart 3: active task status breakdown
-  const now = new Date()
-  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate())
-  const tomorrowStart = new Date(todayStart.getTime() + 86_400_000)
   let overdueTasks = 0, todayTasks = 0, upcomingTasks = 0, pausedTasks = 0
   for (const chore of chores) {
     if (chore.isFrozen) { pausedTasks++; continue }
     if (!chore.dueAt) continue
-    const due = new Date(chore.dueAt)
-    if (due < todayStart) overdueTasks++
-    else if (due < tomorrowStart) todayTasks++
+    const status = dueStatus(chore.dueAt)
+    if (status === 'overdue') overdueTasks++
+    else if (status === 'today') todayTasks++
     else upcomingTasks++
   }
 
@@ -196,9 +193,27 @@ export function HistoryPage() {
             <ul className="divide-y divide-border">
               {history.map((entry) => {
                 const subject = entry.actor ?? entry.toAssignee ?? entry.fromAssignee
+                const entryChore = chores.find((c) => c.id === entry.choreId)
                 const onTime = entry.occurrenceDueAt
-                  ? new Date(entry.at) <= new Date(entry.occurrenceDueAt)
+                  ? beatDeadline(entry.at, entry.occurrenceDueAt, !!entryChore && choreHasDueTime(entryChore))
                   : null
+                // Rendered twice: beside the time on phones (so the detail row keeps the full width),
+                // as its own trailing column from `sm` up.
+                const deleteButton = (className: string) =>
+                  isAdmin && entry.kind !== 'reassignment' && (
+                    <button
+                      type="button"
+                      onClick={() => onDeleteEntry(entry)}
+                      disabled={deleteMutation.isPending}
+                      aria-label={t('activity.deleteEntry')}
+                      className={cn(
+                        'h-7 w-7 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50',
+                        className,
+                      )}
+                    >
+                      <TrashIcon />
+                    </button>
+                  )
                 return (
                   <li key={entry.id} className="flex items-start gap-3 px-5 py-3">
                     <Avatar
@@ -209,7 +224,7 @@ export function HistoryPage() {
                       emoji={subject?.avatarEmoji}
                     />
                     <div className="min-w-0 flex-1">
-                      {/* Phones: name + time on one row, then the pill and every detail on one wrapping row. */}
+                      {/* Phones: name + time + delete on one row, then the pill and who did it on a full-width row. */}
                       <div className="flex items-center gap-x-2 gap-y-1 sm:flex-wrap">
                         <span className="min-w-0 flex-1 truncate text-sm font-medium text-foreground sm:flex-none sm:whitespace-normal">
                           {entry.choreName}
@@ -221,6 +236,7 @@ export function HistoryPage() {
                         >
                           {relativeTimeLabel(entry.at)}
                         </time>
+                        {deleteButton('-my-1 -mr-1.5 inline-flex sm:hidden')}
                         <Badge tone={ACTIVITY_BADGE[entry.kind].tone} className="hidden sm:inline-flex">
                           {ACTIVITY_BADGE[entry.kind].label}
                         </Badge>
@@ -230,15 +246,19 @@ export function HistoryPage() {
                           {ACTIVITY_BADGE[entry.kind].label}
                         </Badge>
                         <span>{activityDetail(entry)}</span>
-                        {onTime !== null && (
-                          <span className={cn('sm:hidden', onTime ? 'text-success' : 'text-destructive')}>
-                            · {onTime ? t('history.onTimeLower') : t('history.lateLower')}
-                          </span>
-                        )}
-                        {entry.pointsAwarded > 0 && (
-                          <span className="text-success sm:hidden">· {t('common.ptsPlus', { count: entry.pointsAwarded })}</span>
-                        )}
                       </div>
+                      {/* Phones: status and points always get their own row, so they never land wherever the wrap puts them. */}
+                      {(onTime !== null || entry.pointsAwarded > 0) && (
+                        <div className="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-xs text-muted-foreground sm:hidden">
+                          {onTime !== null && (
+                            <span className={timelinessClass(entry, onTime)}>{timelinessLabel(entry, onTime)}</span>
+                          )}
+                          {onTime !== null && entry.pointsAwarded > 0 && <span aria-hidden>·</span>}
+                          {entry.pointsAwarded > 0 && (
+                            <span className="text-success">{t('common.ptsPlus', { count: entry.pointsAwarded })}</span>
+                          )}
+                        </div>
+                      )}
                       {entry.notes && (
                         <p className="mt-0.5 text-xs italic text-muted-foreground">{entry.notes}</p>
                       )}
@@ -253,8 +273,8 @@ export function HistoryPage() {
                       </time>
                       <div className="flex items-center gap-2">
                         {onTime !== null && (
-                          <span className={cn(onTime ? 'text-success' : 'text-destructive')}>
-                            {onTime ? t('history.onTimeLower') : t('history.lateLower')}
+                          <span className={timelinessClass(entry, onTime)}>
+                            {timelinessLabel(entry, onTime)}
                           </span>
                         )}
                         {entry.pointsAwarded > 0 && (
@@ -262,17 +282,7 @@ export function HistoryPage() {
                         )}
                       </div>
                     </div>
-                    {isAdmin && entry.kind !== 'reassignment' && (
-                      <button
-                        type="button"
-                        onClick={() => onDeleteEntry(entry)}
-                        disabled={deleteMutation.isPending}
-                        aria-label={t('activity.deleteEntry')}
-                        className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
-                      >
-                        <TrashIcon />
-                      </button>
-                    )}
+                    {deleteButton('hidden sm:inline-flex')}
                   </li>
                 )
               })}
@@ -351,12 +361,22 @@ function DonutChart({ title, segments }: { title: string; segments: Segment[] })
   )
 }
 
-function CompletionChart({ chart }: { chart: ChartWeek[] }) {
+function CompletionChart({ chart: allWeeks }: { chart: ChartWeek[] }) {
+  // Weeks before the first completion are just padding that pushes the data off-screen.
+  const firstActive = allWeeks.findIndex((w) => w.userCounts.some((u) => u.count > 0))
+  const chart = firstActive < 0 ? [] : allWeeks.slice(firstActive)
   const maxCount = Math.max(
     1,
     ...chart.flatMap((w) => w.userCounts.map((u) => u.count)),
   )
-  const hasAnyData = chart.some((w) => w.userCounts.some((u) => u.count > 0))
+  const hasAnyData = chart.length > 0
+
+  // Open on the newest week when the chart is wider than the card.
+  const scrollRef = useRef<HTMLDivElement>(null)
+  useLayoutEffect(() => {
+    const el = scrollRef.current
+    if (el) el.scrollLeft = el.scrollWidth
+  }, [chart.length])
 
   return (
     <Card>
@@ -367,7 +387,7 @@ function CompletionChart({ chart }: { chart: ChartWeek[] }) {
         {!hasAnyData ? (
           <p className="text-sm text-muted-foreground">{t('history.noCompletions')}</p>
         ) : (
-          <div className="overflow-x-auto">
+          <div ref={scrollRef} className="overflow-x-auto">
             <div className="flex min-w-max items-end gap-4 pb-2 pt-2">
               {chart.map((week) => (
                 <div key={week.weekStart} className="flex flex-col items-center gap-1">
@@ -450,20 +470,32 @@ function UserStatsTable({ userStats }: { userStats: UserStats[] }) {
                 period === 'weekly' ? u.weeklyCount
                 : period === 'monthly' ? u.monthlyCount
                 : u.allTimeCount
+              const counts =
+                period === 'weekly' ? u.weeklyTimeliness
+                : period === 'monthly' ? u.monthlyTimeliness
+                : { onTime: u.onTimeCount, overdue: u.overdueCount, rescue: u.rescueCount, missed: u.missedCount }
+              const timeliness = [
+                { key: 'onTime', n: counts.onTime, className: 'text-success', label: t('history.nOnTime', { count: counts.onTime }) },
+                { key: 'late', n: counts.overdue, className: 'text-destructive', label: t('history.nLate', { count: counts.overdue }) },
+                { key: 'rescue', n: counts.rescue, className: 'text-info', label: plural('history.nRescue', counts.rescue) },
+                { key: 'missed', n: counts.missed, className: 'text-warning', label: t('history.nMissed', { count: counts.missed }) },
+              ].filter((part) => part.n > 0)
               return (
                 <li key={u.userId} className="flex items-center gap-3 py-2.5">
-                  <span className="w-5 text-center text-xs text-muted-foreground">{index + 1}</span>
                   <Avatar color={u.avatarColor} name={u.displayName} size={28} frame={u.equippedFrameKey} emoji={u.avatarEmoji} />
-                  <span className="flex-1 text-sm text-foreground">{u.displayName}</span>
-                  <div className="flex items-center gap-3 text-xs text-muted-foreground">
-                    {(u.onTimeCount + u.overdueCount + u.missedCount > 0) && (
-                      <span title={t('history.statsTitle')} className="flex items-center gap-1">
-                        {u.onTimeCount > 0 && <span className="text-success">{t('history.nOnTime', { count: u.onTimeCount })}</span>}
-                        {u.onTimeCount > 0 && u.overdueCount > 0 && <span>·</span>}
-                        {u.overdueCount > 0 && <span className="text-destructive">{t('history.nLate', { count: u.overdueCount })}</span>}
-                        {u.missedCount > 0 && (u.onTimeCount > 0 || u.overdueCount > 0) && <span>·</span>}
-                        {u.missedCount > 0 && <span className="text-warning">{t('history.nMissed', { count: u.missedCount })}</span>}
-                      </span>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm text-foreground">
+                      <span className="text-muted-foreground">{index + 1}.</span> {u.displayName}
+                    </p>
+                    {timeliness.length > 0 && (
+                      <p title={t('history.statsTitle')} className="flex flex-wrap items-center gap-x-1 text-xs text-muted-foreground">
+                        {timeliness.map((part, i) => (
+                          <Fragment key={part.key}>
+                            {i > 0 && <span aria-hidden>·</span>}
+                            <span className={cn('whitespace-nowrap', part.className)}>{part.label}</span>
+                          </Fragment>
+                        ))}
+                      </p>
                     )}
                   </div>
                   <span className="w-6 text-right text-sm font-medium text-foreground">{count}</span>

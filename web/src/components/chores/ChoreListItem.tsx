@@ -1,11 +1,10 @@
-import { useState } from 'react'
-import type { Chore, User } from '@/lib/types'
+import type { Chore } from '@/lib/types'
 import { Badge } from '@/components/ui/Badge'
 import { Card } from '@/components/ui/Card'
-import { Avatar, Modal } from '@/components/ui/Modal'
+import { Avatar } from '@/components/ui/Modal'
 import {
-  compactRepeatLabel, completionProgressLabel, formatDueDate, isIndependent, nextDueTimeLabel,
-  offerBadgeText, offerSentence, repeatLabel, showStreak, trackIsDone, trackStatusText, pairLabel,
+  canComplete, compactRepeatLabel, completionProgressLabel, formatDueDate, isIndependent, nextDueTimeLabel,
+  offerSentence, repeatLabel, showStreak, trackIsDone, trackStatusText, pairLabel,
 } from '@/lib/chore-format'
 import { BellOffIcon, CheckIcon, ReassignIcon } from '@/components/chores/icons'
 import { ChoreMenu } from '@/components/chores/ChoreMenu'
@@ -57,12 +56,7 @@ export function ChoreListItem({
   onFreeze?: () => void
   onUnfreeze?: () => void
 }) {
-  const canComplete = Boolean(chore.dueAt) && !chore.isFrozen
-  // Paired chores drop the names on phones (two names crowd the row), so the avatars open a dialog
-  // that spells them out.
-  const isPaired = Boolean(chore.currentPartner || chore.nextPartner)
-  const [showHolders, setShowHolders] = useState(false)
-  const HolderGroup = isPaired ? 'button' : 'div'
+  const completable = canComplete(chore)
   return (
     <div className="relative">
       <div className="absolute left-4 right-4 top-0 z-10 flex -translate-y-1/2 items-center gap-2">
@@ -70,7 +64,7 @@ export function ChoreListItem({
           <Badge tone="neutral" className="shrink-0 border border-border bg-card">{t('chores.paused')}</Badge>
         ) : chore.dueAt ? (
           <Badge tone="violet" className="shrink-0 border border-primary bg-card">
-            {formatDueDate(chore.dueAt)}{nextDueTimeLabel(chore) && ` · ${nextDueTimeLabel(chore)}`}
+            {t('chores.dueDate', { date: formatDueDate(chore.dueAt) })}{nextDueTimeLabel(chore) && ` · ${nextDueTimeLabel(chore)}`}
           </Badge>
         ) : null}
         {chore.completionsRequired > 1 ? (
@@ -83,7 +77,7 @@ export function ChoreListItem({
           </Badge>
         )}
       </div>
-      <SwipeRow onSwipeRight={canComplete ? onComplete : undefined} onSwipeLeft={onDetails}>
+      <SwipeRow onSwipeRight={completable ? onComplete : undefined} onSwipeLeft={onDetails}>
         <Card className="min-w-0 p-4">
           <div className="space-y-2">
             <div className="flex justify-between gap-3">
@@ -105,7 +99,7 @@ export function ChoreListItem({
                 <button
                   type="button"
                   onClick={onComplete}
-                  disabled={!canComplete}
+                  disabled={!completable}
                   aria-label={t('chore.markComplete')}
                   className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-primary text-primary-foreground transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-30"
                 >
@@ -148,7 +142,7 @@ export function ChoreListItem({
                   return (
                     <Badge tone="amber" className="max-w-full gap-1" title={label} aria-label={label}>
                       <ReassignIcon />
-                      <span className="truncate">{offerBadgeText(offer, meId)}</span>
+                      <span className="truncate">{t('offer.upForGrabs')}</span>
                       {offer.bountyPoints > 0 && <span className="shrink-0">+{offer.bountyPoints}</span>}
                     </Badge>
                   )
@@ -185,69 +179,22 @@ export function ChoreListItem({
               ) : !chore.currentAssignee ? (
                 <Badge tone="amber">{t('chore.unassigned')}</Badge>
               ) : (
-                <HolderGroup
-                  {...(isPaired && {
-                    type: 'button' as const,
-                    onClick: () => setShowHolders(true),
-                    'aria-label': t('chore.assignedTo', { name: pairLabel(chore.currentAssignee, chore.currentPartner) }),
-                  })}
-                  className={`flex shrink-0 items-center gap-2 ${isPaired ? 'rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring' : ''}`}
-                >
-                  <span className={`text-sm text-muted-foreground ${chore.currentPartner ? 'hidden sm:inline' : ''}`}>
+                <div className="flex min-w-0 items-center gap-2">
+                  <span className="min-w-0 truncate text-sm text-muted-foreground">
                     {pairLabel(chore.currentAssignee, chore.currentPartner)}
                   </span>
-                  <span className="flex gap-1">
+                  <span className="flex shrink-0 gap-1">
                     <Avatar color={chore.currentAssignee.avatarColor} name={chore.currentAssignee.displayName} size={24} frame={chore.currentAssignee.equippedFrameKey} emoji={chore.currentAssignee.avatarEmoji} />
                     {chore.currentPartner && (
                       <Avatar color={chore.currentPartner.avatarColor} name={chore.currentPartner.displayName} size={24} frame={chore.currentPartner.equippedFrameKey} emoji={chore.currentPartner.avatarEmoji} />
                     )}
                   </span>
-                  {chore.nextAssignee && (
-                    <span
-                      className="flex items-center gap-1 text-muted-foreground"
-                      title={t('chore.nextName', { name: pairLabel(chore.nextAssignee, chore.nextPartner) })}
-                    >
-                      <span aria-hidden="true">→</span>
-                      <span className="flex gap-1">
-                        <Avatar color={chore.nextAssignee.avatarColor} name={chore.nextAssignee.displayName} size={20} frame={chore.nextAssignee.equippedFrameKey} emoji={chore.nextAssignee.avatarEmoji} />
-                        {chore.nextPartner && (
-                          <Avatar color={chore.nextPartner.avatarColor} name={chore.nextPartner.displayName} size={20} frame={chore.nextPartner.equippedFrameKey} emoji={chore.nextPartner.avatarEmoji} />
-                        )}
-                      </span>
-                      <span className="sr-only">{t('chore.nextName', { name: pairLabel(chore.nextAssignee, chore.nextPartner) })}</span>
-                    </span>
-                  )}
-                </HolderGroup>
+                </div>
               )}
             </div>
           </div>
         </Card>
       </SwipeRow>
-      {showHolders && chore.currentAssignee && (
-        <Modal title={chore.name} onClose={() => setShowHolders(false)} widthClassName="max-w-xs">
-          <div className="space-y-4">
-            <HolderList label={t('chore.now')} users={[chore.currentAssignee, chore.currentPartner]} />
-            {chore.nextAssignee && <HolderList label={t('chore.next')} users={[chore.nextAssignee, chore.nextPartner]} />}
-          </div>
-        </Modal>
-      )}
-    </div>
-  )
-}
-
-/** One labelled group of people (the current pair, or the next one) with their full names. */
-function HolderList({ label, users }: { label: string; users: (User | null | undefined)[] }) {
-  return (
-    <div>
-      <p className="mb-1.5 text-xs font-medium text-muted-foreground">{label}</p>
-      <ul className="space-y-2">
-        {users.filter((u): u is User => Boolean(u)).map((u) => (
-          <li key={u.id} className="flex items-center gap-2.5 text-sm">
-            <Avatar color={u.avatarColor} name={u.displayName} size={28} frame={u.equippedFrameKey} emoji={u.avatarEmoji} />
-            {u.displayName}
-          </li>
-        ))}
-      </ul>
     </div>
   )
 }

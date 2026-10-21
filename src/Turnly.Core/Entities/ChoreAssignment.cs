@@ -14,6 +14,10 @@ public class ChoreAssignment
     public Guid UserId { get; set; }
     public User? User { get; set; }
 
+    /// <summary>On a paired chore, who took the turn together with <see cref="UserId"/>; null when
+    /// they took it alone (and on rows written before pairs could overlap). A plain id, not a navigation.</summary>
+    public Guid? PartnerUserId { get; set; }
+
     public DateTimeOffset AssignedAt { get; set; } = DateTimeOffset.UtcNow;
 
     /// <summary>The completion whose rotation produced this assignment, if any; null for the

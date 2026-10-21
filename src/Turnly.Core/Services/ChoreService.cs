@@ -42,10 +42,11 @@ public class ChoreService
         var pendingByChore = await OpenOffersByChoreAsync(ids, ct);
         var now = DateTimeOffset.UtcNow;
         var mutedByChore = await MutesByChoreAsync(ids, viewerId, now, ct);
+        var dayStart = await AppSettingsService.ReadDayStartAsync(_db, ct);
 
         return chores
             .Select(c => ToDto(c, completionsByChore.GetValueOrDefault(c.Id),
-                assignmentsByChore.GetValueOrDefault(c.Id, []), now, viewerId,
+                assignmentsByChore.GetValueOrDefault(c.Id, []), now, dayStart, viewerId,
                 pendingByChore.GetValueOrDefault(c.Id), mutedByChore.GetValueOrDefault(c.Id)))
             .ToList();
     }
@@ -62,7 +63,7 @@ public class ChoreService
         var now = DateTimeOffset.UtcNow;
         var mutedByChore = await MutesByChoreAsync([id], viewerId, now, ct);
         return Result.Success(ToDto(chore, completionsByChore.GetValueOrDefault(id),
-            assignmentsByChore.GetValueOrDefault(id, []), now, viewerId,
+            assignmentsByChore.GetValueOrDefault(id, []), now, await LateGraceAsync(chore, ct), viewerId,
             pendingByChore.GetValueOrDefault(id), mutedByChore.GetValueOrDefault(id)));
     }
 
@@ -75,7 +76,7 @@ public class ChoreService
         var chore = new Chore { Name = req.Name.Trim(), StartDate = req.StartDate };
         Apply(chore, req, validation.Value!);
         chore.Tags = await _tags.ResolveAsync(req.TagNames, ct);
-        chore.DueAt = RecurrenceCalculator.FirstOccurrence(RecurrenceRule.FromChore(chore), req.StartDate);
+        chore.DueAt = InitialDue(chore);
 
         _db.Chores.Add(chore);
         if (IsIndependent(chore))
@@ -88,7 +89,7 @@ public class ChoreService
         {
             // Record the initial assignment so Least-Assigned counts and undo work from the start.
             // (A Manual chore may be created unassigned, in which case there's nothing to record.)
-            _db.ChoreAssignments.Add(new ChoreAssignment { ChoreId = chore.Id, UserId = initialAssignee });
+            _db.ChoreAssignments.Add(new ChoreAssignment { ChoreId = chore.Id, UserId = initialAssignee, PartnerUserId = chore.CurrentPartnerId });
         }
         await _db.SaveChangesAsync(ct);
 
@@ -118,7 +119,8 @@ public class ChoreService
             src.TimesOfDay.Select(t => t.ToString("HH\\:mm")).ToArray(),
             src.RotationPeriod,
             src.TimeLabels.ToDictionary(p => p.Key.ToString("HH\\:mm"), p => p.Value),
-            src.Pairs.Select(p => new[] { p.First, p.Second }).ToArray());
+            src.Pairs.Select(p => new[] { p.First, p.Second }).ToArray(),
+            src.HeldPartnerId());
 
         return await CreateAsync(req, ct);
     }
@@ -139,6 +141,7 @@ public class ChoreService
             return Result.Fail<ChoreDto>(Error.NotFound("Chore not found."));
 
         var previousAssignee = chore.CurrentAssigneeId;
+        var previousPartner = chore.HeldPartnerId();
         var oldStartDate = chore.StartDate;
         var oldRule = RecurrenceRule.FromChore(chore);
 
@@ -161,12 +164,14 @@ public class ChoreService
             // Only recompute DueAt when the schedule itself changed; editing name/points/assignees/tags
             // must not silently reset a due date that has already been advanced by completions.
             if (scheduleChanged)
-                chore.DueAt = RecurrenceCalculator.FirstOccurrence(RecurrenceRule.FromChore(chore), req.StartDate);
+                chore.DueAt = InitialDue(chore);
 
             // Reassigning via edit is itself an assignment event (keeps Least-Assigned honest).
             // Clearing the assignee (Manual only) isn't an assignment, so it logs nothing.
-            if (chore.CurrentAssigneeId != previousAssignee && chore.CurrentAssigneeId is { } editedAssignee)
-                _db.ChoreAssignments.Add(new ChoreAssignment { ChoreId = chore.Id, UserId = editedAssignee });
+            // So is handing it to another of the same person's pairs.
+            if ((chore.CurrentAssigneeId != previousAssignee || chore.CurrentPartnerId != previousPartner)
+                && chore.CurrentAssigneeId is { } editedAssignee)
+                _db.ChoreAssignments.Add(new ChoreAssignment { ChoreId = chore.Id, UserId = editedAssignee, PartnerUserId = chore.CurrentPartnerId });
 
             // Paired chores can't be offered, so an offer made before the pairs were set is refunded
             // rather than left for someone to claim on their partner's behalf.
@@ -225,9 +230,9 @@ public class ChoreService
         if (IsIndependent(chore) && track is null)
             return Result.Fail<ChoreDto>(Error.Validation("Only an assignee of this chore can complete their share."));
 
-        // A paired chore is done together, so one tap credits the completer's fixed partner too:
-        // same points, same completion row.
-        var partner = chore.PartnerOf(userId);
+        // A paired chore is done together, so one tap credits the completer's partner too (whoever
+        // holds the turn with them): same points, same completion row.
+        var partner = chore.CreditedPartner(userId, chore.CurrentAssigneeId, chore.CurrentPartner()?.Id);
 
         var now = DateTimeOffset.UtcNow;
 
@@ -296,7 +301,8 @@ public class ChoreService
             Notes = string.IsNullOrWhiteSpace(req.Notes) ? null : req.Notes.Trim(),
             PointsAwarded = chore.Points,
             OccurrenceDueAt = track?.DueAt ?? chore.DueAt,
-            PreviousAssigneeId = IsIndependent(chore) ? null : chore.CurrentAssigneeId
+            PreviousAssigneeId = IsIndependent(chore) ? null : chore.CurrentAssigneeId,
+            PreviousPartnerId = chore.HeldPartnerId()
         };
         _db.ChoreCompletions.Add(completion);
 
@@ -317,12 +323,14 @@ public class ChoreService
             // for good (DueAt null, e.g. a finished one-time chore), where a rotation would be pointless.
             // A new occurrence only hands over once it crosses the chore's rotation period, so a
             // monthly-rotating weekly chore stays with the same person until the month turns.
+            // An on-demand chore has no occurrences, so every completion is a turn and hands over.
             var advancedToNewOccurrence = await AdvanceScheduleAsync(chore, completion, now, ct);
             var rotates = advancedToNewOccurrence
                 ? CrossedRotationBoundary(chore, completion.OccurrenceDueAt ?? now)
-                : chore.RotateOnEachCompletion && chore.DueAt is not null;
+                : chore.RepeatType == RepeatType.OnDemand
+                  || (chore.RotateOnEachCompletion && chore.DueAt is not null);
             if (rotates)
-                await RotateAssigneeAsync(chore, now, completion.CompletedByUserId!.Value, completion.Id, ct);
+                await RotateAssigneeAsync(chore, now, completion.CompletedByUserId!.Value, completion.PartnerUserId, completion.Id, ct);
 
             // The occurrence someone was being offered is done, so nobody can claim it any more —
             // void the offer and give the bounty back.
@@ -360,6 +368,8 @@ public class ChoreService
 
         if (chore.RepeatType == RepeatType.OneTime)
             return Result.Fail<ChoreDto>(Error.Validation("One-time chores cannot be skipped."));
+        if (chore.RepeatType == RepeatType.OnDemand)
+            return Result.Fail<ChoreDto>(Error.Validation("On-demand chores have nothing scheduled to skip."));
 
         // Track mode: skip a specific assignee's schedule (defaults to the caller's own).
         var track = IsIndependent(chore)
@@ -385,7 +395,8 @@ public class ChoreService
             PointsAwarded = 0,
             IsSkip = true,
             OccurrenceDueAt = track?.DueAt ?? chore.DueAt,
-            PreviousAssigneeId = IsIndependent(chore) ? null : chore.CurrentAssigneeId
+            PreviousAssigneeId = IsIndependent(chore) ? null : chore.CurrentAssigneeId,
+            PreviousPartnerId = chore.HeldPartnerId()
         };
         _db.ChoreCompletions.Add(skip);
 
@@ -406,7 +417,7 @@ public class ChoreService
             if (advancedToNewOccurrence
                 && chore.RotationPeriod != RotationPeriod.EveryOccurrence
                 && CrossedRotationBoundary(chore, skip.OccurrenceDueAt ?? now))
-                await RotateAssigneeAsync(chore, now, chore.CurrentAssigneeId ?? skippedUserId, skip.Id, ct);
+                await RotateAssigneeAsync(chore, now, chore.CurrentAssigneeId ?? skippedUserId, chore.CurrentPartner()?.Id, skip.Id, ct);
             // Same as a completion: the offered occurrence is gone, so refund and void.
             await VoidOffersAsync(chore, OfferStatus.Cancelled, ct);
         }
@@ -440,8 +451,13 @@ public class ChoreService
         if (actor.Role != UserRole.Admin)
             return Result.Fail<ChoreDto>(Error.Forbidden("Only admins can reassign a chore directly. Offer it instead and let someone claim it."));
 
-        // Already theirs — nothing to do. Picking the holder's partner is the same pair, so likewise.
-        if (chore.CurrentHolderIds().Contains(req.AssigneeId))
+        if (req.PartnerId is { } partnerId && !chore.Pairs.Any(p => p.Is(req.AssigneeId, partnerId)))
+            return Result.Fail<ChoreDto>(Error.Validation("Those two aren't a pair on this chore."));
+
+        // Already theirs — nothing to do. Picking the holder's partner is the same pair, so likewise,
+        // unless a different pair of theirs was asked for by name.
+        var holders = chore.CurrentHolderIds().ToList();
+        if (holders.Contains(req.AssigneeId) && (req.PartnerId is not { } wanted || holders.Contains(wanted)))
             return await GetAsync(chore.Id, ct: ct);
 
         // Void any live offer with a refund — the chore is being placed by an admin, so nobody is
@@ -450,10 +466,13 @@ public class ChoreService
 
         var previousAssigneeId = chore.CurrentAssigneeId;
         chore.CurrentAssigneeId = req.AssigneeId;
+        chore.CurrentPartnerId = req.PartnerId;
+        chore.CurrentPartnerId = chore.HeldPartnerId(); // no pair named: their first one
         _db.ChoreAssignments.Add(new ChoreAssignment
         {
             ChoreId = chore.Id,
             UserId = req.AssigneeId,
+            PartnerUserId = chore.CurrentPartnerId,
             PreviousAssigneeId = previousAssigneeId,
             AssignedByUserId = userId,
         });
@@ -462,9 +481,8 @@ public class ChoreService
     }
 
     /// <summary>Puts the current occurrence of a chore up for someone else to take, optionally with a
-    /// points bounty. With no <c>ToUserId</c> the offer is <b>open</b>: every other assignee is notified
-    /// and the first to claim it gets it. With one, it's targeted at that person, who can claim or
-    /// decline. Either way the chore doesn't move until someone claims it.
+    /// points bounty. Offers are always open: every other assignee is notified and the first to claim
+    /// it gets it. The chore doesn't move until someone claims it.
     ///
     /// <para>The bounty is deducted from the offerer here and held until the offer resolves, so a claim
     /// can always be paid. A newer offer supersedes any live one (refunded).</para></summary>
@@ -499,17 +517,8 @@ public class ChoreService
 
         // Frozen users are out of rotation, so they're not eligible to pick anything up either.
         var eligible = chore.Assignees.Where(a => a.Id != userId && !a.IsFrozen).ToList();
-        if (req.ToUserId is { } target)
-        {
-            if (target == userId)
-                return Result.Fail<ChoreDto>(Error.Validation("You can't offer a chore to yourself."));
-            if (eligible.All(a => a.Id != target))
-                return Result.Fail<ChoreDto>(Error.Validation("You can only offer this chore to one of its other assignees."));
-        }
-        else if (eligible.Count == 0)
-        {
+        if (eligible.Count == 0)
             return Result.Fail<ChoreDto>(Error.Validation("There's nobody else assigned to this chore to take it."));
-        }
 
         // Supersede any live offer (refunding its bounty) before escrowing the new one.
         await VoidOffersAsync(chore, OfferStatus.Cancelled, ct);
@@ -518,7 +527,6 @@ public class ChoreService
         {
             ChoreId = chore.Id,
             FromUserId = userId,
-            ToUserId = req.ToUserId,
             BountyPoints = req.BountyPoints,
         });
 
@@ -536,27 +544,18 @@ public class ChoreService
 
         var title = NotificationTitle(chore);
         var reward = req.BountyPoints > 0 ? $" for {req.BountyPoints} points" : "";
-        if (req.ToUserId is { } notifyTarget)
-        {
-            await _notifications.NotifyUserAsync(notifyTarget, title,
-                $"{actor.DisplayName} is offering you this chore{reward}. Claim or decline it.", chore.Id,
-                NotificationCategory.OfferReceived, ct);
-        }
-        else
-        {
-            // One fan-out call, so the routing context is loaded once for the whole eligible set
-            // rather than once per recipient.
-            await _notifications.NotifyUsersAsync(eligible.Select(u => u.Id).ToList(), title,
-                $"{actor.DisplayName} put this chore up for grabs{reward}. Claim it before someone else does.",
-                chore.Id, NotificationCategory.OfferReceived, ct);
-        }
+        // One fan-out call, so the routing context is loaded once for the whole eligible set
+        // rather than once per recipient.
+        await _notifications.NotifyUsersAsync(eligible.Select(u => u.Id).ToList(), title,
+            $"{actor.DisplayName} put this chore up for grabs{reward}. Claim it before someone else does.",
+            chore.Id, NotificationCategory.OfferReceived, ct);
 
         await _db.SaveChangesAsync(ct);
         return await GetAsync(chore.Id, viewerId: userId, ct: ct);
     }
 
     /// <summary>Takes an offered chore: the chore moves to the claimer, the assignment is logged, and
-    /// the escrowed bounty is paid out to them. Open offers are first come, first served — the status
+    /// the escrowed bounty is paid out to them. Offers are first come, first served — the status
     /// flip is a conditional update inside a transaction, so a simultaneous second claim loses cleanly
     /// with a conflict rather than both claimers being credited.</summary>
     public async Task<Result<ChoreDto>> ClaimOfferAsync(Guid choreId, Guid userId, CancellationToken ct = default)
@@ -574,8 +573,6 @@ public class ChoreService
 
         if (offer.FromUserId == userId)
             return Result.Fail<ChoreDto>(Error.Validation("You can't claim your own offer."));
-        if (offer.ToUserId is { } target && target != userId)
-            return Result.Fail<ChoreDto>(Error.Forbidden("This chore was offered to someone else."));
         if (chore.Assignees.All(a => a.Id != userId))
             return Result.Fail<ChoreDto>(Error.Forbidden("Only someone assigned to this chore can claim it."));
 
@@ -635,37 +632,8 @@ public class ChoreService
         return await GetAsync(chore.Id, viewerId: userId, ct: ct);
     }
 
-    /// <summary>Turns down an offer aimed at you. The chore stays with the offerer and their bounty is
-    /// refunded. Only meaningful for a targeted offer — an open offer is simply left alone by people
-    /// who don't want it.</summary>
-    public async Task<Result<ChoreDto>> DeclineOfferAsync(Guid choreId, Guid userId, CancellationToken ct = default)
-    {
-        var offer = await _db.ChoreOffers
-            .Include(o => o.Chore)
-            .FirstOrDefaultAsync(o => o.ChoreId == choreId && o.Status == OfferStatus.Pending, ct);
-        if (offer is null || offer.ToUserId != userId)
-            return Result.Fail<ChoreDto>(Error.NotFound("No offer for you on this chore."));
-
-        var chore = offer.Chore;
-        if (chore is null)
-            return Result.Fail<ChoreDto>(Error.NotFound("Chore not found."));
-
-        offer.Status = OfferStatus.Declined;
-        offer.RespondedAt = DateTimeOffset.UtcNow;
-        await RefundOfferAsync(offer, chore.Name, ct);
-
-        var responder = await _db.Users.FindAsync([userId], ct);
-        await _notifications.NotifyUserAsync(offer.FromUserId, NotificationTitle(chore),
-            $"{responder?.DisplayName ?? "Someone"} turned down your offer. It's still your chore.", chore.Id,
-            NotificationCategory.OfferResponse, ct);
-
-        await _db.SaveChangesAsync(ct);
-        return await GetAsync(chore.Id, viewerId: userId, ct: ct);
-    }
-
-    /// <summary>Pulls a live offer back. Only the offerer (or an admin) can; the bounty is refunded and
-    /// a targeted recipient is told it's gone. Open offers withdraw silently rather than notifying
-    /// everyone twice.</summary>
+    /// <summary>Pulls a live offer back. Only the offerer (or an admin) can; the bounty is refunded.
+    /// Silent, rather than notifying everyone twice.</summary>
     public async Task<Result<ChoreDto>> WithdrawOfferAsync(Guid choreId, Guid userId, CancellationToken ct = default)
     {
         var offer = await _db.ChoreOffers
@@ -687,12 +655,6 @@ public class ChoreService
         offer.Status = OfferStatus.Withdrawn;
         offer.RespondedAt = DateTimeOffset.UtcNow;
         await RefundOfferAsync(offer, chore.Name, ct);
-
-        if (offer.ToUserId is { } target)
-            await _notifications.NotifyUserAsync(target, NotificationTitle(chore),
-                "That offer was withdrawn, so there's nothing to claim.", chore.Id,
-                // Same thread as the offer they were sent: silencing offers silences the retraction too.
-                NotificationCategory.OfferReceived, ct);
 
         await _db.SaveChangesAsync(ct);
         return await GetAsync(chore.Id, viewerId: userId, ct: ct);
@@ -814,6 +776,7 @@ public class ChoreService
             {
                 chore.DueAt = completion.OccurrenceDueAt;
                 chore.CurrentAssigneeId = completion.PreviousAssigneeId;
+                chore.CurrentPartnerId = completion.PreviousPartnerId;
             }
         }
         var rotationLog = await _db.ChoreAssignments.Where(a => a.ChoreCompletionId == completionId).ToListAsync(ct);
@@ -951,7 +914,8 @@ public class ChoreService
     /// points. The row keeps its occurrence, so nothing about the schedule moves. Does not save.</summary>
     private void FillExpired(Chore chore, ChoreCompletion expired, User user, DateTimeOffset completedAt)
     {
-        var partner = chore.PartnerOf(user.Id);
+        // One of the two who missed it shares it with the other; anyone else brings their own partner.
+        var partner = chore.CreditedPartner(user.Id, expired.PreviousAssigneeId, expired.PartnerUserId);
         expired.IsExpired = false;
         expired.CompletedByUserId = user.Id;
         expired.PartnerUserId = partner?.Id;
@@ -1028,9 +992,13 @@ public class ChoreService
                 .ToDictionary(u => u.Id)
             : new Dictionary<Guid, User>();
 
+        // An all-day chore is on time until the household's day start, which decides what's a rescue.
+        var lateGrace = await AppSettingsService.ReadLateGraceByChoreAsync(_db, ct);
+
         var entries = completions.Select(c =>
             ChoreHistoryEntryDto.FromCompletion(c,
-                c.IsExpired && c.PreviousAssigneeId is { } pid && expiredAssignees.TryGetValue(pid, out var u) ? u : null));
+                c.IsExpired && c.PreviousAssigneeId is { } pid && expiredAssignees.TryGetValue(pid, out var u) ? u : null,
+                lateGrace.GetValueOrDefault(c.ChoreId)));
 
         // Reassignments are opt-in (the History page); the per-chore/per-user views want completions
         // only. Manual reassignments only (AssignedByUserId is set) — rotations/initial assignments
@@ -1072,6 +1040,19 @@ public class ChoreService
 
     private static bool IsIndependent(Chore chore) => chore.AssignmentStrategy == AssignmentStrategy.Independent;
 
+    /// <summary>Where a chore's schedule starts: its first occurrence on or after the start date, or
+    /// nothing at all for an on-demand chore, which is never due.</summary>
+    private static DateTimeOffset? InitialDue(Chore chore) =>
+        chore.RepeatType == RepeatType.OnDemand
+            ? null
+            : RecurrenceCalculator.FirstOccurrence(RecurrenceRule.FromChore(chore), chore.StartDate);
+
+    /// <summary>The chore's <see cref="Chore.LateGrace"/> under the configured day start. Subtracting
+    /// it from an instant gives the "household clock" an all-day chore is judged on: 01:00 with a
+    /// 05:00 day start still belongs to the previous day. Zero (and no query) for a timed chore.</summary>
+    private async Task<TimeSpan> LateGraceAsync(Chore chore, CancellationToken ct) =>
+        chore.HasDueTime ? TimeSpan.Zero : await AppSettingsService.ReadDayStartAsync(_db, ct);
+
     /// <summary>The earliest scheduled track due — used to keep <c>chore.DueAt</c> as a mirror so all
     /// the existing single-due checks (listing order, "nothing scheduled" guards, the notification
     /// chore-load filter) keep working for track-mode chores.</summary>
@@ -1109,8 +1090,11 @@ public class ChoreService
         var scheduledDue = completion.OccurrenceDueAt ?? now;
         var grace = chore.GraceMinutes is { } m ? TimeSpan.FromMinutes(m) : (TimeSpan?)null;
         // The entry's own timestamp, not `now`: a backdated completion anchors completion-based
-        // scheduling on when the chore was really done.
-        chore.DueAt = RecurrenceCalculator.NextDue(rule, chore.SchedulingPreference, scheduledDue, completion.CompletedAt, now, grace);
+        // scheduling on when the chore was really done. Both run on the household clock, so an all-day
+        // chore finished after midnight but before the day start still counts as done that day.
+        var lateGrace = await LateGraceAsync(chore, ct);
+        chore.DueAt = RecurrenceCalculator.NextDue(rule, chore.SchedulingPreference, scheduledDue,
+            completion.CompletedAt - lateGrace, now - lateGrace, grace);
         return chore.DueAt is not null;
     }
 
@@ -1121,18 +1105,30 @@ public class ChoreService
     private static bool CrossedRotationBoundary(Chore chore, DateTimeOffset closedDue) =>
         chore.DueAt is { } nextDue && RotationBoundary.Crossed(chore.RotationPeriod, closedDue, nextDue);
 
-    /// <summary>Picks the next current assignee per the chore's strategy and records the assignment.
-    /// <paramref name="completedBy"/> is folded in as a virtual completion so strategies that count
-    /// completions (LeastCompleted) treat the just-closed occurrence as that user's turn.
+    /// <summary>Whoever takes a turn together: a fixed pair, or one person alone.</summary>
+    private readonly record struct RotationUnit(Guid Lead, Guid? Partner)
+    {
+        public bool Has(Guid userId) => Lead == userId || Partner == userId;
+    }
+
+    /// <summary>One logged turn (an assignment or a completion) and who shared it, for the
+    /// rotation counts.</summary>
+    private readonly record struct Turn(Guid UserId, Guid? PartnerId, DateTimeOffset At);
+
+    /// <summary>Picks who takes the chore next per its strategy and records the assignment.
+    /// <paramref name="completedBy"/> (with <paramref name="completedWith"/>, their partner) is folded
+    /// in as a virtual completion so strategies that count completions (LeastCompleted) treat the
+    /// just-closed occurrence as their turn.
     /// <paramref name="completionId"/> links the new <see cref="ChoreAssignment"/> to its trigger row
     /// (so undo can reverse the rotation), or null for auto-advance expiry rows.</summary>
-    private async Task RotateAssigneeAsync(Chore chore, DateTimeOffset now, Guid completedBy, Guid? completionId, CancellationToken ct)
+    private async Task RotateAssigneeAsync(Chore chore, DateTimeOffset now, Guid completedBy, Guid? completedWith, Guid? completionId, CancellationToken ct)
     {
         // Manual: the handover is an admin's call, so the new occurrence opens with nobody on it.
         // No ChoreAssignment row — undo restores the assignee from the completion's snapshot.
         if (chore.AssignmentStrategy == AssignmentStrategy.Manual)
         {
             chore.CurrentAssigneeId = null;
+            chore.CurrentPartnerId = null;
             return;
         }
 
@@ -1143,109 +1139,148 @@ public class ChoreService
             .ToList();
         if (ordered.Count == 0) return;
 
-        // Pull rows to memory and aggregate client-side: SQLite stores DateTimeOffset as TEXT, so a
-        // DB-side Max() can't be trusted across varying offsets (same reason we don't ORDER BY it).
-        var assignments = (await _db.ChoreAssignments
-            .Where(a => a.ChoreId == chore.Id)
-            .Select(a => new { a.UserId, a.AssignedAt })
-            .ToListAsync(ct))
-            .Select(a => (a.UserId, a.AssignedAt))
-            .ToList();
-        var completions = (await _db.ChoreCompletions
-            .Where(x => x.ChoreId == chore.Id && !x.IsSkip && !x.IsExpired)
-            .Select(x => new { x.CompletedByUserId, x.CompletedAt })
-            .ToListAsync(ct))
-            .Where(x => x.CompletedByUserId.HasValue)
-            .Select(x => (x.CompletedByUserId!.Value, x.CompletedAt))
-            .ToList();
+        var (assignments, completions) = await RotationHistoryAsync(chore.Id, ct);
+        var next = PickNext(chore, ordered, assignments, completions, completedBy, completedWith, now);
 
-        var next = PickNext(chore, ordered, assignments, completions, completedBy, now);
-
-        chore.CurrentAssigneeId = next;
+        chore.CurrentAssigneeId = next.Lead;
+        chore.CurrentPartnerId = next.Partner;
         _db.ChoreAssignments.Add(new ChoreAssignment
         {
             ChoreId = chore.Id,
-            UserId = next,
+            UserId = next.Lead,
+            PartnerUserId = next.Partner,
             AssignedAt = now,
             ChoreCompletionId = completionId
         });
     }
 
-    /// <summary>Runs the chore's assignment strategy against in-memory history to pick the assignee
-    /// the next occurrence would rotate to, assuming <paramref name="completedBy"/> completes the
-    /// current occurrence at <paramref name="completedAt"/>. Shared by the live rotation
-    /// (<see cref="RotateAssigneeAsync"/>) and the DTO's "next assignee" preview, so both agree.</summary>
-    private static Guid PickNext(
+    /// <summary>A chore's past assignments and real completions as <see cref="Turn"/>s. Rows are
+    /// pulled to memory and aggregated client-side: SQLite stores DateTimeOffset as TEXT, so a DB-side
+    /// Max() can't be trusted across varying offsets (same reason we don't ORDER BY it).</summary>
+    private async Task<(List<Turn> Assignments, List<Turn> Completions)> RotationHistoryAsync(Guid choreId, CancellationToken ct)
+    {
+        var assignments = (await _db.ChoreAssignments
+            .Where(a => a.ChoreId == choreId)
+            .Select(a => new { a.UserId, a.PartnerUserId, a.AssignedAt })
+            .ToListAsync(ct))
+            .Select(a => new Turn(a.UserId, a.PartnerUserId, a.AssignedAt))
+            .ToList();
+        var completions = (await _db.ChoreCompletions
+            .Where(x => x.ChoreId == choreId && !x.IsSkip && !x.IsExpired)
+            .Select(x => new { x.CompletedByUserId, x.PartnerUserId, x.CompletedAt })
+            .ToListAsync(ct))
+            .Where(x => x.CompletedByUserId.HasValue)
+            .Select(x => new Turn(x.CompletedByUserId!.Value, x.PartnerUserId, x.CompletedAt))
+            .ToList();
+        return (assignments, completions);
+    }
+
+    /// <summary>Runs the chore's assignment strategy against in-memory history to pick who the next
+    /// occurrence would rotate to, assuming <paramref name="completedBy"/> (with
+    /// <paramref name="completedWith"/>) completes the current occurrence at
+    /// <paramref name="completedAt"/>. Shared by the live rotation (<see cref="RotateAssigneeAsync"/>),
+    /// the DTO's "next assignee" preview and freeze reassignment, so all three agree.</summary>
+    private static RotationUnit PickNext(
         Chore chore,
         IReadOnlyList<Guid> ordered,
-        IReadOnlyList<(Guid UserId, DateTimeOffset AssignedAt)> assignments,
-        IReadOnlyList<(Guid UserId, DateTimeOffset CompletedAt)> completions,
+        IReadOnlyList<Turn> assignments,
+        IReadOnlyList<Turn> completions,
         Guid completedBy,
+        Guid? completedWith,
         DateTimeOffset completedAt)
     {
-        // A pair rotates as one: collapse everything (the pool, the history, who holds it now) onto
-        // each unit's representative, so the picker never has to know pairs exist.
-        var unit = UnitRepresentative(chore, ordered);
-        var units = ordered.Where(id => unit(id) == id).ToList();
-        completedBy = unit(completedBy);
+        // A pair rotates as one: the picker chooses between units, so it never has to know pairs exist.
+        var units = RotationUnits(chore, ordered);
 
-        var assignedCounts = assignments.GroupBy(a => unit(a.UserId)).ToDictionary(g => g.Key, g => g.Count());
-        var lastAssignedAt = assignments.GroupBy(a => unit(a.UserId)).ToDictionary(g => g.Key, g => g.Max(a => a.AssignedAt));
-        var completedCounts = completions.GroupBy(x => unit(x.UserId)).ToDictionary(g => g.Key, g => g.Count());
-        var lastCompletedAt = completions.GroupBy(x => unit(x.UserId)).ToDictionary(g => g.Key, g => g.Max(x => x.CompletedAt));
-        completedCounts[completedBy] = completedCounts.GetValueOrDefault(completedBy) + 1;
-        if (completedAt > lastCompletedAt.GetValueOrDefault(completedBy, DateTimeOffset.MinValue))
-            lastCompletedAt[completedBy] = completedAt;
+        // The unit a logged turn counts for: the exact one when it's still in the rotation, otherwise
+        // the person's first (rows from before pairs could overlap carry no partner; a pair may have
+        // been edited away since). Null when they're not in the pool at all.
+        RotationUnit? UnitOf(Guid userId, Guid? partnerId)
+        {
+            foreach (var u in units)
+                if (u.Has(userId) && (partnerId is { } p ? u.Has(p) : u.Partner is null)) return u;
+            foreach (var u in units)
+                if (u.Has(userId)) return u;
+            return null;
+        }
+
+        var assigned = assignments
+            .Select(a => (Unit: UnitOf(a.UserId, a.PartnerId), a.At))
+            .Where(a => a.Unit is not null)
+            .GroupBy(a => a.Unit!.Value)
+            .ToList();
+        var completed = completions
+            .Select(x => (Unit: UnitOf(x.UserId, x.PartnerId), x.At))
+            .Where(x => x.Unit is not null)
+            .GroupBy(x => x.Unit!.Value)
+            .ToList();
+
+        var assignedCounts = assigned.ToDictionary(g => g.Key, g => g.Count());
+        var lastAssignedAt = assigned.ToDictionary(g => g.Key, g => g.Max(a => a.At));
+        var completedCounts = completed.ToDictionary(g => g.Key, g => g.Count());
+        var lastCompletedAt = completed.ToDictionary(g => g.Key, g => g.Max(x => x.At));
+        if (UnitOf(completedBy, completedWith) is { } done)
+        {
+            completedCounts[done] = completedCounts.GetValueOrDefault(done) + 1;
+            if (completedAt > lastCompletedAt.GetValueOrDefault(done, DateTimeOffset.MinValue))
+                lastCompletedAt[done] = completedAt;
+        }
 
         return AssignmentPicker.Pick(
-            chore.AssignmentStrategy, units, chore.CurrentAssigneeId is { } current ? unit(current) : null,
+            chore.AssignmentStrategy, units,
+            chore.CurrentAssigneeId is { } current ? UnitOf(current, chore.CurrentPartner()?.Id) : null,
             assignedCounts, completedCounts, lastAssignedAt, lastCompletedAt, Random.Shared);
     }
 
-    /// <summary>Maps a user to whoever stands for their rotation unit: themselves when they take the
-    /// chore alone, otherwise the member of their pair who comes first in <paramref name="ordered"/>
-    /// (the eligible pool, in its stable order). A partner outside the pool (frozen) doesn't count,
-    /// which leaves the remaining member as a unit of one. Identity on an unpaired chore.</summary>
-    private static Func<Guid, Guid> UnitRepresentative(Chore chore, IReadOnlyList<Guid> ordered)
+    /// <summary>Everything that takes a turn on the chore, in a stable order: each live pair whose two
+    /// members are both in <paramref name="ordered"/> (the eligible pool), plus everyone in the pool
+    /// who is in no such pair, alone. So a person in three pairs gets three turns, and a pair with a
+    /// frozen member drops out (leaving the other alone only if they have no other pair). Just the
+    /// pool itself on an unpaired chore.</summary>
+    private static List<RotationUnit> RotationUnits(Chore chore, IReadOnlyList<Guid> ordered)
     {
-        if (chore.Pairs.Count == 0) return id => id;
-
         var position = ordered.Select((id, i) => (id, i)).ToDictionary(x => x.id, x => x.i);
-        return id =>
-        {
-            if (chore.PartnerOf(id)?.Id is not { } partner || !position.TryGetValue(partner, out var theirs))
-                return id;
-            return position.TryGetValue(id, out var mine) && mine < theirs ? id : partner;
-        };
+        var units = chore.LivePairs()
+            .Where(p => position.ContainsKey(p.First) && position.ContainsKey(p.Second))
+            .Select(p => position[p.First] < position[p.Second]
+                ? new RotationUnit(p.First, p.Second)
+                : new RotationUnit(p.Second, p.First))
+            .ToList();
+        var alone = ordered.Where(id => !units.Any(u => u.Has(id))).Select(id => new RotationUnit(id, null)).ToList();
+        return units.Concat(alone)
+            .OrderBy(u => position[u.Lead])
+            .ThenBy(u => u.Partner is { } p ? position[p] : -1)
+            .ToList();
     }
 
-    /// <summary>The assignee the chore would rotate to on its next completion — shown as a preview.
+    /// <summary>Who the chore would rotate to on its next completion — shown as a preview.
     /// Only meaningful for strategies whose outcome is fixed by current state; the random strategies
     /// (and chores that can't rotate: one-time, nothing scheduled, single assignee) return null.
-    /// Assumes the current assignee is the one who completes it (the normal path).</summary>
-    private static User? PredictNextAssignee(
-        Chore chore, List<ChoreCompletion>? completions,
-        IReadOnlyList<(Guid UserId, DateTimeOffset AssignedAt)> assignments, DateTimeOffset now)
+    /// On-demand chores never have anything scheduled but rotate on every completion, so they predict.
+    /// Assumes the current holder is the one who completes it (the normal path).</summary>
+    private static (User Assignee, User? Partner)? PredictNextAssignee(
+        Chore chore, List<ChoreCompletion>? completions, IReadOnlyList<Turn> assignments, DateTimeOffset now)
     {
-        if (chore.RepeatType == RepeatType.OneTime || chore.DueAt is null) return null;
+        if (chore.RepeatType == RepeatType.OneTime) return null;
+        if (chore.DueAt is null && chore.RepeatType != RepeatType.OnDemand) return null;
         if (IsIndependent(chore)) return null; // track-mode chores don't rotate
         if (chore.AssignmentStrategy is AssignmentStrategy.Random or AssignmentStrategy.RandomExceptLastAssigned) return null;
         if (chore.AssignmentStrategy == AssignmentStrategy.Manual) return null; // an admin picks, nothing to predict
         if (chore.CurrentAssigneeId is not { } current) return null;
 
-        var orderedUsers = chore.Assignees.OrderBy(u => u.CreatedAt).ThenBy(u => u.Id).ToList();
+        var orderedUsers = chore.Assignees.Where(u => !u.IsFrozen).OrderBy(u => u.CreatedAt).ThenBy(u => u.Id).ToList();
         var orderedIds = orderedUsers.Select(u => u.Id).ToList();
         // Fewer than two units (a lone assignee, or a single pair) means there's nobody to rotate to.
-        var unit = UnitRepresentative(chore, orderedIds);
-        if (orderedIds.Count(id => unit(id) == id) < 2) return null;
+        if (RotationUnits(chore, orderedIds).Count < 2) return null;
 
-        var completionPairs = (completions ?? [])
+        var turns = (completions ?? [])
             .Where(x => !x.IsSkip && !x.IsExpired && x.CompletedByUserId.HasValue)
-            .Select(x => (x.CompletedByUserId!.Value, x.CompletedAt))
+            .Select(x => new Turn(x.CompletedByUserId!.Value, x.PartnerUserId, x.CompletedAt))
             .ToList();
 
-        var nextId = PickNext(chore, orderedIds, assignments, completionPairs, current, now);
-        return orderedUsers.FirstOrDefault(u => u.Id == nextId);
+        var next = PickNext(chore, orderedIds, assignments, turns, current, chore.CurrentPartner()?.Id, now);
+        var assignee = orderedUsers.FirstOrDefault(u => u.Id == next.Lead);
+        return assignee is null ? null : (assignee, orderedUsers.FirstOrDefault(u => u.Id == next.Partner));
     }
 
     /// <summary>All completions per chore id (newest-first within each chore), for both the
@@ -1269,10 +1304,11 @@ public class ChoreService
     }
 
     private static ChoreDto ToDto(Chore chore, List<ChoreCompletion>? completions,
-        IReadOnlyList<(Guid UserId, DateTimeOffset AssignedAt)> assignments, DateTimeOffset now, Guid? viewerId = null,
-        ChoreOffer? offer = null, ChoreMute? mute = null)
+        IReadOnlyList<Turn> assignments, DateTimeOffset now, TimeSpan dayStart,
+        Guid? viewerId = null, ChoreOffer? offer = null, ChoreMute? mute = null)
     {
         var latest = completions?.FirstOrDefault(c => !c.IsExpired);
+        var lateGrace = chore.LateGrace(dayStart);
 
         if (IsIndependent(chore))
         {
@@ -1290,7 +1326,7 @@ public class ChoreService
                     // it's just a not-yet-reached first occurrence (start date in the future).
                     completions?.Any(x => x.CompletedByUserId == t.UserId) ?? false,
                     // Each assignee's own on-time streak, off their own completion history.
-                    StreakCalculator.CurrentStreak(completions?.Where(x => x.CompletedByUserId == t.UserId) ?? [])))
+                    StreakCalculator.CurrentStreak(completions?.Where(x => x.CompletedByUserId == t.UserId) ?? [], lateGrace: lateGrace)))
                 .OrderBy(d => d.User.DisplayName)
                 .ToArray();
 
@@ -1317,8 +1353,9 @@ public class ChoreService
             // Completions + skips logged against the current occurrence (they share its due date).
             progress = completions?.Count(x => x.OccurrenceDueAt == chore.DueAt) ?? 0;
         var next = PredictNextAssignee(chore, completions, assignments, now);
-        var streak = StreakCalculator.CurrentStreak(completions ?? []);
-        return ChoreDto.FromEntity(chore, latest, progress, next, currentStreak: streak, openOffer: offer) with
+        var streak = StreakCalculator.CurrentStreak(completions ?? [], lateGrace: lateGrace);
+        return ChoreDto.FromEntity(chore, latest, progress, next?.Assignee, currentStreak: streak, openOffer: offer,
+            nextPartner: next?.Partner) with
         {
             IsMuted = mute is not null,
             MutedUntil = mute?.Until
@@ -1345,23 +1382,23 @@ public class ChoreService
             .ToDictionary(m => m.ChoreId);
     }
 
-    /// <summary>Assignment history per chore id, as lightweight (user, when) pairs — for the
+    /// <summary>Assignment history per chore id, as lightweight <see cref="Turn"/>s — for the
     /// "next assignee" preview's Least-Assigned counting. SQLite stores DateTimeOffset as TEXT, so
     /// aggregation happens client-side (same reason we don't ORDER BY it).</summary>
-    private async Task<Dictionary<Guid, List<(Guid UserId, DateTimeOffset AssignedAt)>>> AssignmentsByChoreAsync(
+    private async Task<Dictionary<Guid, List<Turn>>> AssignmentsByChoreAsync(
         List<Guid> choreIds, CancellationToken ct)
     {
         if (choreIds.Count == 0)
-            return new Dictionary<Guid, List<(Guid, DateTimeOffset)>>();
+            return new Dictionary<Guid, List<Turn>>();
 
         var assignments = await _db.ChoreAssignments
             .Where(a => choreIds.Contains(a.ChoreId))
-            .Select(a => new { a.ChoreId, a.UserId, a.AssignedAt })
+            .Select(a => new { a.ChoreId, a.UserId, a.PartnerUserId, a.AssignedAt })
             .ToListAsync(ct);
 
         return assignments
             .GroupBy(a => a.ChoreId)
-            .ToDictionary(g => g.Key, g => g.Select(a => (a.UserId, a.AssignedAt)).ToList());
+            .ToDictionary(g => g.Key, g => g.Select(a => new Turn(a.UserId, a.PartnerUserId, a.AssignedAt)).ToList());
     }
 
     /// <summary>The single live <see cref="OfferStatus.Pending"/> offer per chore (if any), with both
@@ -1375,7 +1412,6 @@ public class ChoreService
 
         var offers = await _db.ChoreOffers
             .Include(o => o.FromUser)
-            .Include(o => o.ToUser)
             .Where(o => choreIds.Contains(o.ChoreId) && o.Status == OfferStatus.Pending)
             .AsNoTracking()
             .ToListAsync(ct);
@@ -1426,6 +1462,8 @@ public class ChoreService
             // Track mode: no single current assignee; instead every assignee carries a per-person quota.
             if (req.RepeatType == RepeatType.OneTime)
                 return Result.Fail<List<User>>(Error.Validation("A one-time chore can't use per-person scheduling."));
+            if (req.RepeatType == RepeatType.OnDemand)
+                return Result.Fail<List<User>>(Error.Validation("An on-demand chore can't use per-person scheduling."));
 
             var tracks = req.Tracks ?? [];
             var trackIds = tracks.Select(t => t.UserId).Distinct().ToList();
@@ -1444,9 +1482,14 @@ public class ChoreService
         }
 
         // Track mode has no shared turn to pair people on, so its pairs are dropped rather than checked.
-        if (req.AssignmentStrategy != AssignmentStrategy.Independent
-            && Validators.Pairs(req.Pairs, ids, out _) is { } pairsError)
-            return Result.Fail<List<User>>(pairsError);
+        if (req.AssignmentStrategy != AssignmentStrategy.Independent)
+        {
+            if (Validators.Pairs(req.Pairs, ids, out var pairs) is { } pairsError)
+                return Result.Fail<List<User>>(pairsError);
+            if (req.CurrentPartnerId is { } currentPartner
+                && !(req.CurrentAssigneeId is { } holder && pairs.Any(p => p.Is(holder, currentPartner))))
+                return Result.Fail<List<User>>(Error.Validation("The current partner must be in a pair with the current assignee."));
+        }
 
         return Result.Success(assignees);
     }
@@ -1471,14 +1514,17 @@ public class ChoreService
         chore.RepeatType = req.RepeatType;
         chore.StartDate = req.StartDate;
         chore.AssignmentStrategy = req.AssignmentStrategy;
-        chore.SchedulingPreference = req.SchedulingPreference;
+        // An on-demand chore has no schedule, so none of the scheduling settings can mean anything:
+        // they're stored as their defaults so nothing stale lingers if it's switched back.
+        var onDemand = req.RepeatType == RepeatType.OnDemand;
+        chore.SchedulingPreference = onDemand ? SchedulingPreference.FromScheduledDate : req.SchedulingPreference;
         // Grace only rides on Smart scheduling, and only when positive (0/null = pure max).
-        chore.GraceMinutes = req.SchedulingPreference == SchedulingPreference.SmartScheduling && req.GraceMinutes is > 0
+        chore.GraceMinutes = chore.SchedulingPreference == SchedulingPreference.SmartScheduling && req.GraceMinutes is > 0
             ? req.GraceMinutes
             : null;
         // Auto-advance applies to all recurring non-independent chores (custom included — they always
         // close on a single completion, but can still be advanced/rotated when overdue).
-        var supportsAutoAdvance = req.RepeatType != RepeatType.OneTime
+        var supportsAutoAdvance = req.RepeatType is not (RepeatType.OneTime or RepeatType.OnDemand)
             && req.AssignmentStrategy != AssignmentStrategy.Independent;
         chore.AutoAdvanceIncomplete = supportsAutoAdvance && req.AutoAdvanceIncomplete;
         chore.CompletionWindowMinutes = supportsAutoAdvance && req.AutoAdvanceIncomplete && req.CompletionWindowMinutes is > 0
@@ -1514,7 +1560,8 @@ public class ChoreService
         // recurrences always close on a single completion. Track mode keeps the scalar at 1 and uses
         // the per-assignee quota on each ChoreAssigneeTrack instead.
         var isIndependent = req.AssignmentStrategy == AssignmentStrategy.Independent;
-        chore.CompletionsRequired = isCustom || isIndependent ? 1 : Math.Max(1, req.CompletionsRequired);
+        // On-demand has no occurrence to count towards.
+        chore.CompletionsRequired = isCustom || isIndependent || onDemand ? 1 : Math.Max(1, req.CompletionsRequired);
         // Per-completion rotation only means anything when more than one completion is required, and
         // never applies in track mode (no rotation at all).
         // A rotation period only means something on a chore that rotates and comes due more often than
@@ -1535,7 +1582,7 @@ public class ChoreService
             (isCustom && mode is CustomRecurrenceMode.DaysOfWeek or CustomRecurrenceMode.DaysOfMonth);
         Validators.TimesOfDay(req.TimesOfDay, req.RepeatType, req.CustomMode, out var times); // already checked in ValidateAsync
         chore.TimesOfDay = supportsTimes ? times : new List<TimeOnly>();
-        chore.DueTime = chore.TimesOfDay.Count > 0 ? chore.TimesOfDay[0] : dueTime;
+        chore.DueTime = onDemand ? null : chore.TimesOfDay.Count > 0 ? chore.TimesOfDay[0] : dueTime;
         // Labels name slots, so one whose time is no longer in the schedule goes with it.
         Validators.TimeLabels(req.TimeLabels, out var labels); // already checked in ValidateAsync
         chore.TimeLabels = labels.Where(p => chore.TimesOfDay.Contains(p.Key)).ToDictionary(p => p.Key, p => p.Value);
@@ -1545,14 +1592,20 @@ public class ChoreService
 
         Validators.Pairs(req.Pairs, assignees.Select(a => a.Id).ToList(), out var pairs); // already checked in ValidateAsync
         chore.Pairs = isIndependent ? new List<ChorePair>() : pairs;
+        // Which of the holder's pairs has the turn: the one asked for, else the one that had it while
+        // it still exists, else their first.
+        if (req.CurrentPartnerId is not null)
+            chore.CurrentPartnerId = req.CurrentPartnerId;
+        chore.CurrentPartnerId = chore.HeldPartnerId();
 
         // Rebuild the notification schedule from the request (orphans cascade-delete). AtDue entries
         // carry no offset. New entries are inserted via the DbSet rather than only through the
         // navigation: a ChoreNotification carries a client-set Guid key, so on the update path (where
         // the chore is already tracked) EF would classify a navigation-added child as Modified and
         // emit an UPDATE against a row that doesn't exist yet — a DbUpdateConcurrencyException.
+        // Every notification fires relative to a due time, which an on-demand chore never has.
         _db.ChoreNotifications.RemoveRange(chore.Notifications);
-        foreach (var n in req.Notifications ?? [])
+        foreach (var n in onDemand ? [] : req.Notifications ?? [])
         {
             _db.ChoreNotifications.Add(new ChoreNotification
             {
@@ -1655,12 +1708,14 @@ public class ChoreService
         var rule = RecurrenceRule.FromChore(chore);
         var scheduledDue = entry.OccurrenceDueAt ?? now;
         var grace = chore.GraceMinutes is { } m ? TimeSpan.FromMinutes(m) : (TimeSpan?)null;
-        track.DueAt = RecurrenceCalculator.NextDue(rule, chore.SchedulingPreference, scheduledDue, entry.CompletedAt, now, grace);
+        var lateGrace = await LateGraceAsync(chore, ct);
+        track.DueAt = RecurrenceCalculator.NextDue(rule, chore.SchedulingPreference, scheduledDue,
+            entry.CompletedAt - lateGrace, now - lateGrace, grace);
     }
 
     /// <summary>Called by the background service every minute. For every recurring chore with
     /// <see cref="Chore.AutoAdvanceIncomplete"/> set, checks whether the completion window has closed
-    /// (now ≥ DueAt + <see cref="Chore.CompletionWindowMinutes"/>) and the occurrence is still short
+    /// (now ≥ DueAt + <see cref="Chore.LateGrace"/> + <see cref="Chore.CompletionWindowMinutes"/>) and the occurrence is still short
     /// of its required completions. If so, writes <see cref="ChoreCompletion.IsExpired"/> rows for the
     /// missing slots (snapshotting the responsible assignee in <see cref="ChoreCompletion.PreviousAssigneeId"/>),
     /// advances the schedule using <see cref="SchedulingPreference.FromScheduledDate"/>, and rotates
@@ -1668,6 +1723,7 @@ public class ChoreService
     public async Task<int> AutoAdvanceAsync(DateTimeOffset now, CancellationToken ct = default)
     {
         var advanced = 0;
+        var dayStart = await AppSettingsService.ReadDayStartAsync(_db, ct);
 
         // ── Rotating chores ──────────────────────────────────────────────────────────────────────
         var chores = await Query()
@@ -1682,7 +1738,7 @@ public class ChoreService
         {
             if (chore.DueAt is not { } dueAt) continue;
 
-            var windowEnd = dueAt.AddMinutes(chore.CompletionWindowMinutes ?? 0);
+            var windowEnd = (dueAt + chore.LateGrace(dayStart)).AddMinutes(chore.CompletionWindowMinutes ?? 0);
             if (now < windowEnd) continue;
 
             // Count non-expired completions that close this occurrence (share its DueAt).
@@ -1705,7 +1761,8 @@ public class ChoreService
                     PointsAwarded = 0,
                     CompletedAt = now,
                     PreviousAssigneeId = chore.CurrentAssigneeId,
-                    PartnerUserId = chore.PartnerOf(chore.CurrentAssigneeId)?.Id,
+                    PreviousPartnerId = chore.HeldPartnerId(),
+                    PartnerUserId = chore.CurrentPartner()?.Id,
                 };
                 _db.ChoreCompletions.Add(row);
                 firstExpired ??= row;
@@ -1717,7 +1774,7 @@ public class ChoreService
             var rule = RecurrenceRule.FromChore(chore);
             chore.DueAt = RecurrenceCalculator.NextDue(rule, SchedulingPreference.FromScheduledDate, dueAt, now, now);
             if (chore.CurrentAssigneeId.HasValue && CrossedRotationBoundary(chore, dueAt))
-                await RotateAssigneeAsync(chore, now, chore.CurrentAssigneeId.Value, firstExpired?.Id, ct);
+                await RotateAssigneeAsync(chore, now, chore.CurrentAssigneeId.Value, chore.CurrentPartner()?.Id, firstExpired?.Id, ct);
             // Nobody claimed the occurrence before it expired — refund the offerer's bounty.
             await VoidOffersAsync(chore, OfferStatus.Cancelled, ct);
             advanced++;
@@ -1740,7 +1797,7 @@ public class ChoreService
             foreach (var track in chore.AssigneeTracks)
             {
                 if (track.DueAt is not { } trackDue) continue;
-                var windowEnd = trackDue.AddMinutes(chore.CompletionWindowMinutes ?? 0);
+                var windowEnd = (trackDue + chore.LateGrace(dayStart)).AddMinutes(chore.CompletionWindowMinutes ?? 0);
                 if (now < windowEnd) continue;
 
                 var allDues = await _db.ChoreCompletions
@@ -1800,7 +1857,8 @@ public class ChoreService
             return Result.Fail<ChoreDto>(Error.NotFound("Chore not found."));
 
         chore.IsFrozen = false;
-        var now = DateTimeOffset.UtcNow;
+        // On the household clock, so an all-day occurrence that is still open isn't stepped over.
+        var now = DateTimeOffset.UtcNow - await LateGraceAsync(chore, ct);
 
         if (IsIndependent(chore))
         {
@@ -1808,7 +1866,7 @@ public class ChoreService
                 track.DueAt = StepForwardIfOverdue(chore, track.DueAt, now);
             chore.DueAt = EarliestTrackDue(chore.AssigneeTracks);
         }
-        else if (chore.RepeatType != RepeatType.OneTime)
+        else if (chore.RepeatType is not (RepeatType.OneTime or RepeatType.OnDemand))
         {
             chore.DueAt = StepForwardIfOverdue(chore, chore.DueAt, now);
         }
@@ -1836,7 +1894,7 @@ public class ChoreService
     /// <summary>Computes which rotating chores would be reassigned (and to whom) and which would be
     /// left without an eligible assignee when <paramref name="freezingUserId"/> is frozen. Pure read —
     /// does not save anything. Called by <see cref="Services.UserService"/> for the preview and freeze flow.</summary>
-    internal async Task<(List<(Chore Chore, User NewAssignee)> Reassignments, List<Chore> Unassignable)>
+    internal async Task<(List<(Chore Chore, User NewAssignee, Guid? PartnerId)> Reassignments, List<Chore> Unassignable)>
         GetChoreReassignmentsForFreezeAsync(Guid freezingUserId, CancellationToken ct)
     {
         var affected = await Query()
@@ -1844,7 +1902,7 @@ public class ChoreService
                      && c.AssignmentStrategy != AssignmentStrategy.Independent)
             .ToListAsync(ct);
 
-        var reassignments = new List<(Chore, User)>();
+        var reassignments = new List<(Chore, User, Guid?)>();
         var unassignable = new List<Chore>();
         var now = DateTimeOffset.UtcNow;
 
@@ -1855,10 +1913,12 @@ public class ChoreService
                 .OrderBy(u => u.CreatedAt).ThenBy(u => u.Id)
                 .ToList();
 
-            // A paired chore stays with the pair: the partner carries the rest of the turn alone.
-            if (chore.PartnerOf(freezingUserId) is { } partner)
+            // A paired chore stays with the pair: the partner carries the rest of the turn alone. The
+            // frozen member stays on as the stored partner, so the turn is still that pair's (and theirs
+            // again if they're back before it ends) rather than sliding to another of the partner's pairs.
+            if (chore.CurrentPartner() is { } partner)
             {
-                reassignments.Add((chore, partner));
+                reassignments.Add((chore, partner, freezingUserId));
                 continue;
             }
 
@@ -1870,24 +1930,9 @@ public class ChoreService
                 continue;
             }
 
-            var assignments = (await _db.ChoreAssignments
-                .Where(a => a.ChoreId == chore.Id)
-                .Select(a => new { a.UserId, a.AssignedAt })
-                .ToListAsync(ct))
-                .Select(a => (a.UserId, a.AssignedAt))
-                .ToList();
-
-            var completions = (await _db.ChoreCompletions
-                .Where(x => x.ChoreId == chore.Id && !x.IsSkip && !x.IsExpired)
-                .Select(x => new { x.CompletedByUserId, x.CompletedAt })
-                .ToListAsync(ct))
-                .Where(x => x.CompletedByUserId.HasValue)
-                .Select(x => (x.CompletedByUserId!.Value, x.CompletedAt))
-                .ToList();
-
-            var nextId = PickNext(chore, eligible.Select(u => u.Id).ToList(), assignments, completions, freezingUserId, now);
-            var newAssignee = eligible.FirstOrDefault(u => u.Id == nextId) ?? eligible[0];
-            reassignments.Add((chore, newAssignee));
+            var (assignments, completions) = await RotationHistoryAsync(chore.Id, ct);
+            var next = PickNext(chore, eligible.Select(u => u.Id).ToList(), assignments, completions, freezingUserId, null, now);
+            reassignments.Add((chore, eligible.First(u => u.Id == next.Lead), next.Partner));
         }
 
         return (reassignments, unassignable);
@@ -1901,14 +1946,16 @@ public class ChoreService
         var (reassignments, unassignable) = await GetChoreReassignmentsForFreezeAsync(freezingUserId, ct);
         var now = DateTimeOffset.UtcNow;
 
-        foreach (var (chore, newAssignee) in reassignments)
+        foreach (var (chore, newAssignee, partnerId) in reassignments)
         {
             var previousAssigneeId = chore.CurrentAssigneeId;
             chore.CurrentAssigneeId = newAssignee.Id;
+            chore.CurrentPartnerId = partnerId;
             _db.ChoreAssignments.Add(new ChoreAssignment
             {
                 ChoreId = chore.Id,
                 UserId = newAssignee.Id,
+                PartnerUserId = partnerId,
                 AssignedAt = now,
                 PreviousAssigneeId = previousAssigneeId,
             });
@@ -1919,6 +1966,7 @@ public class ChoreService
         foreach (var chore in unassignable)
         {
             chore.CurrentAssigneeId = null;
+            chore.CurrentPartnerId = null;
             await VoidOffersAsync(chore, OfferStatus.Cancelled, ct);
         }
     }

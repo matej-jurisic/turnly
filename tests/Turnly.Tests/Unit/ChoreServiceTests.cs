@@ -831,31 +831,12 @@ public class ChoreServiceTests
         // The chore doesn't move until someone claims it.
         Assert.Equal(member, result.Value!.CurrentAssignee!.Id);
         Assert.Equal(member, result.Value!.OpenOffer!.FromUser.Id);
-        Assert.Null(result.Value!.OpenOffer!.ToUser); // open to anyone
         Assert.Equal(1, await ctx.Db.ChoreAssignments.CountAsync(a => a.ChoreId == chore.Id));
         // Every other assignee heard about it.
         Assert.Equal(1, await ctx.Db.UserNotifications.CountAsync(n => n.UserId == admin && n.ChoreId == chore.Id));
 
         var offer = await ctx.Db.ChoreOffers.SingleAsync(o => o.ChoreId == chore.Id);
         Assert.Equal(OfferStatus.Pending, offer.Status);
-    }
-
-    [Fact]
-    public async Task OfferAsync_targeted_offer_records_recipient()
-    {
-        using var ctx = new TestContext();
-        var (admin, member) = await SeedUsersAsync(ctx);
-        var third = (await ctx.Users.CreateAsync(
-            new CreateUserRequest("kid2", "Kid Two", "kidpass2", UserRole.Member, null))).Value!.Id;
-        var chore = (await ctx.Chores.CreateAsync(NewChore(member, [admin, member, third]))).Value!;
-
-        var result = await ctx.Chores.OfferAsync(chore.Id, member, new OfferChoreRequest(ToUserId: admin));
-
-        Assert.True(result.Succeeded);
-        Assert.Equal(admin, result.Value!.OpenOffer!.ToUser!.Id);
-        // Only the target is notified, not the whole assignee list.
-        Assert.Equal(1, await ctx.Db.UserNotifications.CountAsync(n => n.UserId == admin && n.ChoreId == chore.Id));
-        Assert.Equal(0, await ctx.Db.UserNotifications.CountAsync(n => n.UserId == third && n.ChoreId == chore.Id));
     }
 
     [Fact]
@@ -917,11 +898,11 @@ public class ChoreServiceTests
             new CreateUserRequest("kid2", "Kid Two", "kidpass2", UserRole.Member, null))).Value!.Id;
         var chore = (await ctx.Chores.CreateAsync(NewChore(member, [admin, member, third]))).Value!;
 
-        await ctx.Chores.OfferAsync(chore.Id, member, new OfferChoreRequest(ToUserId: admin, BountyPoints: 20));
-        var result = await ctx.Chores.OfferAsync(chore.Id, member, new OfferChoreRequest(ToUserId: third, BountyPoints: 5));
+        await ctx.Chores.OfferAsync(chore.Id, member, new OfferChoreRequest(BountyPoints: 20));
+        var result = await ctx.Chores.OfferAsync(chore.Id, member, new OfferChoreRequest(BountyPoints: 5));
 
         Assert.True(result.Succeeded);
-        Assert.Equal(third, result.Value!.OpenOffer!.ToUser!.Id);
+        Assert.Equal(5, result.Value!.OpenOffer!.BountyPoints);
         // Exactly one offer stays live; the first was cancelled.
         Assert.Equal(1, await ctx.Db.ChoreOffers.CountAsync(o => o.ChoreId == chore.Id && o.Status == OfferStatus.Pending));
         Assert.Equal(1, await ctx.Db.ChoreOffers.CountAsync(o => o.ChoreId == chore.Id && o.Status == OfferStatus.Cancelled));
@@ -978,62 +959,6 @@ public class ChoreServiceTests
         Assert.False(second.Succeeded);
         Assert.Equal(ErrorType.NotFound, second.Error!.Type);
         Assert.Equal(admin, (await ctx.Chores.GetAsync(chore.Id)).Value!.CurrentAssignee!.Id);
-    }
-
-    [Fact]
-    public async Task ClaimOfferAsync_rejects_someone_elses_targeted_offer()
-    {
-        using var ctx = new TestContext();
-        var (admin, member) = await SeedUsersAsync(ctx);
-        var third = (await ctx.Users.CreateAsync(
-            new CreateUserRequest("kid2", "Kid Two", "kidpass2", UserRole.Member, null))).Value!.Id;
-        var chore = (await ctx.Chores.CreateAsync(NewChore(member, [admin, member, third]))).Value!;
-        await ctx.Chores.OfferAsync(chore.Id, member, new OfferChoreRequest(ToUserId: admin));
-
-        var result = await ctx.Chores.ClaimOfferAsync(chore.Id, third);
-
-        Assert.False(result.Succeeded);
-        Assert.Equal(ErrorType.Forbidden, result.Error!.Type);
-        Assert.Equal(member, (await ctx.Chores.GetAsync(chore.Id)).Value!.CurrentAssignee!.Id);
-    }
-
-    [Fact]
-    public async Task DeclineOfferAsync_refunds_and_leaves_chore_with_offerer()
-    {
-        using var ctx = new TestContext();
-        var (admin, member) = await SeedUsersAsync(ctx);
-        await ctx.Users.AdjustPointsAsync(member, new AdjustPointsRequest(50, "seed"));
-        var chore = (await ctx.Chores.CreateAsync(NewChore(member, [admin, member]))).Value!;
-        await ctx.Chores.OfferAsync(chore.Id, member, new OfferChoreRequest(ToUserId: admin, BountyPoints: 20));
-
-        var result = await ctx.Chores.DeclineOfferAsync(chore.Id, admin);
-
-        Assert.True(result.Succeeded);
-        Assert.Equal(member, result.Value!.CurrentAssignee!.Id);
-        Assert.Null(result.Value!.OpenOffer);
-        Assert.Equal(1, await ctx.Db.ChoreAssignments.CountAsync(a => a.ChoreId == chore.Id)); // no new assignment
-
-        var offer = await ctx.Db.ChoreOffers.SingleAsync(o => o.ChoreId == chore.Id);
-        Assert.Equal(OfferStatus.Declined, offer.Status);
-        Assert.Equal(50, (await ctx.Db.Users.FindAsync(member))!.Points); // fully refunded
-        Assert.Equal(0, (await ctx.Db.Users.FindAsync(admin))!.Points);
-    }
-
-    [Fact]
-    public async Task DeclineOfferAsync_rejects_non_target()
-    {
-        using var ctx = new TestContext();
-        var (admin, member) = await SeedUsersAsync(ctx);
-        var third = (await ctx.Users.CreateAsync(
-            new CreateUserRequest("kid2", "Kid Two", "kidpass2", UserRole.Member, null))).Value!.Id;
-        var chore = (await ctx.Chores.CreateAsync(NewChore(member, [admin, member, third]))).Value!;
-        await ctx.Chores.OfferAsync(chore.Id, member, new OfferChoreRequest(ToUserId: admin));
-
-        var result = await ctx.Chores.DeclineOfferAsync(chore.Id, third);
-
-        Assert.False(result.Succeeded);
-        Assert.Equal(ErrorType.NotFound, result.Error!.Type);
-        Assert.Equal(OfferStatus.Pending, (await ctx.Db.ChoreOffers.SingleAsync(o => o.ChoreId == chore.Id)).Status);
     }
 
     [Fact]
@@ -2525,5 +2450,134 @@ public class ChoreServiceTests
         Assert.True((await ctx.Db.ChoreCompletions.FindAsync(expiredId))!.IsExpired);
         Assert.Equal(2, await ctx.Db.ChoreCompletions.CountAsync());
         Assert.Equal(Start.AddDays(2), result.Value.DueAt);
+    }
+
+    // ── Day start ─────────────────────────────────────────────────────────────────────────────
+
+    [Fact]
+    public async Task AutoAdvanceAsync_holds_an_all_day_chore_until_the_day_start()
+    {
+        using var ctx = new TestContext();
+        var (_, member) = await SeedUsersAsync(ctx);
+        await ctx.Settings.SetDayStartAsync("05:00");
+        var chore = (await ctx.Chores.CreateAsync(
+            NewChore(member, [member]) with { AutoAdvanceIncomplete = true })).Value!;
+
+        Assert.Equal(0, await ctx.Chores.AutoAdvanceAsync(Start.AddHours(4)));
+        Assert.Empty(ctx.Db.ChoreCompletions);
+
+        Assert.Equal(1, await ctx.Chores.AutoAdvanceAsync(Start.AddHours(5)));
+        Assert.Equal(Start.AddDays(1), (await ctx.Db.Chores.FindAsync(chore.Id))!.DueAt);
+    }
+
+    [Fact]
+    public async Task AutoAdvanceAsync_adds_the_completion_window_on_top_of_the_day_start()
+    {
+        using var ctx = new TestContext();
+        var (_, member) = await SeedUsersAsync(ctx);
+        await ctx.Settings.SetDayStartAsync("05:00");
+        await ctx.Chores.CreateAsync(
+            NewChore(member, [member]) with { AutoAdvanceIncomplete = true, CompletionWindowMinutes = 60 });
+
+        Assert.Equal(0, await ctx.Chores.AutoAdvanceAsync(Start.AddHours(5.5)));
+        Assert.Equal(1, await ctx.Chores.AutoAdvanceAsync(Start.AddHours(6)));
+    }
+
+    [Fact]
+    public async Task AutoAdvanceAsync_ignores_the_day_start_for_a_timed_chore()
+    {
+        using var ctx = new TestContext();
+        var (_, member) = await SeedUsersAsync(ctx);
+        await ctx.Settings.SetDayStartAsync("05:00");
+        await ctx.Chores.CreateAsync(
+            NewChore(member, [member]) with { AutoAdvanceIncomplete = true, DueTime = "09:00" });
+
+        Assert.Equal(1, await ctx.Chores.AutoAdvanceAsync(Start.AddHours(1)));
+    }
+
+    [Fact]
+    public async Task CompleteAsync_after_midnight_but_before_the_day_start_counts_for_the_previous_day()
+    {
+        using var ctx = new TestContext();
+        var (_, member) = await SeedUsersAsync(ctx);
+        var afterMidnight = Start.AddHours(16); // 01:00 the next calendar day
+
+        var plain = (await ctx.Chores.CreateAsync(
+            NewChore(member, [member], scheduling: SchedulingPreference.FromCompletionDate))).Value!;
+        var withoutDayStart = await ctx.Chores.CompleteAsync(plain.Id, member, new CompleteChoreRequest(null, CompletedAt: afterMidnight));
+        Assert.Equal(Start.AddDays(2), withoutDayStart.Value!.DueAt);
+        Assert.Equal(0, withoutDayStart.Value.CurrentStreak);
+
+        await ctx.Settings.SetDayStartAsync("05:00");
+        var shifted = (await ctx.Chores.CreateAsync(
+            NewChore(member, [member], scheduling: SchedulingPreference.FromCompletionDate))).Value!;
+        var withDayStart = await ctx.Chores.CompleteAsync(shifted.Id, member, new CompleteChoreRequest(null, CompletedAt: afterMidnight));
+
+        // The next occurrence is the following day, not the one after, and the row keeps its real time.
+        Assert.Equal(Start.AddDays(1), withDayStart.Value!.DueAt);
+        var row = await ctx.Db.ChoreCompletions.SingleAsync(c => c.ChoreId == shifted.Id);
+        Assert.Equal(afterMidnight, row.CompletedAt);
+    }
+
+    [Fact]
+    public async Task Late_completion_by_someone_else_is_a_rescue_and_late_for_nobody()
+    {
+        using var ctx = new TestContext();
+        var (admin, member) = await SeedUsersAsync(ctx);
+        var chore = (await ctx.Chores.CreateAsync(NewChore(member, [member, admin]))).Value!;
+        await ctx.Chores.CompleteAsync(chore.Id, admin, new CompleteChoreRequest(null, CompletedAt: Start.AddHours(2)));
+
+        var stats = (await ctx.Users.GetStatsAsync()).UserStats;
+        var rescuer = stats.Single(s => s.UserId == admin);
+        Assert.Equal((1, 0, 0, 1), (rescuer.AllTimeCount, rescuer.OnTimeCount, rescuer.OverdueCount, rescuer.RescueCount));
+        var holder = stats.Single(s => s.UserId == member);
+        Assert.Equal((0, 0, 0), (holder.OnTimeCount, holder.OverdueCount, holder.MissedCount));
+        Assert.True(Assert.Single(await ctx.Chores.GetHistoryAsync(null, null, chore.Id)).IsRescue);
+    }
+
+    [Fact]
+    public async Task Late_completion_by_the_holder_is_late_not_a_rescue()
+    {
+        using var ctx = new TestContext();
+        var (admin, member) = await SeedUsersAsync(ctx);
+        var chore = (await ctx.Chores.CreateAsync(NewChore(member, [member, admin]))).Value!;
+        await ctx.Chores.CompleteAsync(chore.Id, member, new CompleteChoreRequest(null, CompletedAt: Start.AddHours(2)));
+
+        Assert.Equal(1, (await ctx.Users.GetStatsAsync()).UserStats.Single(s => s.UserId == member).OverdueCount);
+        Assert.False(Assert.Single(await ctx.Chores.GetHistoryAsync(null, null, chore.Id)).IsRescue);
+    }
+
+    [Fact]
+    public async Task Day_start_keeps_a_completion_before_it_on_time_in_streaks_and_stats()
+    {
+        using var ctx = new TestContext();
+        var (_, member) = await SeedUsersAsync(ctx);
+        var chore = (await ctx.Chores.CreateAsync(NewChore(member, [member]))).Value!;
+        await ctx.Chores.CompleteAsync(chore.Id, member, new CompleteChoreRequest(null, CompletedAt: Start.AddHours(2)));
+
+        Assert.Equal(0, (await ctx.Chores.GetAsync(chore.Id)).Value!.CurrentStreak);
+        var before = (await ctx.Users.GetStatsAsync()).UserStats.Single(s => s.UserId == member);
+        Assert.Equal((0, 1), (before.OnTimeCount, before.OverdueCount));
+
+        await ctx.Settings.SetDayStartAsync("05:00");
+
+        Assert.Equal(1, (await ctx.Chores.GetAsync(chore.Id)).Value!.CurrentStreak);
+        var after = (await ctx.Users.GetStatsAsync()).UserStats.Single(s => s.UserId == member);
+        Assert.Equal((1, 0), (after.OnTimeCount, after.OverdueCount));
+    }
+
+    [Fact]
+    public async Task GetStatsAsync_buckets_timeliness_by_period()
+    {
+        using var ctx = new TestContext();
+        var (_, member) = await SeedUsersAsync(ctx);
+        var chore = (await ctx.Chores.CreateAsync(NewChore(member, [member]))).Value!;
+        // Start is months back: late all time, but nothing this week or month.
+        await ctx.Chores.CompleteAsync(chore.Id, member, new CompleteChoreRequest(null, CompletedAt: Start.AddHours(2)));
+
+        var stats = (await ctx.Users.GetStatsAsync()).UserStats.Single(s => s.UserId == member);
+        Assert.Equal(1, stats.OverdueCount);
+        Assert.Equal(new TimelinessCountsDto(0, 0, 0, 0), stats.WeeklyTimeliness);
+        Assert.Equal(new TimelinessCountsDto(0, 0, 0, 0), stats.MonthlyTimeliness);
     }
 }

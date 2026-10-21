@@ -70,8 +70,10 @@ public class UserService
         var users = await _db.Users.OrderBy(u => u.DisplayName).ToListAsync(ct);
         var allCompletions = await _db.ChoreCompletions
             .Where(c => !c.IsSkip) // skips are not real completions — exclude from stats
-            .Select(c => new { c.CompletedByUserId, c.PartnerUserId, c.CompletedAt, c.OccurrenceDueAt, c.IsExpired, c.PreviousAssigneeId })
+            .Select(c => new { c.ChoreId, c.CompletedByUserId, c.PartnerUserId, c.CompletedAt, c.OccurrenceDueAt, c.IsExpired, c.PreviousAssigneeId, c.PreviousPartnerId })
             .ToListAsync(ct);
+        // An all-day chore is on time until the household's day start, not midnight.
+        var lateGrace = await AppSettingsService.ReadLateGraceByChoreAsync(_db, ct);
 
         var weekStart = GetCurrentWeekStart();
         var now = DateTimeOffset.UtcNow;
@@ -85,14 +87,32 @@ public class UserService
         var userStats = users.Select(u =>
         {
             var mine = done.Where(c => c.CompletedByUserId == u.Id || c.PartnerUserId == u.Id).ToList();
+            var myMissed = missed.Where(c => c.PreviousAssigneeId == u.Id || c.PartnerUserId == u.Id).ToList();
+            // Each bucket is keyed on the row's CompletedAt (for an expired row: when it expired).
+            TimelinessCountsDto Timeliness(DateTimeOffset since)
+            {
+                var inPeriod = mine.Where(c => c.CompletedAt >= since && c.OccurrenceDueAt.HasValue).ToList();
+                // Stepping in late for someone else's overdue chore is a rescue: late for nobody.
+                var rescues = inPeriod.Count(c => ChoreCompletion.IsRescue(false, false, c.CompletedAt, c.OccurrenceDueAt, c.CompletedByUserId, c.PartnerUserId, c.PreviousAssigneeId, c.PreviousPartnerId, lateGrace.GetValueOrDefault(c.ChoreId)));
+                var late = inPeriod.Count(c => c.CompletedAt > c.OccurrenceDueAt!.Value + lateGrace.GetValueOrDefault(c.ChoreId));
+                return new TimelinessCountsDto(
+                    inPeriod.Count - late,
+                    late - rescues,
+                    rescues,
+                    myMissed.Count(c => c.CompletedAt >= since));
+            }
+            var allTime = Timeliness(DateTimeOffset.MinValue);
             return new UserStatsDto(
                 u.Id, u.DisplayName, u.AvatarColor,
                 mine.Count(c => c.CompletedAt >= weekStart),
                 mine.Count(c => c.CompletedAt >= monthStart),
                 mine.Count,
-                mine.Count(c => c.OccurrenceDueAt.HasValue && c.CompletedAt <= c.OccurrenceDueAt.Value),
-                mine.Count(c => c.OccurrenceDueAt.HasValue && c.CompletedAt > c.OccurrenceDueAt.Value),
-                missed.Count(c => c.PreviousAssigneeId == u.Id || c.PartnerUserId == u.Id),
+                allTime.OnTime,
+                allTime.Overdue,
+                allTime.Missed,
+                allTime.Rescue,
+                Timeliness(weekStart),
+                Timeliness(monthStart),
                 u.AvatarEmoji, u.EquippedFrameKey);
         }).ToList();
 
@@ -318,12 +338,13 @@ public class UserService
             .Where(c => c.AssignmentStrategy == AssignmentStrategy.Independent
                      && c.AssigneeTracks.Any(t => t.UserId == userId))
             .ToListAsync(ct);
+        var dayStart = await AppSettingsService.ReadDayStartAsync(_db, ct);
 
         foreach (var chore in trackChores)
         {
             var track = chore.AssigneeTracks.FirstOrDefault(t => t.UserId == userId);
             if (track is null) continue;
-            track.DueAt = ChoreService.StepForwardIfOverdue(chore, track.DueAt, now);
+            track.DueAt = ChoreService.StepForwardIfOverdue(chore, track.DueAt, now - chore.LateGrace(dayStart));
             chore.DueAt = ChoreService.EarliestTrackDue(chore.AssigneeTracks);
         }
 

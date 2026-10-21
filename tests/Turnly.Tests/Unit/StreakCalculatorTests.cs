@@ -113,4 +113,14 @@ public class StreakCalculatorTests
         };
         Assert.Equal(1, StreakCalculator.CurrentStreak(completions));
     }
+
+    [Fact]
+    public void Late_grace_keeps_a_completion_inside_it_on_time()
+    {
+        var completions = new[] { Done(0, -1), Done(1, 3), Done(2, -1) };
+
+        Assert.Equal(1, StreakCalculator.CurrentStreak(completions));
+        Assert.Equal(3, StreakCalculator.CurrentStreak(completions, lateGrace: TimeSpan.FromHours(5)));
+        Assert.Equal(1, StreakCalculator.CurrentStreak(completions, lateGrace: TimeSpan.FromHours(2)));
+    }
 }

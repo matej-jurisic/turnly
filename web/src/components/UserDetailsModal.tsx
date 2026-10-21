@@ -1,8 +1,8 @@
 import { useQuery } from '@tanstack/react-query'
-import { historyApi } from '@/lib/api'
+import { choresApi, historyApi } from '@/lib/api'
 import { Modal, Avatar } from '@/components/ui/Modal'
 import { Badge } from '@/components/ui/Badge'
-import { formatDateTime, relativeTimeLabel } from '@/lib/chore-format'
+import { beatDeadline, choreHasDueTime, formatDateTime, relativeTimeLabel, timelinessClass, timelinessLabel } from '@/lib/chore-format'
 import { t } from '@/lib/i18n'
 
 interface UserDetailsModalProps {
@@ -31,6 +31,8 @@ export function UserDetailsModal({
     queryFn: () => historyApi.list({ userId }),
   })
 
+  const { data: chores = [] } = useQuery({ queryKey: ['chores'], queryFn: choresApi.list })
+
   const title = (
     <span className="flex items-center gap-2">
       <Avatar color={avatarColor} name={displayName} size={28} frame={equippedFrameKey} emoji={avatarEmoji} />
@@ -51,8 +53,9 @@ export function UserDetailsModal({
         ) : (
           <ul className="divide-y divide-border">
             {completions.map((entry) => {
+              const entryChore = chores.find((c) => c.id === entry.choreId)
               const onTime = entry.occurrenceDueAt
-                ? new Date(entry.at) <= new Date(entry.occurrenceDueAt)
+                ? beatDeadline(entry.at, entry.occurrenceDueAt, !!entryChore && choreHasDueTime(entryChore))
                 : null
               return (
                 <li key={entry.id} className="flex items-start gap-3 py-2.5">
@@ -73,8 +76,8 @@ export function UserDetailsModal({
                       {relativeTimeLabel(entry.at)}
                     </time>
                     {onTime !== null && (
-                      <span className={onTime ? 'text-success' : 'text-destructive'}>
-                        {onTime ? t('history.onTimeLower') : t('history.lateLower')}
+                      <span className={timelinessClass(entry, onTime)}>
+                        {timelinessLabel(entry, onTime)}
                       </span>
                     )}
                     {entry.pointsAwarded > 0 && (

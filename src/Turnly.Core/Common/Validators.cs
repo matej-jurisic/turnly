@@ -190,6 +190,21 @@ public static class Validators
         return null;
     }
 
+    /// <summary>Validates the household day start. Null/empty is valid (= midnight); otherwise it must
+    /// be "HH:mm" and no later than noon, past which it would stop reading as "the night before".</summary>
+    public static Error? DayStart(string? value, out TimeOnly parsed)
+    {
+        parsed = TimeOnly.MinValue;
+        if (string.IsNullOrWhiteSpace(value))
+            return null;
+        if (!TimeOnly.TryParseExact(value.Trim(), "HH:mm", out var time))
+            return Error.Validation("The day start must be in HH:mm format.");
+        if (time > new TimeOnly(12, 0))
+            return Error.Validation("The day start can't be later than 12:00.");
+        parsed = time;
+        return null;
+    }
+
     /// <summary>Validates the optional "N times a day" fixed time-of-day list and returns the parsed,
     /// de-duplicated, sorted set via <paramref name="parsed"/>. Empty/null is valid (single daily
     /// slot). Times are only allowed on day-resolution schedules: Daily and the custom DaysOfWeek /
@@ -246,23 +261,22 @@ public static class Validators
     }
 
     /// <summary>Validates the fixed pairs of a chore and returns them via <paramref name="parsed"/>:
-    /// each pair is two different assignees of the chore, and nobody sits in more than one pair (so a
-    /// person's partner is never ambiguous).</summary>
+    /// each pair is two different assignees of the chore, and no pair is listed twice. One person may
+    /// be in several pairs.</summary>
     public static Error? Pairs(Guid[][]? values, IReadOnlyCollection<Guid> assigneeIds, out List<ChorePair> parsed)
     {
         parsed = new List<ChorePair>();
         if (values is null)
             return null;
 
-        var seen = new HashSet<Guid>();
         foreach (var pair in values)
         {
             if (pair is not { Length: 2 } || pair[0] == pair[1])
                 return Error.Validation("Each pair must be two different people.");
             if (!assigneeIds.Contains(pair[0]) || !assigneeIds.Contains(pair[1]))
                 return Error.Validation("Both people in a pair must be assignees of the chore.");
-            if (!seen.Add(pair[0]) || !seen.Add(pair[1]))
-                return Error.Validation("A person can only be in one pair.");
+            if (parsed.Any(p => p.Is(pair[0], pair[1])))
+                return Error.Validation("The same pair is listed twice.");
             parsed.Add(new ChorePair(pair[0], pair[1]));
         }
         return null;

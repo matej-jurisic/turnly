@@ -22,6 +22,7 @@ import { HistoryPage } from '@/pages/HistoryPage'
 import { RewardsPage } from '@/pages/RewardsPage'
 import { AchievementsPage } from '@/pages/AchievementsPage'
 import { t, useLanguageStore } from '@/lib/i18n'
+import { useDayStartStore } from '@/lib/day-start'
 
 export default function App() {
   // `t` reads the language imperatively, so a switch remounts everything that renders text.
@@ -42,6 +43,8 @@ function AppRoutes() {
   const setStatus = useAuthStore((s) => s.setStatus)
   const navigate = useNavigate()
   const language = useLanguageStore((s) => s.language)
+  // Read imperatively by the date helpers, same as the language, so a change remounts the pages.
+  const dayStart = useDayStartStore((s) => s.dayStart)
   const [needsSetup, setNeedsSetup] = useState(false)
   const [needsServer, setNeedsServer] = useState(false)
   // Bumped after the native server picker connects, to re-run the bootstrap below.
@@ -112,7 +115,7 @@ function AppRoutes() {
 
   if (status === 'authenticated') {
     return (
-      <Routes key={language}>
+      <Routes key={`${language}-${dayStart}`}>
         <Route element={<Layout />}>
           <Route index element={<Navigate to="/chores" replace />} />
           <Route path="/dashboard" element={<Navigate to="/chores" replace />} />

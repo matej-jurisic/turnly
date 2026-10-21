@@ -82,8 +82,8 @@ public static class ChoreEndpoints
             return result.Succeeded ? Results.Ok(result.Value) : result.Error!.ToProblem();
         });
 
-        // Put the current occurrence up for someone to take, optionally with a points bounty. An
-        // omitted ToUserId makes it open to every other assignee, first come first served.
+        // Put the current occurrence up for any other assignee to take (first come first served),
+        // optionally with a points bounty.
         group.MapPost("/{id:guid}/offer", async (Guid id, OfferChoreRequest req,
             ClaimsPrincipal principal, ChoreService chores, CancellationToken ct) =>
         {
@@ -100,16 +100,6 @@ public static class ChoreEndpoints
             if (principal.GetUserId() is not { } userId)
                 return Results.Unauthorized();
             var result = await chores.ClaimOfferAsync(id, userId, ct);
-            return result.Succeeded ? Results.Ok(result.Value) : result.Error!.ToProblem();
-        });
-
-        // Turn down an offer aimed at you (targeted offers only).
-        group.MapPost("/{id:guid}/offer/decline", async (Guid id,
-            ClaimsPrincipal principal, ChoreService chores, CancellationToken ct) =>
-        {
-            if (principal.GetUserId() is not { } userId)
-                return Results.Unauthorized();
-            var result = await chores.DeclineOfferAsync(id, userId, ct);
             return result.Succeeded ? Results.Ok(result.Value) : result.Error!.ToProblem();
         });
 

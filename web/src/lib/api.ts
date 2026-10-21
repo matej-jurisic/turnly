@@ -3,6 +3,7 @@ import { isNative } from '@/lib/native'
 import { getServerOrigin } from '@/lib/server-config'
 import { getRefreshToken, setRefreshToken } from '@/lib/native-auth'
 import type {
+  AppVersion,
   AppSettings,
   AuthResponse,
   Award,
@@ -207,8 +208,6 @@ export const choresApi = {
     request<Chore>(`/chores/${id}/offer`, { method: 'POST', body: json(body) }),
   claimOffer: (id: string) =>
     request<Chore>(`/chores/${id}/offer/claim`, { method: 'POST', body: json({}) }),
-  declineOffer: (id: string) =>
-    request<Chore>(`/chores/${id}/offer/decline`, { method: 'POST', body: json({}) }),
   withdrawOffer: (id: string) => request<Chore>(`/chores/${id}/offer`, { method: 'DELETE' }),
   reschedule: (id: string, body: RescheduleChoreRequest) =>
     request<Chore>(`/chores/${id}/reschedule`, { method: 'POST', body: json(body) }),
@@ -228,10 +227,18 @@ export const tagsApi = {
   remove: (id: string) => request<void>(`/tags/${id}`, { method: 'DELETE' }),
 }
 
+export const versionApi = {
+  get: () => request<AppVersion>('/version'),
+  /** Download link for the newest APK; opened outside the app, so it carries no token. */
+  androidApkUrl: () => `${apiBase()}/version/android.apk`,
+}
+
 export const settingsApi = {
   get: () => request<AppSettings>('/settings'),
   update: (timeZone: string | null) =>
     request<AppSettings>('/settings', { method: 'PUT', body: json({ timeZone }) }),
+  updateDayStart: (dayStart: string) =>
+    request<AppSettings>('/settings/day-start', { method: 'PUT', body: json({ dayStart }) }),
   freshStart: () => request<void>('/settings/fresh-start', { method: 'POST' }),
 }
 

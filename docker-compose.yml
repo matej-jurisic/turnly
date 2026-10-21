@@ -20,6 +20,9 @@ services:
       Fcm__CredentialsPath: ${FCM_CREDENTIALS_PATH:-}
       # Allow the native app's WebView origin (https://localhost). Blank values are ignored.
       Cors__Origins__0: ${CORS_ORIGIN_ANDROID:-}
+      # Folder of published APKs (turnly-v{name}-{code}.apk). The Android app offers the newest one
+      # as an update; leave blank to disable.
+      Releases__Path: ${RELEASES_PATH:-}
     volumes:
       - turnly-data:/data
     restart: unless-stopped

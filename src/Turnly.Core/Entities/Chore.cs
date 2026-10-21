@@ -55,7 +55,7 @@ public class Chore
     /// <summary>How many completions (skips count too) are needed to close the current occurrence
     /// before it advances to the next due date — e.g. 3 = "three times per occurrence". 1 for the
     /// usual one-completion-per-occurrence chore. Only meaningful for the non-custom repeat types
-    /// (OneTime/Daily/Weekly/Monthly/Yearly); custom recurrences are always 1.</summary>
+    /// (OneTime/Daily/Weekly/Monthly/Yearly); custom and on-demand chores are always 1.</summary>
     public int CompletionsRequired { get; set; } = 1;
 
     /// <summary>For multi-completion chores (<see cref="CompletionsRequired"/> &gt; 1): rotate the
@@ -104,6 +104,15 @@ public class Chore
     /// instant lives in <see cref="StartDate"/>/<see cref="DueAt"/>.</summary>
     public TimeOnly? DueTime { get; set; }
 
+    /// <summary>Whether the due instant carries a concrete time-of-day, as opposed to an all-day
+    /// "end of day" due. Mirrors <c>choreHasDueTime</c> on the client.</summary>
+    public bool HasDueTime => DueTime is not null || TimesOfDay.Count > 0;
+
+    /// <summary>How long past its due instant an occurrence still counts as on time. Only an all-day
+    /// chore gets the household's day start (see <c>AppSettingsService.DayStartKey</c>): its "end of
+    /// day" is when the next day starts, not midnight. A timed chore is late the moment its time passes.</summary>
+    public TimeSpan LateGrace(TimeSpan dayStart) => HasDueTime ? TimeSpan.Zero : dayStart;
+
     /// <summary>Due date of the current/next occurrence. Null means nothing is scheduled
     /// (e.g. a completed one-time chore).</summary>
     public DateTimeOffset? DueAt { get; set; }
@@ -112,24 +121,41 @@ public class Chore
     public Guid? CurrentAssigneeId { get; set; }
     public User? CurrentAssignee { get; set; }
 
+    /// <summary>On a paired chore, who shares the current turn with <see cref="CurrentAssigneeId"/>.
+    /// Stored because a person can be in several pairs, so the pair can't be derived from the
+    /// assignee alone. Read it through <see cref="HeldPartnerId"/> / <see cref="CurrentPartner"/>,
+    /// which also cover rows written before this column existed. A plain id, not a navigation.</summary>
+    public Guid? CurrentPartnerId { get; set; }
+
     /// <summary>Fixed pairs of assignees who do this chore together. The pair is the unit: it holds
-    /// the turn, rotates and is credited as one. <see cref="CurrentAssigneeId"/> stays a single user
-    /// (either member) and the partner is derived from it, so nothing else has to know about pairs.
-    /// A user is in at most one pair; assignees outside every pair simply take their turn alone.
+    /// the turn, rotates and is credited as one. Pairs may overlap (Ana &amp; Ben, Ana &amp; Cy): each
+    /// is its own turn in the rotation. Assignees outside every pair take their turn alone.
     /// Always empty on <see cref="AssignmentStrategy.Independent"/> chores.</summary>
     public List<ChorePair> Pairs { get; set; } = new();
 
-    /// <summary>The fixed partner of <paramref name="userId"/> on this chore, or null when they have
-    /// none. A frozen partner counts as none: they're away, so the other member carries the turn
-    /// alone. Needs <see cref="Assignees"/> loaded.</summary>
-    public User? PartnerOf(Guid? userId)
+    /// <summary>The pairs both of whose members are around to do the chore (assignees, not frozen).
+    /// Needs <see cref="Assignees"/> loaded.</summary>
+    public IEnumerable<ChorePair> LivePairs() =>
+        Pairs.Where(p => IsAvailable(p.First) && IsAvailable(p.Second));
+
+    private bool IsAvailable(Guid userId) => Assignees.Any(a => a.Id == userId && !a.IsFrozen);
+
+    /// <summary>The partner the current turn belongs to alongside the current assignee, frozen or
+    /// not: the stored one while the two are still a pair, otherwise (never set, or the pair was
+    /// edited away) the assignee's first live pair. Null when they hold it alone.
+    /// Needs <see cref="Assignees"/> loaded.</summary>
+    public Guid? HeldPartnerId()
     {
-        if (userId is not { } id) return null;
-        foreach (var pair in Pairs)
-            if (pair.Other(id) is { } other)
-                return Assignees.FirstOrDefault(a => a.Id == other && !a.IsFrozen);
-        return null;
+        if (CurrentAssigneeId is not { } current) return null;
+        if (CurrentPartnerId is { } stored && Pairs.Any(p => p.Is(current, stored))) return stored;
+        return LivePairs().FirstOrDefault(p => p.Has(current))?.Other(current);
     }
+
+    /// <summary>Who shares the current turn with the current assignee, or null when there is nobody.
+    /// A frozen partner counts as none: they're away, so the other member carries the turn alone.
+    /// Needs <see cref="Assignees"/> loaded.</summary>
+    public User? CurrentPartner() =>
+        HeldPartnerId() is { } id ? Assignees.FirstOrDefault(a => a.Id == id && !a.IsFrozen) : null;
 
     /// <summary>Everyone holding the current occurrence: the current assignee plus their partner on a
     /// paired chore. Empty when unassigned. Needs <see cref="Assignees"/> loaded.</summary>
@@ -137,7 +163,25 @@ public class Chore
     {
         if (CurrentAssigneeId is not { } current) yield break;
         yield return current;
-        if (PartnerOf(current) is { } partner) yield return partner.Id;
+        if (CurrentPartner() is { } partner) yield return partner.Id;
+    }
+
+    /// <summary>Who is credited alongside <paramref name="userId"/> when they do the turn held by
+    /// <paramref name="holderId"/> and <paramref name="holderPartnerId"/>. A holder shares it with
+    /// their co-holder. Someone stepping in from outside brings their partner only when that is
+    /// unambiguous (they are in exactly one live pair); otherwise they are credited alone.
+    /// Needs <see cref="Assignees"/> loaded.</summary>
+    public User? CreditedPartner(Guid userId, Guid? holderId, Guid? holderPartnerId)
+    {
+        Guid? partnerId;
+        if (userId == holderId) partnerId = holderPartnerId;
+        else if (userId == holderPartnerId) partnerId = holderId;
+        else
+        {
+            var mine = LivePairs().Where(p => p.Has(userId)).Take(2).ToList();
+            partnerId = mine.Count == 1 ? mine[0].Other(userId) : null;
+        }
+        return partnerId is { } id ? Assignees.FirstOrDefault(a => a.Id == id && !a.IsFrozen) : null;
     }
 
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;

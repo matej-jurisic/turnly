@@ -80,10 +80,18 @@ public record FreezeUnassignableDto(Guid ChoreId, string ChoreName, string? Chor
 public record UserFreezePreviewDto(FreezeReassignmentDto[] Reassignments, FreezeUnassignableDto[] Unassignable);
 
 /// <summary>App-wide settings. <see cref="TimeZone"/> is the configured family zone (null = unset);
-/// <see cref="ServerTimeZone"/> is the host's local zone, used as the fallback and shown in the UI.</summary>
-public record AppSettingsDto(string? TimeZone, string ServerTimeZone);
+/// <see cref="ServerTimeZone"/> is the host's local zone, used as the fallback and shown in the UI.
+/// <see cref="DayStart"/> ("HH:mm", "00:00" = midnight) is when the household's day rolls over.</summary>
+public record AppSettingsDto(string? TimeZone, string ServerTimeZone, string DayStart);
+
+/// <summary>What the server currently ships, so clients can tell they are out of date:
+/// <see cref="Web"/> is the build id of the frontend it serves, <see cref="Android"/> the
+/// versionCode of the newest published APK. Either is null when unknown (dev, no releases).</summary>
+public record AppVersionDto(string? Web, int? Android);
 
 public record UpdateAppSettingsRequest(string? TimeZone);
+
+public record UpdateDayStartRequest(string? DayStart);
 
 public record ChoreDto(
     Guid Id,
@@ -124,7 +132,7 @@ public record ChoreDto(
 {
     public static ChoreDto FromEntity(Chore c, ChoreCompletion? lastCompletion = null, int? occurrenceProgress = null,
         User? nextAssignee = null, ChoreAssigneeTrackDto[]? tracks = null, int currentStreak = 0,
-        ChoreOffer? openOffer = null) =>
+        ChoreOffer? openOffer = null, User? nextPartner = null) =>
         new(c.Id, c.Name, c.Description, c.Emoji, c.Points, c.RepeatType,
             c.CustomMode, c.IntervalCount, c.IntervalUnit,
             c.Weekdays.ToArray(), c.WeeksOfMonth.ToArray(), c.DaysOfMonth.ToArray(), c.Months.ToArray(),
@@ -148,8 +156,8 @@ public record ChoreDto(
             TimeLabels = c.TimeLabels.OrderBy(p => p.Key).ToDictionary(p => p.Key.ToString("HH\\:mm"), p => p.Value),
             DueLabel = c.SlotLabel(c.DueAt),
             Pairs = c.Pairs.Select(p => new[] { p.First, p.Second }).ToArray(),
-            CurrentPartner = c.PartnerOf(c.CurrentAssigneeId) is { } partner ? UserDto.FromEntity(partner) : null,
-            NextPartner = c.PartnerOf(nextAssignee?.Id) is { } nextPartner ? UserDto.FromEntity(nextPartner) : null,
+            CurrentPartner = c.CurrentPartner() is { } partner ? UserDto.FromEntity(partner) : null,
+            NextPartner = nextPartner is null ? null : UserDto.FromEntity(nextPartner),
         };
 
     /// <summary>Optional names for individual <see cref="TimesOfDay"/> slots, keyed by "HH:mm" (e.g.
@@ -284,9 +292,13 @@ public interface IChoreInput
     /// one entry per assignee. Ignored (and cleared) for rotating chores.</summary>
     TrackInput[]? Tracks { get; }
     /// <summary>Fixed pairs who do the chore together, each a two-element array of assignee ids.
-    /// Nobody may be in two pairs. Ignored (and cleared) for
+    /// One person may be in several. Ignored (and cleared) for
     /// <see cref="Enums.AssignmentStrategy.Independent"/> chores.</summary>
     Guid[][]? Pairs { get; }
+    /// <summary>Which of the current assignee's pairs holds the turn: must be one of
+    /// <see cref="Pairs"/> together with <see cref="CurrentAssigneeId"/>. Null keeps the pair that
+    /// holds it now, or falls back to the assignee's first pair.</summary>
+    Guid? CurrentPartnerId { get; }
 }
 
 /// <summary>One assignee's quota as supplied on create/update of a track-mode chore.</summary>
@@ -322,7 +334,8 @@ public record CreateChoreRequest(
     string[]? TimesOfDay = null,
     RotationPeriod RotationPeriod = RotationPeriod.EveryOccurrence,
     Dictionary<string, string>? TimeLabels = null,
-    Guid[][]? Pairs = null) : IChoreInput;
+    Guid[][]? Pairs = null,
+    Guid? CurrentPartnerId = null) : IChoreInput;
 
 public record UpdateChoreRequest(
     string Name,
@@ -354,7 +367,8 @@ public record UpdateChoreRequest(
     string[]? TimesOfDay = null,
     RotationPeriod RotationPeriod = RotationPeriod.EveryOccurrence,
     Dictionary<string, string>? TimeLabels = null,
-    Guid[][]? Pairs = null) : IChoreInput;
+    Guid[][]? Pairs = null,
+    Guid? CurrentPartnerId = null) : IChoreInput;
 
 public record CopyChoreRequest(string NewName);
 
@@ -367,20 +381,20 @@ public record CompleteChoreRequest(string? Notes, Guid? CompletedByUserId = null
 public record SkipChoreRequest(string? Notes, Guid? UserId = null);
 
 /// <summary>Admin-only direct move of a chore to another assignee.</summary>
-public record ReassignChoreRequest(Guid AssigneeId);
+/// <param name="PartnerId">On a paired chore, which of the assignee's pairs takes it. Null picks the
+/// assignee's first pair (or just them, when they have none).</param>
+public record ReassignChoreRequest(Guid AssigneeId, Guid? PartnerId = null);
 
-/// <summary>Puts a chore up for someone to take. <see cref="ToUserId"/> null makes it an open offer any
-/// other assignee can claim; set, it's aimed at that one person. <see cref="BountyPoints"/> is the
+/// <summary>Puts a chore up for any other assignee to take. <see cref="BountyPoints"/> is the
 /// (optional) sweetener, capped at the offerer's balance.</summary>
-public record OfferChoreRequest(Guid? ToUserId = null, int BountyPoints = 0);
+public record OfferChoreRequest(int BountyPoints = 0);
 
 /// <summary>A live offer waiting to be claimed. Surfaced on <see cref="ChoreDto.OpenOffer"/> so the UI
-/// can show the "up for grabs" state, the bounty, and the claim/decline actions. <see cref="ToUser"/> is
-/// null for an open offer.</summary>
-public record ChoreOfferDto(Guid Id, UserDto FromUser, UserDto? ToUser, int BountyPoints)
+/// can show the "up for grabs" state, the bounty, and the claim action.</summary>
+public record ChoreOfferDto(Guid Id, UserDto FromUser, int BountyPoints)
 {
     public static ChoreOfferDto FromEntity(ChoreOffer o) =>
-        new(o.Id, UserDto.FromEntity(o.FromUser!), o.ToUser is null ? null : UserDto.FromEntity(o.ToUser), o.BountyPoints);
+        new(o.Id, UserDto.FromEntity(o.FromUser!), o.BountyPoints);
 }
 
 /// <summary><see cref="UserId"/> names whose track to reschedule on a track-mode chore (required
@@ -437,7 +451,15 @@ public record ChoreHistoryEntryDto(
     /// <see cref="Actor"/>. Null for everything else.</summary>
     public UserDto? Partner { get; init; }
 
-    public static ChoreHistoryEntryDto FromCompletion(ChoreCompletion c, User? expiredAssignee = null) =>
+    /// <summary>A late completion by someone who didn't hold the chore (<see cref="ChoreCompletion.IsRescue(TimeSpan)"/>):
+    /// shown as a rescue rather than on time or late.</summary>
+    public bool IsRescue { get; init; }
+
+    /// <summary>The slot label of the occurrence this entry was for (<see cref="Chore.SlotLabel"/>),
+    /// or null when that slot is unlabelled.</summary>
+    public string? OccurrenceLabel { get; init; }
+
+    public static ChoreHistoryEntryDto FromCompletion(ChoreCompletion c, User? expiredAssignee = null, TimeSpan lateGrace = default) =>
         new(c.Id, c.IsExpired ? "expired" : c.IsSkip ? "skip" : "completion",
             c.ChoreId, c.Chore?.Name ?? string.Empty,
             c.IsExpired
@@ -445,7 +467,9 @@ public record ChoreHistoryEntryDto(
                 : c.CompletedBy is null ? null : UserDto.FromEntity(c.CompletedBy),
             c.CompletedAt, c.OccurrenceDueAt, c.Notes, c.PointsAwarded, null, null)
         {
-            Partner = c.Partner is null ? null : UserDto.FromEntity(c.Partner)
+            Partner = c.Partner is null ? null : UserDto.FromEntity(c.Partner),
+            IsRescue = c.IsRescue(lateGrace),
+            OccurrenceLabel = c.Chore?.SlotLabel(c.OccurrenceDueAt)
         };
 
     public static ChoreHistoryEntryDto FromReassignment(ChoreAssignment a) =>
@@ -559,8 +583,16 @@ public record UserStatsDto(
     int OnTimeCount,
     int OverdueCount,
     int MissedCount,
+    int RescueCount,
+    TimelinessCountsDto WeeklyTimeliness,
+    TimelinessCountsDto MonthlyTimeliness,
     string? AvatarEmoji = null,
     string? EquippedFrameKey = null);
+
+/// <summary>On-time / late / rescue / missed counts for one member over a period (the all-time ones are
+/// the flat fields on <see cref="UserStatsDto"/>). A rescue is in neither on-time nor late, so the first
+/// three add up to the period's completion count.</summary>
+public record TimelinessCountsDto(int OnTime, int Overdue, int Rescue, int Missed);
 
 public record UserWeeklyCountDto(
     Guid UserId,

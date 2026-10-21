@@ -5,14 +5,14 @@ import { toast } from '@/lib/toast'
 import type { Chore } from '@/lib/types'
 import { useAuthStore } from '@/store/auth'
 import { Button } from '@/components/ui/Button'
-import { IntegerInput, Label, Select } from '@/components/ui/Field'
+import { IntegerInput, Label } from '@/components/ui/Field'
 import { Modal } from '@/components/ui/Modal'
 import { plural, t } from '@/lib/i18n'
 
 /**
- * Members put a chore up for someone else to take. Open by default (any other assignee can claim it,
- * first come first served) with an optional single recipient. The bounty comes out of the offerer's
- * balance right away and is refunded if nobody claims, so the cap here mirrors the server's.
+ * Members put a chore up for grabs: any other assignee can claim it, first come first served. The
+ * bounty comes out of the offerer's balance right away and is refunded if nobody claims, so the cap
+ * here mirrors the server's.
  */
 export function OfferModal({ chore, onClose, onDone }: { chore: Chore; onClose: () => void; onDone: () => void }) {
   const queryClient = useQueryClient()
@@ -23,16 +23,14 @@ export function OfferModal({ chore, onClose, onDone }: { chore: Chore; onClose: 
   const { data: me } = useQuery({ queryKey: ['me'], queryFn: authApi.me })
   const myPoints = me?.points ?? storedPoints
 
-  const [toUserId, setToUserId] = useState('')
   const [bounty, setBounty] = useState(0)
 
-  const candidates = chore.assignees.filter((u) => u.id !== meId)
+  const hasTakers = chore.assignees.some((u) => u.id !== meId)
 
   const mutation = useMutation({
-    mutationFn: () => choresApi.offer(chore.id, { toUserId: toUserId || null, bountyPoints: bounty }),
+    mutationFn: () => choresApi.offer(chore.id, { bountyPoints: bounty }),
     onSuccess: () => {
-      const recipient = candidates.find((u) => u.id === toUserId)
-      toast.success(recipient ? t('offerModal.offeredTo', { name: recipient.displayName }) : t('offerModal.open'))
+      toast.success(t('offerModal.open'))
       // The bounty left the offerer's balance, so points on screen are stale.
       void queryClient.invalidateQueries({ queryKey: ['me'] })
       void queryClient.invalidateQueries({ queryKey: ['leaderboard'] })
@@ -45,21 +43,6 @@ export function OfferModal({ chore, onClose, onDone }: { chore: Chore; onClose: 
     <Modal title={t('offerModal.title', { name: chore.name })} onClose={onClose}>
       <form className="space-y-4" onSubmit={(e) => { e.preventDefault(); mutation.mutate() }}>
         <div className="space-y-1.5">
-          <Label htmlFor="offer-to">{t('offerModal.to')}</Label>
-          <Select id="offer-to" value={toUserId} onChange={(e) => setToUserId(e.target.value)}>
-            <option value="">{t('offerModal.anyone')}</option>
-            {candidates.map((u) => (
-              <option key={u.id} value={u.id}>{u.displayName}</option>
-            ))}
-          </Select>
-          <p className="text-xs text-muted-foreground">
-            {toUserId
-              ? t('offerModal.targetHint')
-              : t('offerModal.openHint')}
-          </p>
-        </div>
-
-        <div className="space-y-1.5">
           <Label htmlFor="offer-bounty">{t('offerModal.bounty')}</Label>
           <IntegerInput id="offer-bounty" min={0} max={myPoints} value={bounty} onCommit={setBounty} />
           <p className="text-xs text-muted-foreground">
@@ -71,7 +54,7 @@ export function OfferModal({ chore, onClose, onDone }: { chore: Chore; onClose: 
 
         <div className="flex justify-end gap-2">
           <Button type="button" variant="secondary" onClick={onClose}>{t('common.cancel')}</Button>
-          <Button type="submit" disabled={mutation.isPending || bounty > myPoints || candidates.length === 0}>
+          <Button type="submit" disabled={mutation.isPending || bounty > myPoints || !hasTakers}>
             {mutation.isPending ? t('common.saving') : t('menu.offer')}
           </Button>
         </div>

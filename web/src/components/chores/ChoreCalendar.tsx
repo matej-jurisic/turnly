@@ -5,6 +5,7 @@ import { WEEKDAY_ORDER, choreHasDueTime, dueStatus, weekdayShort } from '@/lib/c
 import { ChoreCompactItem, type ChoreItemProps } from '@/components/chores/ChoreCompactItem'
 import { cn } from '@/lib/utils'
 import { locale, t } from '@/lib/i18n'
+import { householdNow } from '@/lib/day-start'
 
 const COUNT_TONE: Record<string, string> = {
   overdue: 'bg-destructive/15 text-destructive',
@@ -43,10 +44,10 @@ export function ChoreCalendar({
   itemProps: (chore: Chore) => ChoreItemProps
 }) {
   const [view, setView] = useState(() => {
-    const now = new Date()
+    const now = householdNow()
     return new Date(now.getFullYear(), now.getMonth(), 1)
   })
-  const [selected, setSelected] = useState<string>(() => dayKey(new Date()))
+  const [selected, setSelected] = useState<string>(() => dayKey(householdNow()))
 
   const byDay = useMemo(() => {
     const map = new Map<string, Chore[]>()
@@ -68,12 +69,12 @@ export function ChoreCalendar({
     )
   }, [view])
 
-  const todayKey = dayKey(new Date())
+  const todayKey = dayKey(householdNow())
   const monthLabel = view.toLocaleDateString(locale(), { month: 'long', year: 'numeric' })
   const shiftMonth = (delta: number) =>
     setView((v) => new Date(v.getFullYear(), v.getMonth() + delta, 1))
   const goToday = () => {
-    const now = new Date()
+    const now = householdNow()
     setView(new Date(now.getFullYear(), now.getMonth(), 1))
     setSelected(todayKey)
   }

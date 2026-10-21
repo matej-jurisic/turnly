@@ -119,6 +119,9 @@ namespace Turnly.Core.Migrations
                     b.Property<Guid?>("CurrentAssigneeId")
                         .HasColumnType("TEXT");
 
+                    b.Property<Guid?>("CurrentPartnerId")
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("CustomMode")
                         .HasMaxLength(16)
                         .HasColumnType("TEXT");
@@ -262,6 +265,9 @@ namespace Turnly.Core.Migrations
                     b.Property<Guid>("ChoreId")
                         .HasColumnType("TEXT");
 
+                    b.Property<Guid?>("PartnerUserId")
+                        .HasColumnType("TEXT");
+
                     b.Property<Guid?>("PreviousAssigneeId")
                         .HasColumnType("TEXT");
 
@@ -316,6 +322,9 @@ namespace Turnly.Core.Migrations
                         .HasColumnType("INTEGER");
 
                     b.Property<Guid?>("PreviousAssigneeId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid?>("PreviousPartnerId")
                         .HasColumnType("TEXT");
 
                     b.HasKey("Id");
@@ -428,9 +437,6 @@ namespace Turnly.Core.Migrations
                         .HasMaxLength(16)
                         .HasColumnType("TEXT");
 
-                    b.Property<Guid?>("ToUserId")
-                        .HasColumnType("TEXT");
-
                     b.HasKey("Id");
 
                     b.HasIndex("ChoreId");
@@ -438,8 +444,6 @@ namespace Turnly.Core.Migrations
                     b.HasIndex("ClaimedByUserId");
 
                     b.HasIndex("FromUserId");
-
-                    b.HasIndex("ToUserId");
 
                     b.ToTable("ChoreOffers");
                 });
@@ -1035,18 +1039,11 @@ namespace Turnly.Core.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
-                    b.HasOne("Turnly.Core.Entities.User", "ToUser")
-                        .WithMany()
-                        .HasForeignKey("ToUserId")
-                        .OnDelete(DeleteBehavior.Restrict);
-
                     b.Navigation("Chore");
 
                     b.Navigation("ClaimedBy");
 
                     b.Navigation("FromUser");
-
-                    b.Navigation("ToUser");
                 });
 
             modelBuilder.Entity("Turnly.Core.Entities.FcmDevice", b =>

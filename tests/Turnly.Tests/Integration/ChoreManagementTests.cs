@@ -261,7 +261,6 @@ public class ChoreManagementTests : IDisposable
             new OfferChoreRequest())).ReadAsync<ChoreDto>();
         Assert.Equal(memberAuth.User.Id, offered.CurrentAssignee!.Id);
         Assert.Equal(memberAuth.User.Id, offered.OpenOffer!.FromUser.Id);
-        Assert.Null(offered.OpenOffer!.ToUser);
 
         // The offer also shows up on a fresh list fetch, which is what the "up for grabs" band reads.
         var listed = await (await admin.GetAsync("/api/chores")).ReadAsync<List<ChoreDto>>();

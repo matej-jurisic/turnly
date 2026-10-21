@@ -13,11 +13,12 @@ per-category delivery controls), and UX
 polish (swipe actions, completion confetti, admin complete-on-behalf, activity-entry deletion and correction: mark an auto-expired entry as completed, or fix the time of a late completion).
 **Shared chores** can also be set to "Everyone (independent)", giving each assignee their own
 schedule and per-person quota — one chore for "everyone does the dishes once a week" without anyone
-blocking anyone else. Jobs that take two people can use **fixed pairs**: the pair holds the turn together, rotates as one, and both get the points when either marks it done. Rotating chores can **hand over once a day, week, month, quarter or year** instead of every occurrence
-(one person does the weekly chore all month, then the next person takes over). Chores can also fire **multiple times a day** (each time can be named, e.g. Morning and Evening), **auto-advance** past missed
-occurrences, track an **on-time streak**, and be **copied**; admins can **adjust points** manually,
+blocking anyone else. Jobs that take two people can use **fixed pairs**: the pair holds the turn together, rotates as one, and both get the points when either marks it done. One person can be in several pairs, each taking its own turn. Rotating chores can **hand over once a day, week, month, quarter or year** instead of every occurrence
+(one person does the weekly chore all month, then the next person takes over). Chores can be **on demand** (no schedule or due date, completed whenever needed, rotating after each completion), fire **multiple times a day** (each time can be named, e.g. Morning and Evening), **auto-advance** past missed
+occurrences, track an **on-time streak**, and be **copied**; stepping in late for someone else's overdue chore is logged as a **rescue** rather than a late completion; admins can **adjust points** manually,
 **delete a redemption of any status** (refunding its points), and set the instance's **family
-timezone**. Members also earn **achievements** — collectible, permanently-earned badges for
+timezone** and **day start** (so a chore with no due time stays due until, say, 05:00 instead of
+going overdue at midnight). Members also earn **achievements** — collectible, permanently-earned badges for
 milestones (completion counts, on-time streaks, points earned, redemptions, and variety), unlocked
 the moment they're earned and shown on a dedicated page where admins can view any user's badges and
 revoke them. Admins can also **pause individual chores** (blocks completions, hides from the active
@@ -128,6 +129,11 @@ app. `--no-web` builds the APK only, `--web-only` only redeploys. It expects the
 `~/.turnly/turnly-release.jks`, its password in `~/.turnly/keystore.pass` (alias `turnly`, override
 with `TURNLY_KEY_ALIAS`), and `web/android/app/google-services.json`.
 
+**Update banner.** After a redeploy, open browser tabs show a small "new version" banner with a Reload
+button. The Android app shows one when a newer APK is published: point `Releases__Path` at the
+releases folder as the container sees it (e.g. `/data/releases`) and the server reports the highest
+`turnly-v{name}-{code}.apk` there and serves it at `/api/version/android.apk`.
+
 **Push notifications (FCM).** The app builds and runs without Firebase (push is simply disabled; the
 in-app inbox still works). To enable native push:
 
@@ -168,7 +174,7 @@ configures under **Settings** (falling back to the server's host zone when unset
 Under **Settings → What notifies you**, each person decides how every kind of notification reaches
 them: **Push** (buzz your devices, default), **Inbox** (record it in the bell without buzzing), or
 **Off** (don't send it at all). The categories cover chore reminders, chores coming due, overdue
-chases, offers sent to you, and replies to offers you made. App messages such as the test push are
+chases, chores put up for grabs, and claims on chores you offered. App messages such as the test push are
 always delivered.
 
 To silence one specific chore instead of a whole category, use **Mute** on that chore's menu. A mute
