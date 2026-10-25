@@ -158,9 +158,15 @@ public class Chore
         HeldPartnerId() is { } id ? Assignees.FirstOrDefault(a => a.Id == id && !a.IsFrozen) : null;
 
     /// <summary>Everyone holding the current occurrence: the current assignee plus their partner on a
-    /// paired chore. Empty when unassigned. Needs <see cref="Assignees"/> loaded.</summary>
+    /// paired chore. Empty when unassigned. On an <see cref="AssignmentStrategy.Anyone"/> chore every
+    /// non-frozen assignee holds it. Needs <see cref="Assignees"/> loaded.</summary>
     public IEnumerable<Guid> CurrentHolderIds()
     {
+        if (AssignmentStrategy == AssignmentStrategy.Anyone)
+        {
+            foreach (var a in Assignees.Where(a => !a.IsFrozen)) yield return a.Id;
+            yield break;
+        }
         if (CurrentAssigneeId is not { } current) yield break;
         yield return current;
         if (CurrentPartner() is { } partner) yield return partner.Id;

@@ -57,6 +57,11 @@
       complete an unassigned chore; members can't claim it for themselves. Freezing the person
       holding one leaves it unassigned rather than picking a replacement. Combined with a calendar
       rotation period it returns to unassigned once per period instead of after every occurrence.
+    - `Anyone (whoever gets to it)` — the chore is **never assigned**: every assignee owes it equally
+      and whoever gets to it first completes it. It never rotates, so there is no current or next
+      assignee, no pairs and no rotation period, and it can't be reassigned or offered. Reminders
+      addressed to the "current assignee" and nudges go to every non-frozen assignee, and the "Mine"
+      filter shows it to all of them. Undo never puts anyone back on it.
 - **Rotation period** ("Hand over") — how often a rotating chore changes hands:
     - `Every occurrence` (default) — the strategy picks a new assignee each time an occurrence closes
     - `Once a day` / `Once a week` / `Once a month` / `Once a quarter` / `Once a year` — the same

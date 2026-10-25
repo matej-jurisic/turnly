@@ -2,38 +2,71 @@
 
 Family chore management web app (PWA). Self-hosted, simple, actually works.
 
-Turnly is feature-complete. It provides foundation
-(auth, users, roles, Docker), chore CRUD with recurrence and assignment strategies, a dashboard
-with today/overdue/upcoming views (list, compact, and calendar layouts, plus an admin-only config table of every chore's settings), per-user point totals,
-filtering, and global search, a history/stats view, a Rewards page with awards and point redemption (with next-goal
-progress), per-occurrence skip, backdated completions (set when you actually did it), admin reassignment, and chore offers (put a chore you're holding up for anyone
-to take, optionally with a points bounty), nudges (remind whoever holds a chore, with an optional note), Web Push notifications (per-chore
-reminder/due/follow-up schedule via self-hosted VAPID keys, with per-user quiet hours and
-per-category delivery controls), and UX
-polish (swipe actions, completion confetti, admin complete-on-behalf, activity-entry deletion and correction: mark an auto-expired entry as completed, or fix the time of a late completion).
-**Shared chores** can also be set to "Everyone (independent)", giving each assignee their own
-schedule and per-person quota — one chore for "everyone does the dishes once a week" without anyone
-blocking anyone else. Jobs that take two people can use **fixed pairs**: the pair holds the turn together, rotates as one, and both get the points when either marks it done. One person can be in several pairs, each taking its own turn. Rotating chores can **hand over once a day, week, month, quarter or year** instead of every occurrence
-(one person does the weekly chore all month, then the next person takes over). Chores can be **on demand** (no schedule or due date, completed whenever needed, rotating after each completion), fire **multiple times a day** (each time can be named, e.g. Morning and Evening), **auto-advance** past missed
-occurrences, track an **on-time streak**, and be **copied**; stepping in late for someone else's overdue chore is logged as a **rescue** rather than a late completion; admins can **adjust points** manually,
-**delete a redemption of any status** (refunding its points), and set the instance's **family
-timezone** and **day start** (so a chore with no due time stays due until, say, 05:00 instead of
-going overdue at midnight). Members also earn **achievements** — collectible, permanently-earned badges for
-milestones (completion counts, on-time streaks, points earned, redemptions, and variety), unlocked
-the moment they're earned and shown on a dedicated page where admins can view any user's badges and
-revoke them. Admins can also **pause individual chores** (blocks completions, hides from the active
-list, suppresses notifications — unpausing steps overdue chores forward to the next future
-occurrence) and **freeze users** (marks them as "Away": excluded from rotation, independent tracks
-paused, no notifications — with a preview of affected chores before confirming). The Rewards page
-also has a points-funded **Cosmetics** tab (no real money): spend points on random pulls to collect rarity-tiered
-**avatar frames** (shown on every avatar) and **app theme palettes** (recolor your own app), with a
-pity counter that guarantees a Legendary, a dust economy that turns duplicates into a specific
-crafted item, published drop rates, and one-per-slot equipping. For a clean slate, admins can run a
-**fresh start** (Settings → Danger zone) that wipes all activity, point history, redemptions,
-achievements, and cosmetics progress and resets everyone's points to 0, while keeping every chore and its
-schedule intact. The interface is available in **English and Croatian**, picked per device under
-Settings → Language. Open screens **update live** when someone else changes something, so nobody has to
-reload to see a chore get done. See [`specs.md`](./specs.md) for the full product spec and feature list.
+Turnly is feature-complete. See [`specs.md`](./specs.md) for the full product spec and feature list.
+
+## Features
+
+### Chores and scheduling
+
+- Chore CRUD with recurrence, per-occurrence skip, and copying.
+- **Multiple times a day**: each time can be named (e.g. Morning and Evening).
+- **On demand** chores: no schedule or due date, completed whenever needed, rotating after each completion.
+- **Auto-advance** past missed occurrences, and an **on-time streak** per chore.
+- **Backdated completions**: set when you actually did it.
+- **Day start**: a chore with no due time can stay due until, say, 05:00 instead of going overdue at midnight.
+- **Pause individual chores** (admin): blocks completions, hides them from the active list and suppresses
+  notifications. Unpausing steps overdue chores forward to the next future occurrence.
+
+### Assignment
+
+- Rotating assignment strategies, with **hand-over once a day, week, month, quarter or year** instead of
+  every occurrence (one person does the weekly chore all month, then the next person takes over).
+- **Everyone (independent)**: each assignee gets their own schedule and per-person quota, so "everyone does
+  the dishes once a week" is one chore and nobody blocks anyone else.
+- **Anyone**: nobody is assigned, and whoever gets to it first does it.
+- **Fixed pairs** for two-person jobs: the pair holds the turn together, rotates as one, and both get the
+  points when either marks it done. One person can be in several pairs, each taking its own turn.
+- Admin **reassignment**, and **chore offers**: put a chore you're holding up for anyone to take, optionally
+  with a points bounty.
+- **Nudges**: remind whoever holds a chore, with an optional note.
+- **Rescues**: stepping in late for someone else's overdue chore is logged as a rescue rather than a late
+  completion.
+- **Freeze users** (admin): marks them as "Away", excluded from rotation, independent tracks paused, no
+  notifications, with a preview of affected chores before confirming.
+
+### Dashboard and history
+
+- Today / overdue / upcoming views in list, compact and calendar layouts, plus an admin-only config table
+  of every chore's settings.
+- Filtering, global search, and a history/stats view.
+- Swipe actions, completion confetti, admin complete-on-behalf.
+- Activity-entry deletion and correction: mark an auto-expired entry as completed, or fix the time of a late
+  completion.
+- Open screens **update live** when someone else changes something, so nobody has to reload.
+
+### Points, rewards and achievements
+
+- Per-user point totals; admins can **adjust points** manually.
+- A **Rewards** page with awards and point redemption (with next-goal progress). Admins can **delete a
+  redemption of any status**, refunding its points.
+- **Achievements**: collectible, permanently earned badges for milestones (completion counts, on-time
+  streaks, points earned, redemptions, variety), unlocked the moment they're earned. Admins can view any
+  user's badges and revoke them.
+- A points-funded **Cosmetics** tab (no real money): random pulls for rarity-tiered **avatar frames** and
+  **app theme palettes**, with a pity counter that guarantees a Legendary, a dust economy that crafts
+  specific items from duplicates, published drop rates, and one-per-slot equipping.
+
+### Notifications
+
+- Web Push and native (FCM) push with a per-chore reminder / due / follow-up schedule.
+- Per-user quiet hours, per-category delivery controls, and per-chore mutes.
+
+### Administration
+
+- Auth, users, roles, Docker deployment, and a configurable **family timezone**.
+- **Fresh start** (Settings → Danger zone): wipes all activity, point history, redemptions, achievements and
+  cosmetics progress and resets everyone's points to 0, while keeping every chore and its schedule intact.
+- The interface is available in **English and Croatian**, picked per device under Settings → Language.
 
 ## Stack
 
@@ -118,10 +151,15 @@ allow the app's WebView origin. Add `https://localhost` to `Cors:Origins` on the
 enter on first launch.
 
 **Release signing** is opt-in via environment variables so the keystore stays out of source
-control. Generate a keystore once (`keytool -genkey -v -keystore turnly.jks -keyalg RSA -keysize
-2048 -validity 10000 -alias turnly`), then set `TURNLY_KEYSTORE` (path), `TURNLY_KEYSTORE_PASSWORD`,
-`TURNLY_KEY_ALIAS`, and `TURNLY_KEY_PASSWORD` before running `android:apk`. Without them the release
-build is left unsigned (fine for local testing).
+control. Generate a keystore once:
+
+```bash
+keytool -genkey -v -keystore turnly.jks -keyalg RSA -keysize 2048 -validity 10000 -alias turnly
+```
+
+Then set `TURNLY_KEYSTORE` (path), `TURNLY_KEYSTORE_PASSWORD`, `TURNLY_KEY_ALIAS`, and
+`TURNLY_KEY_PASSWORD` before running `android:apk`. Without them the release build is left unsigned
+(fine for local testing).
 
 **One-step server build.** `./turnly-build.sh` builds and signs the APK inside Docker (no local JDK or
 Android SDK needed), bumps the version, publishes it to `/data/turnly/releases`, and redeploys the web

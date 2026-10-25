@@ -1,14 +1,13 @@
 import { useEffect, useRef, useState } from 'react'
-import type { RepeatType, User } from '@/lib/types'
+import type { User } from '@/lib/types'
 import { Avatar } from '@/components/ui/Modal'
 import { REPEAT_OPTIONS } from '@/lib/chore-format'
 import { localized, t } from '@/lib/i18n'
-
-export type DueStatus = 'overdue' | 'today' | 'upcoming' | 'later'
+import { emptyFilters, filterCount, type ChoreFilterState, type DueStatus } from '@/lib/chore-filters'
 
 export type ChoreView = 'list' | 'compact' | 'calendar' | 'config'
 /** `adminOnly` views are offered to admins only (the config table exposes every chore's settings). */
-export const VIEW_OPTIONS: {
+const VIEW_OPTIONS: {
   value: ChoreView
   label: string
   Icon: () => React.ReactElement
@@ -20,29 +19,6 @@ export const VIEW_OPTIONS: {
   localized({ value: 'config' as const, Icon: ConfigViewIcon, adminOnly: true }, { label: 'view.config' }),
 ]
 
-export interface ChoreFilterState {
-  tags: string[]
-  assignees: string[]
-  /** When set, the assignee filter also matches chores where the member is the *next* assignee. */
-  includeNext: boolean
-  due: DueStatus[]
-  repeat: RepeatType[]
-}
-
-export const emptyFilters: ChoreFilterState = {
-  tags: [], assignees: [], includeNext: false, due: [], repeat: [],
-}
-
-/** The "Mine" quick view: chores the member currently holds. Also the page's default on open. */
-export function mineFilters(userId: string): ChoreFilterState {
-  return { ...emptyFilters, assignees: [userId] }
-}
-
-/** Number of active filter values (the "includeNext" modifier isn't counted on its own). */
-export function filterCount(f: ChoreFilterState): number {
-  return f.tags.length + f.assignees.length + f.due.length + f.repeat.length
-}
-
 const DUE_OPTIONS: { value: DueStatus; label: string }[] = [
   localized({ value: 'overdue' as const }, { label: 'due.overdue' }),
   localized({ value: 'today' as const }, { label: 'due.today' }),
@@ -51,20 +27,6 @@ const DUE_OPTIONS: { value: DueStatus; label: string }[] = [
 ]
 function toggle<T>(list: T[], value: T): T[] {
   return list.includes(value) ? list.filter((v) => v !== value) : [...list, value]
-}
-
-function sameSet(a: string[], b: string[]): boolean {
-  return a.length === b.length && a.every((v) => b.includes(v))
-}
-/** Two filter states are equivalent (order-insensitive across the list fields). */
-function sameFilters(a: ChoreFilterState, b: ChoreFilterState): boolean {
-  return (
-    sameSet(a.tags, b.tags) &&
-    sameSet(a.assignees, b.assignees) &&
-    a.includeNext === b.includeNext &&
-    sameSet(a.due, b.due) &&
-    sameSet(a.repeat, b.repeat)
-  )
 }
 
 /** Close `open` when a mousedown lands outside `ref`. */
@@ -113,23 +75,11 @@ export function ChoreFilters({
   const count = filterCount(value)
   useOutsideClose(open, ref, () => setOpen(false))
 
-  // Quick-filter presets: each applies an exact filter state.
-  // "Mine"/"My turn next" only make sense with more than one member to distinguish.
-  const presets: { label: string; state: ChoreFilterState }[] = []
-  if (currentUserId && assignees.length > 1) {
-    presets.push({ label: t('filters.mine'), state: mineFilters(currentUserId) })
-  }
-  presets.push({ label: t('due.overdue'), state: { ...emptyFilters, due: ['overdue'] } })
-  presets.push({ label: t('due.today'), state: { ...emptyFilters, due: ['today'] } })
-  if (currentUserId && assignees.length > 1) {
-    presets.push({ label: t('filters.myTurnNext'), state: { ...emptyFilters, assignees: [currentUserId], includeNext: true } })
-  }
-
   const showAssignees = assignees.length > 1
 
   return (
     <div className="flex items-center justify-end gap-2">
-      {presets.length > 0 && <QuickViews value={value} onChange={onChange} presets={presets} />}
+      {currentUserId && showAssignees && <MineToggle value={value} onChange={onChange} userId={currentUserId} />}
 
       <ViewMenu view={view} onViewChange={onViewChange} isAdmin={isAdmin} />
 
@@ -234,61 +184,42 @@ export function ChoreFilters({
   )
 }
 
-/** Quick-view select: picks a preset filter state. Shows "Custom" when the filters were hand-tuned
- * into something no preset matches. */
-function QuickViews({
+/** One-tap "Mine | All" switch. It only drives the assignee filter, so due/tag/repeat filters
+ * survive the switch. Neither side is lit when the assignee filter names someone else. */
+function MineToggle({
   value,
   onChange,
-  presets,
+  userId,
 }: {
   value: ChoreFilterState
   onChange: (next: ChoreFilterState) => void
-  presets: { label: string; state: ChoreFilterState }[]
+  userId: string
 }) {
-  const activeIndex = presets.findIndex((p) => sameFilters(value, p.state))
-  const custom = activeIndex < 0 && filterCount(value) > 0
-  const selected = activeIndex >= 0 ? String(activeIndex) : custom ? 'custom' : ''
-  const selectedLabel = activeIndex >= 0 ? presets[activeIndex].label : custom ? t('filters.custom') : t('filters.allChores')
+  const mine = value.assignees.length === 1 && value.assignees[0] === userId
+  const all = value.assignees.length === 0
+  const segment = (active: boolean) =>
+    'h-full rounded-full px-3.5 text-sm transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ring ' +
+    (active ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:text-foreground')
 
   return (
-    // The native arrow can't be positioned, so it's hidden and replaced with our own chevron.
-    // A native select is as wide as its longest option, so an invisible copy of the selected label
-    // sizes the wrapper and the select fills it.
-    <div className={'relative mr-auto min-w-0 ' + (activeIndex >= 0 ? 'text-primary' : 'text-foreground')}>
-      <span aria-hidden="true" className="invisible block h-9 truncate border pl-3.5 pr-9 text-sm leading-[34px]">
-        {selectedLabel}
-      </span>
-      <select
-        value={selected}
-        onChange={(e) => {
-          const i = e.target.value
-          onChange(i === '' ? emptyFilters : presets[Number(i)].state)
-        }}
-        aria-label={t('filters.quickViews')}
-        title={t('filters.quickViews')}
-        className={
-          'absolute inset-0 h-9 w-full min-w-0 appearance-none truncate rounded-full border bg-card pl-3.5 pr-9 text-sm text-inherit transition-colors focus:outline-none focus:ring-2 focus:ring-ring ' +
-          (activeIndex >= 0 ? 'border-primary' : 'border-border hover:bg-accent')
-        }
+    <div role="group" className="mr-auto inline-flex h-9 items-center gap-0.5 rounded-full border border-border bg-card p-0.5">
+      <button
+        type="button"
+        aria-pressed={mine}
+        onClick={() => onChange({ ...value, assignees: [userId] })}
+        className={segment(mine)}
       >
-        <option value="">{t('filters.allChores')}</option>
-        {presets.map((p, i) => (
-          <option key={p.label} value={String(i)}>{p.label}</option>
-        ))}
-        {custom && <option value="custom" disabled>{t('filters.custom')}</option>}
-      </select>
-      <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center opacity-70">
-        <ChevronDownIcon />
-      </span>
+        {t('filters.mine')}
+      </button>
+      <button
+        type="button"
+        aria-pressed={all}
+        onClick={() => onChange({ ...value, assignees: [], includeNext: false })}
+        className={segment(all)}
+      >
+        {t('filters.all')}
+      </button>
     </div>
-  )
-}
-
-function ChevronDownIcon() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <polyline points="6 9 12 15 18 9" />
-    </svg>
   )
 }
 

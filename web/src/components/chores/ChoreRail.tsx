@@ -4,7 +4,7 @@ import { authApi, usersApi } from '@/lib/api'
 import type { Chore, LeaderboardEntry, User } from '@/lib/types'
 import { Card } from '@/components/ui/Card'
 import { Avatar } from '@/components/ui/Modal'
-import { choreDueStatus, holdsChore } from '@/lib/chore-format'
+import { choreDueStatus, holdsChore, isAnyone } from '@/lib/chore-format'
 import { cn } from '@/lib/utils'
 import { t } from '@/lib/i18n'
 
@@ -44,7 +44,9 @@ function SnapshotCard({ chores, currentUser }: { chores: Chore[]; currentUser: U
       (c) =>
         !c.isFrozen &&
         c.dueAt &&
-        (holdsChore(c, currentUser.id) || c.tracks.some((t) => t.user.id === currentUser.id)),
+        (holdsChore(c, currentUser.id)
+          || c.tracks.some((t) => t.user.id === currentUser.id)
+          || (isAnyone(c) && c.assignees.some((u) => u.id === currentUser.id))),
     )
     let overdue = 0
     let today = 0

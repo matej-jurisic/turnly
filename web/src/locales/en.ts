@@ -74,6 +74,7 @@ export const en = {
   'strategy.LeastCompleted': 'Least completed',
   'strategy.Independent': 'Everyone (independent)',
   'strategy.Manual': 'Manual (admin assigns)',
+  'strategy.Anyone': 'Anyone (whoever gets to it)',
   'rotation.EveryOccurrence': 'Every occurrence',
   'rotation.Daily': 'Once a day',
   'rotation.Weekly': 'Once a week',
@@ -234,7 +235,7 @@ export const en = {
   'view.calendar': 'Calendar',
   'view.config': 'Config',
   'filters.mine': 'Mine',
-  'filters.myTurnNext': 'My turn next',
+  'filters.all': 'All',
   'filters.title': 'Filters',
   'filters.due': 'Due',
   'filters.tags': 'Tags',
@@ -242,9 +243,6 @@ export const en = {
   'filters.includeNext': 'Also match where they\'re up next',
   'filters.repeat': 'Repeat',
   'filters.clearAll': 'Clear all',
-  'filters.quickViews': 'Quick views',
-  'filters.allChores': 'All chores',
-  'filters.custom': 'Custom',
   'filters.view': 'View',
 
   // Chore rows
@@ -252,6 +250,7 @@ export const en = {
   'chore.mutedLabel': 'Notifications muted',
   'chore.markComplete': 'Mark complete',
   'chore.unassigned': 'Unassigned',
+  'chore.anyone': 'Anyone',
 
   // Chore details
   'common.on': 'On',

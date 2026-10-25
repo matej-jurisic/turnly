@@ -763,6 +763,76 @@ public class ChoreServiceTests
     }
 
     [Fact]
+    public async Task CreateAsync_anyone_strategy_is_held_by_nobody()
+    {
+        using var ctx = new TestContext();
+        var (admin, member) = await SeedUsersAsync(ctx);
+
+        var chore = (await ctx.Chores.CreateAsync(NewChore(member, [admin, member], strategy: AssignmentStrategy.Anyone) with
+        {
+            Pairs = [[admin, member]],
+            RotationPeriod = RotationPeriod.Weekly,
+        })).Value!;
+
+        Assert.Null(chore.CurrentAssignee);
+        Assert.Empty(chore.Pairs);
+        Assert.Equal(RotationPeriod.EveryOccurrence, chore.RotationPeriod);
+        Assert.Equal(0, await ctx.Db.ChoreAssignments.CountAsync(a => a.ChoreId == chore.Id));
+    }
+
+    [Fact]
+    public async Task CompleteAsync_anyone_strategy_any_assignee_completes_and_it_stays_unassigned()
+    {
+        using var ctx = new TestContext();
+        var (admin, member) = await SeedUsersAsync(ctx);
+        var chore = (await ctx.Chores.CreateAsync(
+            NewChore(member, [admin, member], strategy: AssignmentStrategy.Anyone))).Value!;
+
+        var first = await ctx.Chores.CompleteAsync(chore.Id, member, new CompleteChoreRequest(null));
+        var second = await ctx.Chores.CompleteAsync(chore.Id, admin, new CompleteChoreRequest(null));
+
+        Assert.True(first.Succeeded);
+        Assert.True(second.Succeeded);
+        Assert.Null(second.Value!.CurrentAssignee);
+        Assert.Null(second.Value.NextAssignee);
+        Assert.True(second.Value.DueAt > first.Value!.DueAt);
+        Assert.Equal(0, await ctx.Db.ChoreAssignments.CountAsync(a => a.ChoreId == chore.Id));
+
+        var undo = await ctx.Chores.UndoCompletionAsync(second.Value.LastCompletion!.Id, admin);
+        Assert.True(undo.Succeeded);
+        Assert.Null((await ctx.Chores.GetAsync(chore.Id)).Value!.CurrentAssignee);
+    }
+
+    [Fact]
+    public async Task ReassignAsync_and_OfferAsync_reject_anyone_strategy()
+    {
+        using var ctx = new TestContext();
+        var (admin, member) = await SeedUsersAsync(ctx);
+        var chore = (await ctx.Chores.CreateAsync(
+            NewChore(member, [admin, member], strategy: AssignmentStrategy.Anyone))).Value!;
+
+        var reassign = await ctx.Chores.ReassignAsync(chore.Id, admin, new ReassignChoreRequest(member));
+        var offer = await ctx.Chores.OfferAsync(chore.Id, member, new OfferChoreRequest());
+
+        Assert.Equal(ErrorType.Validation, reassign.Error!.Type);
+        Assert.Equal(ErrorType.Validation, offer.Error!.Type);
+    }
+
+    [Fact]
+    public async Task NudgeAsync_anyone_strategy_reaches_every_other_assignee()
+    {
+        using var ctx = new TestContext();
+        var (admin, member) = await SeedUsersAsync(ctx);
+        var chore = (await ctx.Chores.CreateAsync(
+            NewChore(member, [admin, member], strategy: AssignmentStrategy.Anyone))).Value!;
+
+        var result = await ctx.Chores.NudgeAsync(chore.Id, admin, new NudgeChoreRequest());
+
+        Assert.True(result.Succeeded);
+        Assert.Equal([member], result.Value!.Select(u => u.Id));
+    }
+
+    [Fact]
     public async Task CreateAsync_manual_strategy_allows_no_current_assignee()
     {
         using var ctx = new TestContext();

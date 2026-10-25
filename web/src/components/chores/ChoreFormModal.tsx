@@ -128,6 +128,9 @@ export function ChoreFormModal({ title, chore, onClose, onSaved }: ChoreFormModa
   const strategyOptions = isOnDemand ? STRATEGY_OPTIONS.filter((o) => o.value !== 'Independent') : STRATEGY_OPTIONS
   // Track mode: every assignee gets their own schedule + quota, no rotation, no single current assignee.
   const isIndependent = assignmentStrategy === 'Independent'
+  // Anyone: nobody holds it, so there's no current assignee, pair or rotation to pick.
+  const isAnyone = assignmentStrategy === 'Anyone'
+  const noHolder = isIndependent || isAnyone
   // Pairs whose two people are both still assignees; the rest are ignored and never submitted.
   const activePairs = pairs.filter((p) => p.every((id) => assigneeIds.includes(id)))
   // Whoever can hold the chore: each active pair, then each assignee outside every pair.
@@ -147,7 +150,7 @@ export function ChoreFormModal({ title, chore, onClose, onSaved }: ChoreFormModa
   const effectiveRotationPeriod: RotationPeriod = rotationOption?.value ?? 'EveryOccurrence'
   // Per-completion rotation contradicts a calendar rotation period, so it's only offered without one.
   const showRotateEach =
-    !isCustom && !isOnDemand && !isIndependent && completionsRequired > 1 && effectiveRotationPeriod === 'EveryOccurrence'
+    !isCustom && !isOnDemand && !noHolder && completionsRequired > 1 && effectiveRotationPeriod === 'EveryOccurrence'
 
   // Smart scheduling is only offered for interval-style repeats (fixed-slot recurrences always hold
   // their grid). If it was selected and the repeat type is no longer interval-style, fall back.
@@ -204,14 +207,14 @@ export function ChoreFormModal({ title, chore, onClose, onSaved }: ChoreFormModa
         timesOfDay: isMultiTime ? uniqueSortedTimes : null,
         timeLabels: isMultiTime ? labelsByTime : null,
         assigneeIds,
-        currentAssigneeId: isIndependent ? null : currentAssigneeId || (isManual ? null : ''),
-        currentPartnerId: isIndependent ? null : currentUnit?.find((id) => id !== currentAssigneeId) ?? null,
+        currentAssigneeId: noHolder ? null : currentAssigneeId || (isManual ? null : ''),
+        currentPartnerId: noHolder ? null : currentUnit?.find((id) => id !== currentAssigneeId) ?? null,
         tagNames: selectedTags,
         notifications: isOnDemand ? [] : notifications,
         tracks: isIndependent
           ? assigneeIds.map((id) => ({ userId: id, completionsRequired: Math.max(1, trackQuotas[id] ?? 1) }))
           : undefined,
-        pairs: isIndependent ? null : activePairs,
+        pairs: noHolder ? null : activePairs,
       }
       return isEdit && chore ? choresApi.update(chore.id, body) : choresApi.create(body)
     },
@@ -615,7 +618,7 @@ export function ChoreFormModal({ title, chore, onClose, onSaved }: ChoreFormModa
               </div>
             )}
           </div>
-        ) : (
+        ) : !isAnyone && (
           <div>
             <Label htmlFor="current">{t('form.currentAssignee')}</Label>
             <Select
@@ -639,7 +642,7 @@ export function ChoreFormModal({ title, chore, onClose, onSaved }: ChoreFormModa
             </Select>
           </div>
         )}
-        {!isIndependent && selectedAssignees.length >= 2 && (
+        {!noHolder && selectedAssignees.length >= 2 && (
           <div>
             <Label>{t('form.pairs')}</Label>
             {activePairs.length > 0 && (

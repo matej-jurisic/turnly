@@ -85,10 +85,11 @@ public class ChoreService
             // means no initial assignment / rotation history.
             SyncTracks(chore, req, scheduleChanged: true);
         }
-        else if (req.CurrentAssigneeId is { } initialAssignee)
+        else if (chore.CurrentAssigneeId is { } initialAssignee)
         {
             // Record the initial assignment so Least-Assigned counts and undo work from the start.
-            // (A Manual chore may be created unassigned, in which case there's nothing to record.)
+            // (A Manual chore may be created unassigned, and an Anyone chore always is, in which case
+            // there's nothing to record.)
             _db.ChoreAssignments.Add(new ChoreAssignment { ChoreId = chore.Id, UserId = initialAssignee, PartnerUserId = chore.CurrentPartnerId });
         }
         await _db.SaveChangesAsync(ct);
@@ -440,6 +441,8 @@ public class ChoreService
 
         if (IsIndependent(chore))
             return Result.Fail<ChoreDto>(Error.Validation("This chore is shared per person, so there's no single assignee to reassign."));
+        if (chore.AssignmentStrategy == AssignmentStrategy.Anyone)
+            return Result.Fail<ChoreDto>(Error.Validation("Any assignee can do this chore, so it isn't assigned to anyone."));
 
         if (chore.Assignees.All(a => a.Id != req.AssigneeId))
             return Result.Fail<ChoreDto>(Error.Validation("The new assignee must be one of the chore's assignees."));
@@ -496,6 +499,8 @@ public class ChoreService
 
         if (IsIndependent(chore))
             return Result.Fail<ChoreDto>(Error.Validation("This chore is shared per person, so there's no single assignee to hand over."));
+        if (chore.AssignmentStrategy == AssignmentStrategy.Anyone)
+            return Result.Fail<ChoreDto>(Error.Validation("Any assignee can do this chore, so there's nothing to hand over."));
         // An offer is one person handing over their own turn. A pair's turn isn't one member's to
         // give away, and a claim would commit the claimer's partner without asking them.
         if (chore.Pairs.Count > 0)
@@ -861,8 +866,12 @@ public class ChoreService
             else
             {
                 chore.DueAt = completion.OccurrenceDueAt;
-                chore.CurrentAssigneeId = completion.PreviousAssigneeId;
-                chore.CurrentPartnerId = completion.PreviousPartnerId;
+                // An Anyone chore stays unheld even when the row predates the switch to it.
+                if (chore.AssignmentStrategy != AssignmentStrategy.Anyone)
+                {
+                    chore.CurrentAssigneeId = completion.PreviousAssigneeId;
+                    chore.CurrentPartnerId = completion.PreviousPartnerId;
+                }
             }
         }
         var rotationLog = await _db.ChoreAssignments.Where(a => a.ChoreCompletionId == completionId).ToListAsync(ct);
@@ -1210,8 +1219,9 @@ public class ChoreService
     private async Task RotateAssigneeAsync(Chore chore, DateTimeOffset now, Guid completedBy, Guid? completedWith, Guid? completionId, CancellationToken ct)
     {
         // Manual: the handover is an admin's call, so the new occurrence opens with nobody on it.
-        // No ChoreAssignment row — undo restores the assignee from the completion's snapshot.
-        if (chore.AssignmentStrategy == AssignmentStrategy.Manual)
+        // Anyone: nobody ever holds it. No ChoreAssignment row — undo restores the assignee from the
+        // completion's snapshot.
+        if (chore.AssignmentStrategy is AssignmentStrategy.Manual or AssignmentStrategy.Anyone)
         {
             chore.CurrentAssigneeId = null;
             chore.CurrentPartnerId = null;
@@ -1351,7 +1361,7 @@ public class ChoreService
         if (chore.DueAt is null && chore.RepeatType != RepeatType.OnDemand) return null;
         if (IsIndependent(chore)) return null; // track-mode chores don't rotate
         if (chore.AssignmentStrategy is AssignmentStrategy.Random or AssignmentStrategy.RandomExceptLastAssigned) return null;
-        if (chore.AssignmentStrategy == AssignmentStrategy.Manual) return null; // an admin picks, nothing to predict
+        if (chore.AssignmentStrategy is AssignmentStrategy.Manual or AssignmentStrategy.Anyone) return null; // nobody is picked, nothing to predict
         if (chore.CurrentAssigneeId is not { } current) return null;
 
         var orderedUsers = chore.Assignees.Where(u => !u.IsFrozen).OrderBy(u => u.CreatedAt).ThenBy(u => u.Id).ToList();
@@ -1562,13 +1572,18 @@ public class ChoreService
         {
             // Manual chores may sit unassigned, waiting for an admin to place them.
         }
+        else if (req.AssignmentStrategy == AssignmentStrategy.Anyone)
+        {
+            // Nobody holds an Anyone chore; any current assignee sent is dropped in Apply.
+        }
         else if (req.CurrentAssigneeId is not { } current || !ids.Contains(current))
         {
             return Result.Fail<List<User>>(Error.Validation("The current assignee must be one of the assignees."));
         }
 
-        // Track mode has no shared turn to pair people on, so its pairs are dropped rather than checked.
-        if (req.AssignmentStrategy != AssignmentStrategy.Independent)
+        // Track mode has no shared turn to pair people on, and an Anyone chore has no turn at all, so
+        // their pairs are dropped rather than checked.
+        if (req.AssignmentStrategy is not (AssignmentStrategy.Independent or AssignmentStrategy.Anyone))
         {
             if (Validators.Pairs(req.Pairs, ids, out var pairs) is { } pairsError)
                 return Result.Fail<List<User>>(pairsError);
@@ -1616,9 +1631,10 @@ public class ChoreService
         chore.CompletionWindowMinutes = supportsAutoAdvance && req.AutoAdvanceIncomplete && req.CompletionWindowMinutes is > 0
             ? req.CompletionWindowMinutes
             : null;
-        // Track mode has no single current assignee (per-assignee tracks instead); rotating chores
-        // keep the chosen one.
-        chore.CurrentAssigneeId = req.AssignmentStrategy == AssignmentStrategy.Independent ? null : req.CurrentAssigneeId;
+        // Track mode has no single current assignee (per-assignee tracks instead), nor does an Anyone
+        // chore; rotating chores keep the chosen one.
+        var isAnyone = req.AssignmentStrategy == AssignmentStrategy.Anyone;
+        chore.CurrentAssigneeId = req.AssignmentStrategy == AssignmentStrategy.Independent || isAnyone ? null : req.CurrentAssigneeId;
 
         // Keep only the recurrence parameters relevant to the chosen mode; null/clear the rest so
         // stale values can't leak into the recurrence math.
@@ -1652,12 +1668,12 @@ public class ChoreService
         // never applies in track mode (no rotation at all).
         // A rotation period only means something on a chore that rotates and comes due more often than
         // the period itself; everywhere else it's stored as the default so it can't linger unseen.
-        var supportsRotationPeriod = !isIndependent
+        var supportsRotationPeriod = !isIndependent && !isAnyone
             && req.AssignmentStrategy != AssignmentStrategy.KeepLastAssigned
             && RotationBoundary.AppliesTo(req.RotationPeriod, req.RepeatType);
         chore.RotationPeriod = supportsRotationPeriod ? req.RotationPeriod : RotationPeriod.EveryOccurrence;
         // A calendar rotation period and per-completion rotation contradict each other; the period wins.
-        chore.RotateOnEachCompletion = !isIndependent && chore.CompletionsRequired > 1 && req.RotateOnEachCompletion
+        chore.RotateOnEachCompletion = !isIndependent && !isAnyone && chore.CompletionsRequired > 1 && req.RotateOnEachCompletion
             && chore.RotationPeriod == RotationPeriod.EveryOccurrence;
 
         Validators.DueTime(req.DueTime, out var dueTime); // format already checked in ValidateAsync
@@ -1677,7 +1693,7 @@ public class ChoreService
         foreach (var a in assignees) chore.Assignees.Add(a);
 
         Validators.Pairs(req.Pairs, assignees.Select(a => a.Id).ToList(), out var pairs); // already checked in ValidateAsync
-        chore.Pairs = isIndependent ? new List<ChorePair>() : pairs;
+        chore.Pairs = isIndependent || isAnyone ? new List<ChorePair>() : pairs;
         // Which of the holder's pairs has the turn: the one asked for, else the one that had it while
         // it still exists, else their first.
         if (req.CurrentPartnerId is not null)

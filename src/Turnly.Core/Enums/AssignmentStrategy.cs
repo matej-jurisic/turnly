@@ -22,5 +22,8 @@ public enum AssignmentStrategy
     Independent = 6,
     /// <summary>Nobody is picked automatically: when the chore would rotate it goes back to
     /// unassigned (null current assignee) and stays there until an admin assigns it.</summary>
-    Manual = 7
+    Manual = 7,
+    /// <summary>Nobody holds the chore: it stays unassigned and every (non-frozen) assignee owes it
+    /// equally, so whoever gets to it first does it. Never rotates, can't be reassigned or offered.</summary>
+    Anyone = 8
 }

@@ -24,10 +24,9 @@ import { NudgeModal } from '@/components/chores/NudgeModal'
 import { OfferBoard } from '@/components/chores/OfferBoard'
 import { CopyChoreModal } from '@/components/chores/CopyChoreModal'
 import { RescheduleModal } from '@/components/chores/RescheduleModal'
-import {
-  ChoreFilters, emptyFilters, mineFilters, type ChoreFilterState, type ChoreView,
-} from '@/components/chores/ChoreFilters'
-import { choreDueStatus, isOnDemand } from '@/lib/chore-format'
+import { ChoreFilters, type ChoreView } from '@/components/chores/ChoreFilters'
+import { emptyFilters, mineFilters, type ChoreFilterState } from '@/lib/chore-filters'
+import { choreDueStatus, isAnyone, isOnDemand } from '@/lib/chore-format'
 import { cn } from '@/lib/utils'
 import { t } from '@/lib/i18n'
 
@@ -70,10 +69,11 @@ export function ChoresPage() {
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ['chores'] })
 
   const choreParam = searchParams.get('chore')
+  // Open the linked chore while rendering (not in the effect) so it doesn't cost an extra render.
+  const linked = choreParam ? chores?.find((c) => c.id === choreParam) : undefined
+  if (linked && details?.id !== linked.id) setDetails(linked)
   useEffect(() => {
     if (!choreParam || !chores) return
-    const match = chores.find((c) => c.id === choreParam)
-    if (match) setDetails(match)
     // Consume the param either way so it doesn't re-open after the modal is closed.
     setSearchParams(
       (prev) => {
@@ -136,6 +136,7 @@ export function ChoresPage() {
       for (const u of [c.currentAssignee, c.currentPartner, c.nextAssignee, c.nextPartner])
         if (u) map.set(u.id, u)
       for (const t of c.tracks) map.set(t.user.id, t.user)
+      if (isAnyone(c)) for (const u of c.assignees) map.set(u.id, u)
     }
     return [...map.values()].sort((a, b) => a.displayName.localeCompare(b.displayName))
   }, [chores])
@@ -153,10 +154,13 @@ export function ChoresPage() {
       // OR within each dimension, AND across dimensions.
       if (filters.tags.length && !filters.tags.some((t) => c.tags.includes(t))) return false
       if (filters.assignees.length) {
-        // Track-mode chores have no single current assignee — match any of their track owners.
+        // Track-mode chores have no single current assignee — match any of their track owners; an
+        // Anyone chore is on every assignee's plate.
         const ids = c.tracks.length
           ? c.tracks.map((t) => t.user.id as string | undefined)
-          : [c.currentAssignee?.id, c.currentPartner?.id,
+          : isAnyone(c)
+            ? c.assignees.map((u) => u.id as string | undefined)
+            : [c.currentAssignee?.id, c.currentPartner?.id,
               ...(filters.includeNext ? [c.nextAssignee?.id, c.nextPartner?.id] : [])]
         if (!filters.assignees.some((a) => ids.includes(a))) return false
       }

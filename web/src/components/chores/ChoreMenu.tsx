@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import type { Chore } from '@/lib/types'
-import { isIndependent, nudgeCandidates } from '@/lib/chore-format'
+import { isAnyone, isIndependent, nudgeCandidates } from '@/lib/chore-format'
 import {
   DotsIcon, InfoIcon, SkipIcon, ReassignIcon, UndoIcon, CalendarIcon, EditIcon, CopyIcon, TrashIcon,
   PauseIcon, PlayIcon, BellIcon, BellOffIcon, NudgeIcon,
@@ -44,7 +44,7 @@ export function ChoreMenu({ chore, isAdmin, meId, undoPending, skipPending, dele
   // Only admins move a chore directly. Anyone holding one can offer it instead, but not while an
   // offer is already live (they withdraw it from the details modal first) or the chore is paused.
   // An unassigned chore can always be placed, even with a single candidate.
-  const canReassign = isAdmin && !isIndependent(chore) && (chore.assignees.length > 1 || !chore.currentAssignee)
+  const canReassign = isAdmin && !isIndependent(chore) && !isAnyone(chore) && (chore.assignees.length > 1 || !chore.currentAssignee)
   // A pair's turn isn't one member's to hand over, so paired chores can't be offered at all.
   const canOffer = !isIndependent(chore) && chore.assignees.length > 1 && chore.pairs.length === 0
     && chore.currentAssignee?.id === meId && !chore.openOffer && !chore.isFrozen

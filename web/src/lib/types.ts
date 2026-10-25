@@ -136,6 +136,8 @@ export type AssignmentStrategy =
   | 'Independent'
   /** Nobody is picked automatically: the chore goes back to unassigned until an admin assigns it. */
   | 'Manual'
+  /** Nobody holds it: any assignee can do it, and it never rotates or gets assigned. */
+  | 'Anyone'
 
 export type SchedulingPreference =
   | 'FromScheduledDate'

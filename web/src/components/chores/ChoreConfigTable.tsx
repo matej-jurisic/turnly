@@ -5,7 +5,7 @@ import { Card } from '@/components/ui/Card'
 import { Avatar } from '@/components/ui/Modal'
 import { EditIcon } from '@/components/chores/icons'
 import {
-  formatDate, formatDueTime, formatGrace, isIndependent, notificationRecipientsLabel,
+  formatDate, formatDueTime, formatGrace, isAnyone, isIndependent, notificationRecipientsLabel,
   notificationTimingLabel, notificationTypeLabel, pairLabel, repeatLabel,
   rotationPeriodLabel, schedulingLabel, strategyLabel,
 } from '@/lib/chore-format'
@@ -173,7 +173,9 @@ function AssignmentCell({ chore }: { chore: Chore }) {
       {!isIndependent(chore) && (
         <Sub>
           {t('config.current', {
-            name: chore.currentAssignee ? pairLabel(chore.currentAssignee, chore.currentPartner) : t('chore.unassigned'),
+            name: isAnyone(chore)
+              ? t('chore.anyone')
+              : chore.currentAssignee ? pairLabel(chore.currentAssignee, chore.currentPartner) : t('chore.unassigned'),
           })}
         </Sub>
       )}

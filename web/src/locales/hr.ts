@@ -81,6 +81,7 @@ export const hr: Record<TKey | `${PluralKey}_few`, string> = {
   'strategy.LeastCompleted': 'Najmanje obavljenih',
   'strategy.Independent': 'Svi (svatko za sebe)',
   'strategy.Manual': 'Ručno (dodjeljuje administrator)',
+  'strategy.Anyone': 'Bilo tko (tko prvi stigne)',
   'rotation.EveryOccurrence': 'Svaki put',
   'rotation.Daily': 'Jednom dnevno',
   'rotation.Weekly': 'Jednom tjedno',
@@ -241,7 +242,7 @@ export const hr: Record<TKey | `${PluralKey}_few`, string> = {
   'view.calendar': 'Kalendar',
   'view.config': 'Konfiguracija',
   'filters.mine': 'Moji',
-  'filters.myTurnNext': 'Sljedeći sam na redu',
+  'filters.all': 'Svi',
   'filters.title': 'Filtri',
   'filters.due': 'Rok',
   'filters.tags': 'Oznake',
@@ -249,9 +250,6 @@ export const hr: Record<TKey | `${PluralKey}_few`, string> = {
   'filters.includeNext': 'Uključi i poslove na kojima su sljedeći na redu',
   'filters.repeat': 'Ponavljanje',
   'filters.clearAll': 'Očisti sve',
-  'filters.quickViews': 'Brzi prikazi',
-  'filters.allChores': 'Svi poslovi',
-  'filters.custom': 'Prilagođeno',
   'filters.view': 'Prikaz',
 
   // Chore rows
@@ -259,6 +257,7 @@ export const hr: Record<TKey | `${PluralKey}_few`, string> = {
   'chore.mutedLabel': 'Obavijesti utišane',
   'chore.markComplete': 'Označi kao obavljeno',
   'chore.unassigned': 'Nedodijeljeno',
+  'chore.anyone': 'Bilo tko',
 
   // Chore details
   'common.on': 'Uključeno',

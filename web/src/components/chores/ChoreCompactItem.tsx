@@ -1,7 +1,7 @@
 import type { Chore } from '@/lib/types'
 import { Badge } from '@/components/ui/Badge'
 import {
-  canComplete, choreHasDueTime, dueStatus, formatDueDate, isIndependent, isOnDemand, nextDueTimeLabel,
+  canComplete, choreHasDueTime, dueStatus, formatDueDate, isAnyone, isIndependent, isOnDemand, nextDueTimeLabel,
   offerSentence, showStreak, pairLabel,
 } from '@/lib/chore-format'
 import { BellOffIcon, CheckIcon, ReassignIcon } from '@/components/chores/icons'
@@ -47,6 +47,7 @@ function assigneeLabel(chore: Chore): string {
     if (names.length === 1) return names[0]
     return `${names[0]} +${names.length - 1}`
   }
+  if (isAnyone(chore)) return t('chore.anyone')
   return chore.currentAssignee ? pairLabel(chore.currentAssignee, chore.currentPartner) : t('chore.unassigned')
 }
 

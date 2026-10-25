@@ -40,6 +40,7 @@ export const STRATEGY_OPTIONS: { value: AssignmentStrategy; label: string }[] = 
   option('LeastCompleted', 'strategy.LeastCompleted'),
   option('Independent', 'strategy.Independent'),
   option('Manual', 'strategy.Manual'),
+  option('Anyone', 'strategy.Anyone'),
 ]
 
 interface RotationPeriodOption {
@@ -69,7 +70,7 @@ export const ROTATION_PERIOD_OPTIONS: RotationPeriodOption[] = [
 /** The rotation periods that can apply: the chore has to rotate, and come due more often than the
  *  period. Empty when there's nothing to choose (only "every occurrence" would be left). */
 export function rotationPeriodOptions(repeatType: RepeatType, strategy: AssignmentStrategy) {
-  if (strategy === 'Independent' || strategy === 'KeepLastAssigned') return []
+  if (strategy === 'Independent' || strategy === 'KeepLastAssigned' || strategy === 'Anyone') return []
   const options = ROTATION_PERIOD_OPTIONS.filter((o) => o.repeats.includes(repeatType))
   return options.length > 1 ? options : []
 }
@@ -243,6 +244,11 @@ export function isIndependent(chore: Pick<Chore, 'assignmentStrategy'>): boolean
   return chore.assignmentStrategy === 'Independent'
 }
 
+/** Whether nobody holds a chore and any assignee can do it. */
+export function isAnyone(chore: Pick<Chore, 'assignmentStrategy'>): boolean {
+  return chore.assignmentStrategy === 'Anyone'
+}
+
 /** Whoever can take a turn on a chore: each fixed pair, then each assignee outside every pair,
  * alone. A pair with a frozen member is away, so it doesn't count. */
 export function turnUnits(chore: Pick<Chore, 'pairs' | 'assignees'>): { user: User; partner?: User }[] {
@@ -268,15 +274,18 @@ export function holdsChore(chore: Pick<Chore, 'currentAssignee' | 'currentPartne
 }
 
 /** Who the viewer can nudge about this chore: whoever owes the current occurrence (the assignee and
- * their partner, or everyone with an open track on a per-person chore), minus the viewer and anyone
+ * their partner, every assignee on an Anyone chore, or everyone with an open track on a per-person
+ * chore), minus the viewer and anyone
  * on leave. Mirrors `ChoreService.NudgeAsync`; the server still has the final say. */
 export function nudgeCandidates(chore: Chore, meId?: string | null): User[] {
   if (chore.isFrozen) return []
   const holders = isIndependent(chore)
     ? chore.tracks.filter((tr) => tr.dueAt).map((tr) => tr.user)
-    : chore.dueAt || isOnDemand(chore)
-      ? [chore.currentAssignee, chore.currentPartner].filter((u): u is User => Boolean(u))
-      : []
+    : !chore.dueAt && !isOnDemand(chore)
+      ? []
+      : isAnyone(chore)
+        ? chore.assignees
+        : [chore.currentAssignee, chore.currentPartner].filter((u): u is User => Boolean(u))
   return holders.filter((u) => u.id !== meId && !u.isFrozen)
 }
 
