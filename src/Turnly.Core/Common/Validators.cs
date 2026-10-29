@@ -163,6 +163,12 @@ public static class Validators
         return null;
     }
 
+    /// <summary>A language a user can pick (<see cref="Turnly.Core.Notifications.NotificationText.Languages"/>).</summary>
+    public static Error? Language(string? language) =>
+        language is not null && Turnly.Core.Notifications.NotificationText.Languages.Contains(language)
+            ? null
+            : Error.Validation("Unsupported language.");
+
     /// <summary>Validates a user's optional quiet-hours window. Both ends must be supplied together
     /// (or both omitted = off), each in "HH:mm", and the two must differ (a zero-length window is
     /// meaningless). A window where start &gt; end is allowed — it spans midnight.</summary>

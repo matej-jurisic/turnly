@@ -30,6 +30,11 @@ public class ChoreCompletion
     public Guid? PartnerUserId { get; set; }
     public User? Partner { get; set; }
 
+    /// <summary>Anyone else an admin credited with this completion beyond the completer and partner
+    /// (assignee or not): same points, counted in their stats like the partner, but never a turn in
+    /// the rotation. Empty unless named explicitly via <c>CompleteChoreRequest.CompletedByUserIds</c>.</summary>
+    public List<User> Helpers { get; set; } = [];
+
     public DateTimeOffset CompletedAt { get; set; } = DateTimeOffset.UtcNow;
     public string? Notes { get; set; }
 

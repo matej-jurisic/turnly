@@ -45,6 +45,7 @@ public class TurnlyDbContext : DbContext
             e.Property(x => x.Username).IsRequired().HasMaxLength(64);
             e.Property(x => x.DisplayName).IsRequired().HasMaxLength(128);
             e.Property(x => x.AvatarColor).IsRequired().HasMaxLength(32);
+            e.Property(x => x.Language).HasMaxLength(8);
             e.Property(x => x.PasswordHash).IsRequired();
             e.Property(x => x.Role).HasConversion<string>().HasMaxLength(16);
 
@@ -145,6 +146,8 @@ public class TurnlyDbContext : DbContext
                 .HasForeignKey(x => x.PartnerUserId)
                 .IsRequired(false)
                 .OnDelete(DeleteBehavior.Restrict);
+
+            e.HasMany(x => x.Helpers).WithMany().UsingEntity(j => j.ToTable("ChoreCompletionHelpers"));
         });
 
         b.Entity<ChoreAssignment>(e =>

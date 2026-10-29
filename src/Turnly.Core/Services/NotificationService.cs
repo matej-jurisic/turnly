@@ -171,7 +171,7 @@ public class NotificationService
             return Result.Fail<int>(Error.Validation(
                 "No push subscription on this account. Enable notifications on this device first."));
 
-        var sent = await NotifyUserAsync(userId, "Turnly", "Test notification: push is working. 🎉",
+        var sent = await NotifyUserAsync(userId, "Turnly", text => text.TestPush(),
             choreId: null, NotificationCategory.System, ct);
         await _db.SaveChangesAsync(ct);
         return Result.Success(sent);
@@ -182,16 +182,17 @@ public class NotificationService
     /// Does <b>not</b> call <c>SaveChanges</c> — the caller commits, so this can join a larger
     /// transaction. Used for ad-hoc, non-scheduled notifications (test push, chore offers).
     /// Subject to the recipient's <paramref name="category"/> preference, chore mute and quiet hours.
+    /// <paramref name="body"/> is rendered in each recipient's own language.
     /// Returns the number of devices the push services accepted.</summary>
-    public Task<int> NotifyUserAsync(Guid userId, string title, string body, Guid? choreId,
+    public Task<int> NotifyUserAsync(Guid userId, string title, Func<NotificationText, string> body, Guid? choreId,
         NotificationCategory category, CancellationToken ct = default) =>
         NotifyUsersAsync([userId], title, body, choreId, category, ct);
 
     /// <summary>Fans one message out to several recipients, loading the routing context (preferences,
     /// mutes, quiet hours) once for the whole set rather than once per user. Each recipient is routed
     /// independently, so one person muting the chore doesn't affect anyone else.</summary>
-    public async Task<int> NotifyUsersAsync(IReadOnlyCollection<Guid> userIds, string title, string body,
-        Guid? choreId, NotificationCategory category, CancellationToken ct = default)
+    public async Task<int> NotifyUsersAsync(IReadOnlyCollection<Guid> userIds, string title,
+        Func<NotificationText, string> body, Guid? choreId, NotificationCategory category, CancellationToken ct = default)
     {
         if (userIds.Count == 0)
             return 0;
@@ -200,27 +201,30 @@ public class NotificationService
         var routing = await LoadRoutingAsync(userIds, now, ct);
 
         var url = choreId is { } cid ? $"/chores?chore={cid}" : "/chores";
-        var payload = JsonSerializer.Serialize(new { title, body, url, choreId });
 
-        var pushIds = new List<Guid>();
+        // Each recipient gets the body in their own language: the inbox row is stored that way too.
+        var pushBodies = new Dictionary<Guid, string>();
         foreach (var userId in userIds.Distinct())
         {
             var channel = routing.Resolve(userId, category, choreId);
             if (channel == DeliveryChannel.Off)
                 continue;
 
-            _db.UserNotifications.Add(new UserNotification { UserId = userId, Title = title, Body = body, ChoreId = choreId });
+            var text = body(routing.TextFor(userId));
+            _db.UserNotifications.Add(new UserNotification { UserId = userId, Title = title, Body = text, ChoreId = choreId });
             if (channel == DeliveryChannel.PushAndInbox)
-                pushIds.Add(userId);
+                pushBodies[userId] = text;
         }
 
-        if (pushIds.Count == 0)
+        if (pushBodies.Count == 0)
             return 0;
 
+        var pushIds = pushBodies.Keys.ToList();
         var sent = 0;
         var subs = await _db.PushSubscriptions.Where(s => pushIds.Contains(s.UserId)).ToListAsync(ct);
         foreach (var sub in subs)
         {
+            var payload = JsonSerializer.Serialize(new { title, body = pushBodies[sub.UserId], url, choreId });
             PushSendResult result;
             try
             {
@@ -244,7 +248,7 @@ public class NotificationService
             PushSendResult result;
             try
             {
-                result = await _fcm.SendAsync(device.Token, title, body, url, choreId, ct);
+                result = await _fcm.SendAsync(device.Token, title, pushBodies[device.UserId], url, choreId, ct);
             }
             catch
             {
@@ -410,6 +414,11 @@ public class NotificationService
         public required Dictionary<Guid, (TimeOnly? Start, TimeOnly? End)> Quiet { get; init; }
         public required Dictionary<(Guid UserId, NotificationCategory Category), DeliveryChannel> Preferences { get; init; }
         public required HashSet<(Guid UserId, Guid ChoreId)> Mutes { get; init; }
+        public required Dictionary<Guid, string?> Languages { get; init; }
+
+        /// <summary>The wording in the recipient's language (English when unset).</summary>
+        public NotificationText TextFor(Guid userId) =>
+            NotificationText.For(Languages.GetValueOrDefault(userId));
 
         /// <summary>The effective channel for one recipient. A missing preference row means the
         /// category is at its default, which is how sparse storage stays invisible to callers.</summary>
@@ -436,10 +445,12 @@ public class NotificationService
             .FirstOrDefaultAsync(ct);
         var localNow = TimeOnly.FromTimeSpan(TimeZoneInfo.ConvertTime(now, TimeZoneResolver.Resolve(tzId)).TimeOfDay);
 
-        var quiet = (await _db.Users
-                .Where(u => ids.Contains(u.Id) && u.QuietHoursStart != null)
-                .Select(u => new { u.Id, u.QuietHoursStart, u.QuietHoursEnd })
-                .ToListAsync(ct))
+        var users = await _db.Users
+            .Where(u => ids.Contains(u.Id))
+            .Select(u => new { u.Id, u.QuietHoursStart, u.QuietHoursEnd, u.Language })
+            .ToListAsync(ct);
+        var quiet = users
+            .Where(u => u.QuietHoursStart != null)
             .ToDictionary(u => u.Id, u => (u.QuietHoursStart, u.QuietHoursEnd));
 
         var preferences = (await _db.UserNotificationPreferences
@@ -462,7 +473,8 @@ public class NotificationService
             LocalNow = localNow,
             Quiet = quiet,
             Preferences = preferences,
-            Mutes = mutes
+            Mutes = mutes,
+            Languages = users.ToDictionary(u => u.Id, u => u.Language)
         };
     }
 
@@ -599,9 +611,8 @@ public class NotificationService
         Dictionary<Guid, List<FcmDevice>> fcmByUser,
         RoutingContext routing, DateTimeOffset now, CancellationToken ct)
     {
-        var (title, body) = BuildMessage(chore, entry, occurrenceDueAt, messageAssigneeId, now);
+        var (title, render) = BuildMessage(chore, entry, occurrenceDueAt, messageAssigneeId, now);
         var url = $"/chores?chore={chore.Id}";
-        var payload = JsonSerializer.Serialize(new { title, body, url, choreId = chore.Id });
         var category = NotificationRouter.CategoryOf(entry.Type);
 
         var attempted = 0;
@@ -613,6 +624,10 @@ public class NotificationService
             var channel = routing.Resolve(userId, category, chore.Id);
             if (channel == DeliveryChannel.Off)
                 continue;
+
+            // Rendered in the recipient's language, for the inbox and their devices alike.
+            var body = render(routing.TextFor(userId));
+            var payload = JsonSerializer.Serialize(new { title, body, url, choreId = chore.Id });
 
             // Record the in-app inbox item even if the user has no reachable push device.
             _db.UserNotifications.Add(new UserNotification
@@ -680,8 +695,8 @@ public class NotificationService
                 chore.Name, entry.Recipients);
     }
 
-    private static (string Title, string Body) BuildMessage(Chore chore, ChoreNotification entry,
-        DateTimeOffset occurrenceDueAt, Guid? assigneeId, DateTimeOffset now)
+    private static (string Title, Func<NotificationText, string> Body) BuildMessage(Chore chore,
+        ChoreNotification entry, DateTimeOffset occurrenceDueAt, Guid? assigneeId, DateTimeOffset now)
     {
         // A labelled slot names itself in the title ("Feed the dog (Morning)") so the two pushes of a
         // twice-a-day chore don't read identically.
@@ -692,33 +707,21 @@ public class NotificationService
         // loaded Assignees, so resolve the name without an extra include.
         var assignee = chore.Assignees.FirstOrDefault(a => a.Id == assigneeId)?.DisplayName;
         // A paired chore names both people doing it.
-        if (assignee is not null && assigneeId == chore.CurrentAssigneeId && chore.CurrentPartner() is { } partner)
-            assignee = $"{assignee} & {partner.DisplayName}";
-        var prefix = assignee is null ? "" : $"{assignee} - ";
-        var points = chore.Points > 0 ? $" ({chore.Points} pts)" : "";
+        List<string>? who = assignee is null ? null : [assignee];
+        if (who is not null && assigneeId == chore.CurrentAssigneeId && chore.CurrentPartner() is { } partner)
+            who.Add(partner.DisplayName);
+        var points = chore.Points;
         var dueAt = occurrenceDueAt;
 
-        var body = entry.Type switch
+        return (title, text =>
         {
-            NotificationType.Due => $"{prefix}due now{points}",
-            NotificationType.FollowUp => $"{prefix}overdue by {Humanize(now - dueAt)}{points}",
-            _ => $"{prefix}due in {Humanize(dueAt - now)}{points}"
-        };
-        return (title, body);
+            var people = who is null ? null : text.People(who);
+            return entry.Type switch
+            {
+                NotificationType.Due => text.DueNow(people, points),
+                NotificationType.FollowUp => text.Overdue(people, now - dueAt, points),
+                _ => text.DueIn(people, dueAt - now, points)
+            };
+        });
     }
-
-    /// <summary>Coarse human-friendly duration: minutes under an hour, then hours, then days.</summary>
-    private static string Humanize(TimeSpan span)
-    {
-        var total = span < TimeSpan.Zero ? TimeSpan.Zero : span;
-        if (total.TotalMinutes < 1)
-            return "less than a minute";
-        if (total.TotalMinutes < 60)
-            return Plural((int)Math.Round(total.TotalMinutes), "minute");
-        if (total.TotalHours < 24)
-            return Plural((int)Math.Round(total.TotalHours), "hour");
-        return Plural((int)Math.Round(total.TotalDays), "day");
-    }
-
-    private static string Plural(int n, string unit) => $"{n} {unit}{(n == 1 ? "" : "s")}";
 }

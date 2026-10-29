@@ -6,6 +6,7 @@ import { confirm } from '@/lib/confirm'
 import { unregisterNativePush } from '@/lib/native-push'
 import { useLiveUpdates } from '@/lib/live'
 import { useDayStartSync } from '@/lib/day-start'
+import { useLanguageSync } from '@/lib/language-sync'
 import { useAuthStore } from '@/store/auth'
 import { UserMenu } from '@/components/UserMenu'
 import { NotificationsBell } from '@/components/NotificationsBell'
@@ -26,6 +27,7 @@ export function Layout() {
   const queryClient = useQueryClient()
   useLiveUpdates()
   useDayStartSync()
+  useLanguageSync()
   // The chore list runs full-width so its right-hand info rail can anchor to the screen edge; it
   // re-imposes its own centered column internally. Every other page stays at the standard max-w-5xl.
   const fullWidth = location.pathname === '/chores'

@@ -28,11 +28,14 @@ public record UserDto(
     /// emoji renders wherever an avatar shows.</summary>
     public string? AvatarEmoji { get; init; }
 
+    /// <summary>Language notifications are worded in ("en" / "hr", null = English).</summary>
+    public string? Language { get; init; }
+
     public static UserDto FromEntity(User u, int weeklyPoints = 0) =>
         new(u.Id, u.Username, u.DisplayName, u.AvatarColor, u.Role, u.Points, weeklyPoints, u.CreatedAt,
             u.QuietHoursStart?.ToString("HH:mm"), u.QuietHoursEnd?.ToString("HH:mm"))
             { IsFrozen = u.IsFrozen, EquippedFrameKey = u.EquippedFrameKey, EquippedThemeKey = u.EquippedThemeKey,
-              AvatarEmoji = u.AvatarEmoji };
+              AvatarEmoji = u.AvatarEmoji, Language = u.Language };
 }
 
 public record LeaderboardEntryDto(
@@ -64,6 +67,8 @@ public record CreateUserRequest(string Username, string DisplayName, string Pass
 public record UpdateUserRequest(string DisplayName, UserRole Role);
 
 public record UpdateProfileRequest(string? QuietHoursStart = null, string? QuietHoursEnd = null);
+
+public record SetLanguageRequest(string Language);
 
 public record ChangePasswordRequest(string CurrentPassword, string NewPassword);
 
@@ -374,7 +379,11 @@ public record CopyChoreRequest(string NewName);
 
 /// <param name="CompletedAt">When the chore was actually done, for logging it after the fact.
 /// Null = now. Can't be in the future or before the chore's last logged entry.</param>
-public record CompleteChoreRequest(string? Notes, Guid? CompletedByUserId = null, DateTimeOffset? CompletedAt = null);
+/// <summary><see cref="CompletedByUserIds"/> (admin-only, except a member on an Anyone chore naming themselves plus fellow assignees) names exactly who did it and gets the points,
+/// assignees or not, overriding <see cref="CompletedByUserId"/> and the default partner. On a per-person
+/// chore it may name only one assignee.</summary>
+public record CompleteChoreRequest(string? Notes, Guid? CompletedByUserId = null, DateTimeOffset? CompletedAt = null,
+    IReadOnlyList<Guid>? CompletedByUserIds = null);
 
 /// <summary><see cref="UserId"/> names whose track to skip on a track-mode chore (required there);
 /// ignored for rotating chores, which only have one schedule to skip.</summary>
@@ -426,12 +435,16 @@ public record ChoreCompletionDto(
     /// <summary>The partner credited alongside <see cref="CompletedBy"/> on a paired chore.</summary>
     public UserDto? Partner { get; init; }
 
+    /// <summary>Everyone else credited with it (<see cref="ChoreCompletion.Helpers"/>).</summary>
+    public List<UserDto> Helpers { get; init; } = [];
+
     public static ChoreCompletionDto FromEntity(ChoreCompletion c) =>
         new(c.Id, c.ChoreId, c.Chore?.Name ?? string.Empty,
             c.CompletedBy is null ? null : UserDto.FromEntity(c.CompletedBy),
             c.CompletedAt, c.OccurrenceDueAt, c.Notes, c.PointsAwarded, c.IsSkip, c.IsExpired)
         {
-            Partner = c.Partner is null ? null : UserDto.FromEntity(c.Partner)
+            Partner = c.Partner is null ? null : UserDto.FromEntity(c.Partner),
+            Helpers = [.. c.Helpers.Select(UserDto.FromEntity)]
         };
 }
 
@@ -455,6 +468,9 @@ public record ChoreHistoryEntryDto(
     /// <see cref="Actor"/>. Null for everything else.</summary>
     public UserDto? Partner { get; init; }
 
+    /// <summary>Everyone else credited with a completion (<see cref="ChoreCompletion.Helpers"/>).</summary>
+    public List<UserDto> Helpers { get; init; } = [];
+
     /// <summary>A late completion by someone who didn't hold the chore (<see cref="ChoreCompletion.IsRescue(TimeSpan)"/>):
     /// shown as a rescue rather than on time or late.</summary>
     public bool IsRescue { get; init; }
@@ -472,6 +488,7 @@ public record ChoreHistoryEntryDto(
             c.CompletedAt, c.OccurrenceDueAt, c.Notes, c.PointsAwarded, null, null)
         {
             Partner = c.Partner is null ? null : UserDto.FromEntity(c.Partner),
+            Helpers = [.. c.Helpers.Select(UserDto.FromEntity)],
             IsRescue = c.IsRescue(lateGrace),
             OccurrenceLabel = c.Chore?.SlotLabel(c.OccurrenceDueAt)
         };

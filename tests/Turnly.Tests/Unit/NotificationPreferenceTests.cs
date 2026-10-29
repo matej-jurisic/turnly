@@ -327,7 +327,7 @@ public class NotificationPreferenceTests
             new UpdateNotificationPreferenceRequest(NotificationCategory.OfferReceived, DeliveryChannel.Off));
 
         var sent = await ctx.Notifications.NotifyUserAsync(
-            member, "Dishes", "Up for grabs", choreId: null, NotificationCategory.OfferReceived);
+            member, "Dishes", _ => "Up for grabs", choreId: null, NotificationCategory.OfferReceived);
         await ctx.Db.SaveChangesAsync();
 
         Assert.Equal(0, sent);
@@ -349,7 +349,7 @@ public class NotificationPreferenceTests
         await ctx.Db.SaveChangesAsync();
 
         var sent = await ctx.Notifications.NotifyUserAsync(
-            member, "Dishes", "Up for grabs", choreId: null, NotificationCategory.OfferReceived);
+            member, "Dishes", _ => "Up for grabs", choreId: null, NotificationCategory.OfferReceived);
         await ctx.Db.SaveChangesAsync();
 
         // The push is muted, but the inbox still records it — nothing is lost.
@@ -368,7 +368,7 @@ public class NotificationPreferenceTests
         await ctx.Notifications.MuteChoreAsync(member, choreId, null);
 
         var sent = await ctx.Notifications.NotifyUserAsync(
-            member, "Dishes", "Up for grabs", choreId, NotificationCategory.OfferReceived);
+            member, "Dishes", _ => "Up for grabs", choreId, NotificationCategory.OfferReceived);
         await ctx.Db.SaveChangesAsync();
 
         Assert.Equal(0, sent);
@@ -408,7 +408,7 @@ public class NotificationPreferenceTests
             new UpdateNotificationPreferenceRequest(NotificationCategory.OfferReceived, DeliveryChannel.Off));
 
         var sent = await ctx.Notifications.NotifyUsersAsync(
-            [member, admin], "Dishes", "Up for grabs", choreId: null, NotificationCategory.OfferReceived);
+            [member, admin], "Dishes", _ => "Up for grabs", choreId: null, NotificationCategory.OfferReceived);
         await ctx.Db.SaveChangesAsync();
 
         Assert.Equal(1, sent);

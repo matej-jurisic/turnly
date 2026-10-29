@@ -11,7 +11,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { Avatar } from '@/components/ui/Modal'
 import { TrashIcon } from '@/components/chores/icons'
 import { cn } from '@/lib/utils'
-import { beatDeadline, choreHasDueTime, dueStatus, formatDateTime, pairLabel, relativeTimeLabel, timelinessClass, timelinessLabel } from '@/lib/chore-format'
+import { beatDeadline, choreHasDueTime, dueStatus, creditedPeople, formatDateTime, pairLabel, peopleLabel, relativeTimeLabel, timelinessClass, timelinessLabel } from '@/lib/chore-format'
 import { locale, localized, plural, t } from '@/lib/i18n'
 
 interface Segment {
@@ -527,7 +527,7 @@ function activityDetail(entry: ChoreHistoryEntry): string {
       ? t('history.assignedTo', { name: pairLabel(entry.actor, entry.partner) })
       : t('history.autoAdvanced')
   }
-  return t('history.by', { name: entry.actor ? pairLabel(entry.actor, entry.partner) : t('history.someone') })
+  return t('history.by', { name: entry.actor ? peopleLabel(creditedPeople(entry)) : t('history.someone') })
 }
 
 /** "5–11 Oct" for a chart week, in the UI language. Falls back to the server's own label where the

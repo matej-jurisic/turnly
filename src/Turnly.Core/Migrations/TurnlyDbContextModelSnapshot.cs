@@ -17,6 +17,21 @@ namespace Turnly.Core.Migrations
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "10.0.9");
 
+            modelBuilder.Entity("ChoreCompletionUser", b =>
+                {
+                    b.Property<Guid>("ChoreCompletionId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("HelpersId")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("ChoreCompletionId", "HelpersId");
+
+                    b.HasIndex("HelpersId");
+
+                    b.ToTable("ChoreCompletionHelpers", (string)null);
+                });
+
             modelBuilder.Entity("ChoreTag", b =>
                 {
                     b.Property<Guid>("ChoresId")
@@ -752,6 +767,10 @@ namespace Turnly.Core.Migrations
                     b.Property<bool>("IsFrozen")
                         .HasColumnType("INTEGER");
 
+                    b.Property<string>("Language")
+                        .HasMaxLength(8)
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("PasswordHash")
                         .IsRequired()
                         .HasColumnType("TEXT");
@@ -904,6 +923,21 @@ namespace Turnly.Core.Migrations
                         .IsUnique();
 
                     b.ToTable("UserNotificationPreferences");
+                });
+
+            modelBuilder.Entity("ChoreCompletionUser", b =>
+                {
+                    b.HasOne("Turnly.Core.Entities.ChoreCompletion", null)
+                        .WithMany()
+                        .HasForeignKey("ChoreCompletionId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Turnly.Core.Entities.User", null)
+                        .WithMany()
+                        .HasForeignKey("HelpersId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("ChoreTag", b =>

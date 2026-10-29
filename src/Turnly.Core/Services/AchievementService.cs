@@ -103,10 +103,11 @@ public class AchievementService
     /// user — fine at family scale.</summary>
     public async Task<AchievementStats> ComputeStatsAsync(Guid userId, CancellationToken ct = default)
     {
-        // Real completions credited to the user, as the completer or as their partner on a paired
-        // chore (skips and auto-expiries don't count).
+        // Real completions credited to the user, as the completer, as their partner on a paired
+        // chore, or as a helper an admin named (skips and auto-expiries don't count).
         var myCompletions = await _db.ChoreCompletions
-            .Where(c => (c.CompletedByUserId == userId || c.PartnerUserId == userId) && !c.IsSkip && !c.IsExpired)
+            .Where(c => (c.CompletedByUserId == userId || c.PartnerUserId == userId || c.Helpers.Any(h => h.Id == userId))
+                && !c.IsSkip && !c.IsExpired)
             .Include(c => c.Chore!)
             .ThenInclude(ch => ch.Tags)
             .ToListAsync(ct);
@@ -137,6 +138,7 @@ public class AchievementService
         {
             var rows = await _db.ChoreCompletions
                 .Where(c => choreIds.Contains(c.ChoreId))
+                .Include(c => c.Helpers)
                 .ToListAsync(ct);
             var lateGrace = await AppSettingsService.ReadLateGraceByChoreAsync(_db, ct);
             foreach (var group in rows.GroupBy(c => c.ChoreId))

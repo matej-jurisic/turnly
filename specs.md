@@ -35,11 +35,12 @@
     - Either partner marks it done and the occurrence closes for both: each gets the chore's full points, and the completion counts toward both partners' stats, streaks and achievements. Either of them (or an admin) can undo it, which takes the points back from both. The credit goes to the pair holding the turn, not to the completer's other pairs. Someone outside the holding pair who completes it brings their own partner only if they have exactly one pair; otherwise they are credited alone.
     - Both partners get the chore's notifications, and both names show wherever the current assignee does. A missed (auto-expired) occurrence counts as missed for both.
     - A frozen partner is treated as away: the other carries the turn alone and is the only one credited. Freezing the person nominally holding the chore leaves it with their partner rather than rotating it away. While someone is frozen their pairs drop out of the rotation; a partner left with no other pair takes turns alone.
-    - Paired chores can't be offered (one partner can't hand over a joint turn, and a claim would commit the claimer's partner); an admin can still reassign one to another pair. Not available on `Everyone (independent)` chores, which have no shared turn.
-- **Nudge** — anyone in the household (assigned to the chore or not) can send a reminder to whoever owes its current occurrence, with an optional note of up to 200 characters. By default it reaches everyone holding the chore: the assignee and their partner on a paired chore, or every other assignee with an open schedule on an `Everyone (independent)` chore. A specific holder can be picked instead. Available from the chore's menu and its details dialog.
+    - Paired chores can't be offered (one partner can't hand over a joint turn, and a claim would commit the claimer's partner); an admin can still reassign one to another pair. Not available on `Everyone` chores, which have no shared turn.
+- **Nudge** — anyone in the household (assigned to the chore or not) can send a reminder to whoever owes its current occurrence, with an optional note of up to 200 characters. By default it reaches everyone holding the chore: the assignee and their partner on a paired chore, or every other assignee with an open schedule on an `Everyone` chore. A specific holder can be picked instead. Available from the chore's menu and its details dialog.
     - You can't nudge yourself, someone who isn't holding the chore, anyone on leave, or anyone about a paused chore.
     - A sender can nudge the same person about the same chore at most once every 30 minutes. Nudging "everyone" skips whoever is still cooling down and says who was reached.
     - Nudges are their own notification category, so the recipient's delivery settings, chore mutes and quiet hours apply. The chore itself doesn't change.
+- **Covered for you** — when someone completes a chore another person holds, the holder (both people on a paired chore) is notified who did it. Nobody is told when they did it themselves or were credited with it (as a partner or named by an admin). Skips, filling in a missed slot, `Anyone` chores, unassigned chores and `Everyone` chores send nothing. It is its own notification category.
 - **Assignment strategy** — determines how the next assignee is picked on each recurrence:
     - `Random` — pick any assignee at random
     - `Least Assigned` — pick the assignee who has been assigned this chore fewest times
@@ -47,21 +48,22 @@
     - `Keep Last Assigned` — reassign to the same person as the previous occurrence
     - `Random Except Last Assigned` — random, but exclude whoever did it last
     - `Round Robin` — cycle through assignees in order
-    - `Everyone (independent)` — no rotation: **every assignee gets their own independent schedule**
+    - `Everyone` — no rotation: **every assignee gets their own independent schedule**
       with its own due date and per-person quota. Lets one chore model "everyone does the dishes once a
       week" (all quotas 1) or an uneven split ("Alice 3× / Bob 2×"); each person advances on their own,
       so a late assignee never blocks the others. (Recurring chores only.)
-    - `Manual (admin assigns)` — nobody is picked automatically: whenever the chore would hand over
+    - `Manual` — nobody is picked automatically: whenever the chore would hand over
       it goes back to **Unassigned** and stays there until an admin assigns it (the chore menu's
       "Assign" action). It can also be created or edited to start unassigned. Anyone can still
       complete an unassigned chore; members can't claim it for themselves. Freezing the person
       holding one leaves it unassigned rather than picking a replacement. Combined with a calendar
       rotation period it returns to unassigned once per period instead of after every occurrence.
-    - `Anyone (whoever gets to it)` — the chore is **never assigned**: every assignee owes it equally
+    - `Anyone` — the chore is **never assigned**: every assignee owes it equally
       and whoever gets to it first completes it. It never rotates, so there is no current or next
       assignee, no pairs and no rotation period, and it can't be reassigned or offered. Reminders
       addressed to the "current assignee" and nudges go to every non-frozen assignee, and the "Mine"
-      filter shows it to all of them. Undo never puts anyone back on it.
+      filter shows it to all of them. Undo never puts anyone back on it. An assignee completing it can
+      name the other assignees who did it with them, and each gets the points.
 - **Rotation period** ("Hand over") — how often a rotating chore changes hands:
     - `Every occurrence` (default) — the strategy picks a new assignee each time an occurrence closes
     - `Once a day` / `Once a week` / `Once a month` / `Once a quarter` / `Once a year` — the same
@@ -75,7 +77,7 @@
       skipping the final occurrence doesn't keep the chore for another period. A manual reassign or
       claimed offer mid-period just changes who holds it until the period turns. Unfreezing a paused
       chore doesn't hand over by itself.
-    - Offered with a rotating strategy (not `Keep Last Assigned` or `Everyone (independent)`), and
+    - Offered with a rotating strategy (not `Keep Last Assigned` or `Everyone`), and
       only where the chore can come due more than once inside the period: day and week for Daily and
       Custom repeats; month for Daily, Weekly and Custom; quarter and year for those plus Monthly.
       Yearly chores always hand over every occurrence. Replaces "rotate after each completion" on
@@ -101,7 +103,7 @@
         - **Days of the month** — repeats on selected days (e.g. 1, 15) within selected months (e.g. Jan, Jun); any combination of one or more days and one or more months
 - **Completion count** — for the non-custom repeat types, a chore can require being completed `{x}`
   times before the occurrence advances (e.g. "3× per week"); each completion **or skip** counts toward
-  closing the occurrence. (For `Everyone (independent)` chores this count is set **per assignee**.)
+  closing the occurrence. (For `Everyone` chores this count is set **per assignee**.)
 - **Multiple times of day** — a day-resolution chore (Daily, or the custom Days-of-week / Days-of-month
   modes) can list several fixed times of day (e.g. 08:00 and 20:00 for "twice a day"); each time is a
   distinct occurrence. Empty = a single daily slot at the chore's due time.
@@ -154,16 +156,17 @@ Per-chore notification schedule — a list of notification entries, each with:
 
 - Any household member can mark a chore complete
 - Completing a chore logs: who, when, notes (optional)
+- **Completed by (admin)** - an admin marking a chore done picks exactly who did it, any number of household members, assignees or not. Everyone picked gets the chore's full points, and the completion counts toward each of their stats, streaks and achievements; nobody else is credited (not even a partner they left out). Any of them, or an admin, can undo it, which takes the points back from all of them. If the person (or pair) holding the chore is among them, the turn counts as theirs, so the rotation moves on as usual and it is never a rescue; helpers from outside don't take a turn in the rotation. A per-person (`Everyone`) chore is still completed for one assignee at a time. On an `Anyone` chore, members get the same picker limited to the chore's assignees: they can add whoever did it with them, but can't leave themselves out.
 - **Completed at (optional)** - a chore that was done earlier but couldn't be logged at the time can be given the time it was actually done. That time is what the log shows and what decides on-time vs late, the streak, and (for the completion-based scheduling preferences) the next due date. It can't be in the future or earlier than the chore's last logged entry. Left unset, the completion is stamped with the current time.
 - Completions can be undone; points are reversed on undo
 - **Skip occurrence** — a recurring chore's current occurrence can be skipped instead of completed: it advances the recurrence to the next due date (per the chore's scheduling preference) without awarding points or flagging it overdue; skips are logged and can be undone (one-time chores cannot be skipped)
 - **Missed / expired occurrence** — when a chore has **auto-advance** on, the background service closes an unfilled occurrence after its completion window passes: the missing slots are logged as expired (no points, no actor, not undoable) and the schedule advances. Expired occurrences appear in history and break the on-time streak.
 - Points awarded on completion (fixed value set per chore)
 - Points are per-user, accumulated over time
-- **Points log** — each user has a full history of point changes: earnings (per completion), deductions (per redemption), and **manual admin adjustments**
+- **Points log** — each user has a full history of point changes: earnings (per completion), deductions (per redemption), and **manual admin adjustments**. Any member can see anyone's: clicking a person on the leaderboard shows their completions plus everything else that moved their points (spending, bounties, adjustments); missed and skipped occurrences stay on the History page
 - **Manual point adjustment** — an admin can grant or deduct points from any user with an optional reason; the change is recorded in that user's points log
-- **Rescue** - when someone other than the person (or pair) holding a chore completes it after it went overdue, the completion is a rescue: it counts as late for nobody (neither the rescuer's nor the holder's late count), and history shows it as "rescue" instead of "on time" or "late". The rescuer still gets the points and the completion count. Does not apply to `Everyone (independent)` chores, where nobody can do another person's share. The chore's on-time streak still resets, since the occurrence itself was not done on time.
-- **On-time streak** — each chore tracks how many of its most recent occurrences were completed on or before the due date; a late completion, a skip, or a missed (expired) occurrence resets the streak to 0. For `Everyone (independent)` chores the streak is tracked per assignee.
+- **Rescue** - when someone other than the person (or pair) holding a chore completes it after it went overdue, the completion is a rescue: it counts as late for nobody (neither the rescuer's nor the holder's late count), and history shows it as "rescue" instead of "on time" or "late". The rescuer still gets the points and the completion count. Does not apply to `Everyone` chores, where nobody can do another person's share. The chore's on-time streak still resets, since the occurrence itself was not done on time.
+- **On-time streak** — each chore tracks how many of its most recent occurrences were completed on or before the due date; a late completion, a skip, or a missed (expired) occurrence resets the streak to 0. For `Everyone` chores the streak is tracked per assignee.
 
 ---
 
@@ -234,7 +237,7 @@ chore-earned points used for awards, so it is a reward sink, not gambling.
     - **When:** `before` | `at due` | `after` — with an offset in minutes / hours / days
     - **Who:** `current assignee` | `all assignees`
 - All notifications for a chore instance stop firing once it is marked complete (for
-  `Everyone (independent)` chores, reminders fire **per assignee** and stop once that person completes
+  `Everyone` chores, reminders fire **per assignee** and stop once that person completes
   their own share)
 - **Quiet hours** — each user can set a nightly window (e.g. 22:00–07:00, wrap-aware) during which push
   notifications are suppressed; the in-app inbox row is still written so nothing is lost. The window is
@@ -252,7 +255,8 @@ receives, and an admin cannot set them on someone's behalf.
   The categories are: **chore reminders** (nudges before the due time), **chore due** (at the due
   time), **overdue chases** (follow-ups after the due time), **chores up for grabs** (someone puts a chore
   up for grabs), **replies to your offers** (someone claims a chore you
-  offered), **nudges** (someone reminds you about a chore you hold), and **app messages** (test pushes and account notices - always delivered, so a test push
+  offered), **nudges** (someone reminds you about a chore you hold), **covered for you** (someone else
+  completes a chore you hold), and **app messages** (test pushes and account notices - always delivered, so a test push
   can never be silently swallowed).
 - **Mute a chore** — silence one specific chore from its menu, rather than a whole category. A mute is
   yours alone: everyone else still gets notified normally. It can be indefinite or set to lapse at a
@@ -329,7 +333,8 @@ receives, and an admin cannot set them on someone's behalf.
 - The interface is available in **English** and **Croatian** (Hrvatski), chosen under **Settings → Language**
 - The choice is **per device** (like light/dark mode), applies immediately, and survives reloads; a device that has never chosen follows the browser language
 - Covers the whole interface: navigation, chores, forms, dialogs, toasts, dates, plural forms, and the names of achievements
-- Not translated: cosmetic names and rarity tiers (they stay as proper names), text the server composes or stores (error messages, push and inbox notification text) and anything a user typed (chore names, tags, awards, notes)
+- Not translated: cosmetic names and rarity tiers (they stay as proper names), error messages from the server, and anything a user typed (chore names, tags, awards, notes)
+- Push and inbox notifications are worded in the recipient's language: the app tells the server which language the device uses, and the device used most recently wins. Chore names and slot labels in notification titles stay as entered.
 
 ---
 

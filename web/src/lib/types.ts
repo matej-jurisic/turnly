@@ -21,6 +21,8 @@ export interface User {
   equippedFrameKey?: string | null
   /** Equipped app theme palette key (or null). Only recolors the owner's own view. */
   equippedThemeKey?: string | null
+  /** Language notifications are worded in, synced from the device's language picker. Null = English. */
+  language?: string | null
 }
 
 /** Self-service profile update (avatar color + optional quiet hours). */
@@ -188,6 +190,8 @@ export interface ChoreCompletion {
   isExpired: boolean
   /** On a paired chore, the partner credited alongside `completedBy`. */
   partner?: User | null
+  /** Everyone else an admin credited with it. */
+  helpers?: User[]
 }
 
 /** A row in the chore history feed: a completion, a skip, an auto-expiry, or a manual reassignment. */
@@ -208,6 +212,8 @@ export interface ChoreHistoryEntry {
   toAssignee?: User | null
   /** Completion/expiry on a paired chore: the partner who shares it with `actor`. */
   partner?: User | null
+  /** Completion only: everyone else an admin credited with it. */
+  helpers?: User[]
   /** A late completion by someone who didn't hold the chore: shown as a rescue, not as late. */
   isRescue?: boolean
   /** Slot label of the occurrence this entry was for ("Morning"), when that slot has one. */
@@ -328,6 +334,7 @@ export type NotificationCategory =
   | 'OfferReceived'
   | 'OfferResponse'
   | 'Nudge'
+  | 'ChoreCovered'
   | 'System'
 
 /** How far a notification is allowed to reach you. `InboxOnly` still records it in the bell. */
@@ -400,6 +407,9 @@ export interface CompleteChoreRequest {
   completedByUserId?: string | null
   /** When it was actually done, for logging after the fact. Omitted = now. */
   completedAt?: string | null
+  /** Admin-only (or a member on an Anyone chore, naming themselves plus fellow assignees): exactly who did it and gets the points (assignees or not), overriding
+   * `completedByUserId` and the default partner. One person on a per-person chore. */
+  completedByUserIds?: string[] | null
 }
 
 export interface SkipChoreRequest {

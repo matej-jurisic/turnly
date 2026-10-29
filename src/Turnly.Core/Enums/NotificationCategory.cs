@@ -28,5 +28,8 @@ public enum NotificationCategory
 
     /// <summary>App-level messages (test pushes and anything not tied to a chore or offer). Cannot be
     /// turned off - see <see cref="Turnly.Core.Notifications.NotificationRouter"/>.</summary>
-    System = 5
+    System = 5,
+
+    /// <summary>Someone else completed a chore you were holding, so it's off your plate.</summary>
+    ChoreCovered = 7
 }

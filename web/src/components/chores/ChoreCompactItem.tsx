@@ -1,7 +1,7 @@
 import type { Chore } from '@/lib/types'
 import { Badge } from '@/components/ui/Badge'
 import {
-  canComplete, choreHasDueTime, dueStatus, formatDueDate, isAnyone, isIndependent, isOnDemand, nextDueTimeLabel,
+  canComplete, choreHasDueTime, dueStatus, formatDueDate, formatDueWeekday, isAnyone, isIndependent, isOnDemand, nextDueTimeLabel,
   offerSentence, showStreak, pairLabel,
 } from '@/lib/chore-format'
 import { BellOffIcon, CheckIcon, ReassignIcon } from '@/components/chores/icons'
@@ -109,7 +109,7 @@ export function ChoreCompactItem(props: ChoreItemProps) {
             <Badge tone="neutral" className="ml-auto shrink-0">{t('chores.paused')}</Badge>
           ) : chore.dueAt ? (
             <Badge tone={DUE_TONE[status]} className="ml-auto shrink-0">
-              {t('chores.dueDate', { date: formatDueDate(chore.dueAt) })}{nextDueTimeLabel(chore) && ` · ${nextDueTimeLabel(chore)}`}
+              {t('chores.dueDate', { day: formatDueWeekday(chore.dueAt), date: formatDueDate(chore.dueAt) })}{nextDueTimeLabel(chore) && ` · ${nextDueTimeLabel(chore)}`}
             </Badge>
           ) : isOnDemand(chore) ? (
             <Badge tone="neutral" className="ml-auto shrink-0">{t('repeat.OnDemand')}</Badge>

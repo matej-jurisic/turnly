@@ -8,27 +8,8 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { Avatar } from '@/components/ui/Modal'
 import { UserDetailsModal } from '@/components/UserDetailsModal'
 import { cn } from '@/lib/utils'
-import { locale, t, tServer } from '@/lib/i18n'
-import type { TKey } from '@/lib/i18n'
-
-// The points log stores the server's English description. These are the shapes the server writes;
-// anything else (a chore name, an admin's own reason) is shown as stored.
-const DESCRIPTION_PATTERNS: [RegExp, TKey][] = [
-  [/^Redeemed: (.*)$/, 'pointsDesc.redeemed'],
-  [/^Gacha pull$/, 'pointsDesc.pull'],
-  [/^Gacha pull x10$/, 'pointsDesc.pull10'],
-  [/^Bounty offered on (.*)$/, 'pointsDesc.bountyOffered'],
-  [/^Bounty claimed on (.*)$/, 'pointsDesc.bountyClaimed'],
-  [/^Bounty refunded on (.*)$/, 'pointsDesc.bountyRefunded'],
-]
-
-function localizeDescription(description: string): string {
-  for (const [pattern, key] of DESCRIPTION_PATTERNS) {
-    const match = pattern.exec(description)
-    if (match) return t(key, { name: match[1] ?? '' })
-  }
-  return description
-}
+import { locale, t } from '@/lib/i18n'
+import { pointsLogLabel } from '@/lib/points-format'
 
 export function PointsPage() {
   const user = useAuthStore((s) => s.user)
@@ -81,7 +62,7 @@ function PointsCard({ userId }: { userId: string }) {
             {log.map((entry) => (
               <li key={entry.id} className="flex items-center justify-between py-2 text-sm">
                 <span className="text-muted-foreground">
-                  {entry.description ? localizeDescription(entry.description) : tServer(`pointsType.${entry.type}`, entry.type)}
+                  {pointsLogLabel(entry)}
                   <span className="ml-2 text-xs">
                     {new Date(entry.createdAt).toLocaleDateString(locale())}
                   </span>

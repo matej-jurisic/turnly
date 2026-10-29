@@ -27,6 +27,10 @@ public class User
     public TimeOnly? QuietHoursStart { get; set; }
     public TimeOnly? QuietHoursEnd { get; set; }
 
+    /// <summary>The language the user last picked in the app ("en" / "hr"), synced from their device.
+    /// Only used to word push and inbox notifications; null = English.</summary>
+    public string? Language { get; set; }
+
     /// <summary>When true the user is suspended: excluded from assignment rotation, their Independent
     /// tracks get no auto-advance or notifications, and rotating chores they own are reassigned on
     /// freeze. Admin-only toggle. On unfreeze, stale Independent tracks are stepped forward.</summary>

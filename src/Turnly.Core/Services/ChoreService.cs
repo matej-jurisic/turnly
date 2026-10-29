@@ -211,29 +211,52 @@ public class ChoreService
         if (chore.IsFrozen)
             return Result.Fail<ChoreDto>(Error.Validation("This chore is paused and cannot be completed."));
 
-        // Resolve who gets credited. Completing on behalf of someone else is admin-only.
-        var userId = req.CompletedByUserId ?? actingUserId;
-        if (userId != actingUserId)
+        // Resolve who gets credited. Completing on behalf of someone else is admin-only, and so is
+        // naming everyone who did it: that decides who gets the points. The one exception is an
+        // Anyone chore, where a member may name the assignees who did it with them.
+        var namedIds = req.CompletedByUserIds is { Count: > 0 } ids ? ids.Distinct().ToList() : null;
+        var userId = namedIds?[0] ?? req.CompletedByUserId ?? actingUserId;
+        if (userId != actingUserId || namedIds is not null)
         {
             var actor = await _db.Users.FindAsync([actingUserId], ct);
             if (actor is null)
                 return Result.Fail<ChoreDto>(Error.NotFound("User not found."));
-            if (actor.Role != UserRole.Admin)
-                return Result.Fail<ChoreDto>(Error.Forbidden("Only admins can complete a chore on behalf of another user."));
+            var namesOwnHelpers = namedIds is not null
+                && chore.AssignmentStrategy == AssignmentStrategy.Anyone
+                && namedIds.Contains(actingUserId)
+                && namedIds.All(nid => chore.Assignees.Any(a => a.Id == nid));
+            if (actor.Role != UserRole.Admin && !namesOwnHelpers)
+                return Result.Fail<ChoreDto>(Error.Forbidden(namedIds is null
+                    ? "Only admins can complete a chore on behalf of another user."
+                    : "Only admins can choose who completed a chore."));
         }
 
-        var user = await _db.Users.FindAsync([userId], ct);
-        if (user is null)
+        List<User>? named = null;
+        if (namedIds is not null)
+        {
+            if (IsIndependent(chore) && namedIds.Count > 1)
+                return Result.Fail<ChoreDto>(Error.Validation("Each assignee completes their own share of this chore."));
+            var found = await _db.Users.Where(u => namedIds.Contains(u.Id)).ToListAsync(ct);
+            if (found.Count != namedIds.Count)
+                return Result.Fail<ChoreDto>(Error.NotFound("User not found."));
+            named = [.. namedIds.Select(nid => found.First(u => u.Id == nid))];
+        }
+
+        // A paired chore is done together, so one tap credits the completer's partner too (whoever
+        // holds the turn with them): same points, same completion row. An admin naming everyone
+        // replaces that guess with exactly the people named.
+        var credits = named is null
+            ? await DefaultCreditsAsync(chore, userId, ct)
+            : NamedCredits(chore, named, chore.CurrentAssigneeId, chore.HeldPartnerId());
+        if (credits is null)
             return Result.Fail<ChoreDto>(Error.NotFound("User not found."));
+        userId = credits.User.Id;
 
         // In track mode the completer must own one of the chore's per-assignee schedules.
         var track = IsIndependent(chore) ? chore.AssigneeTracks.FirstOrDefault(t => t.UserId == userId) : null;
         if (IsIndependent(chore) && track is null)
             return Result.Fail<ChoreDto>(Error.Validation("Only an assignee of this chore can complete their share."));
 
-        // A paired chore is done together, so one tap credits the completer's partner too (whoever
-        // holds the turn with them): same points, same completion row.
-        var partner = chore.CreditedPartner(userId, chore.CurrentAssigneeId, chore.CurrentPartner()?.Id);
 
         var now = DateTimeOffset.UtcNow;
 
@@ -266,14 +289,14 @@ public class ChoreService
             if (expired is not null && !logged.Any(x => x.OccurrenceDueAt != expired.OccurrenceDueAt
                     && x.CompletedAt > completedAt && x.CompletedAt < expired.CompletedAt))
             {
-                FillExpired(chore, expired, user, completedAt);
+                // The people who missed that slot are the holders that decide who leads the credit.
+                var filledCredits = FillExpired(chore, expired, credits.User, completedAt,
+                    named is null ? null : NamedCredits(chore, named, expired.PreviousAssigneeId, expired.PartnerUserId));
                 if (!string.IsNullOrWhiteSpace(req.Notes))
                     expired.Notes = req.Notes.Trim();
                 await _db.SaveChangesAsync(ct);
 
-                var earned = await _achievements.EvaluateForUserAsync(userId, now, ct);
-                if (expired.PartnerUserId is { } partnerId)
-                    await _achievements.EvaluateForUserAsync(partnerId, now, ct);
+                var earned = await EvaluateCreditedAsync(filledCredits, actingUserId, now, ct);
 
                 // The schedule, assignee and any live offer belong to the current occurrence, which
                 // this didn't touch.
@@ -283,7 +306,7 @@ public class ChoreService
                 return Result.Success(filled.Value! with
                 {
                     FilledExpiredDueAt = expired.OccurrenceDueAt ?? expired.CompletedAt,
-                    UnlockedAchievements = userId == actingUserId ? [.. earned] : [],
+                    UnlockedAchievements = [.. earned],
                 });
             }
 
@@ -297,7 +320,8 @@ public class ChoreService
         {
             ChoreId = chore.Id,
             CompletedByUserId = userId,
-            PartnerUserId = partner?.Id,
+            PartnerUserId = credits.Partner?.Id,
+            Helpers = [.. credits.Helpers],
             CompletedAt = completedAt,
             Notes = string.IsNullOrWhiteSpace(req.Notes) ? null : req.Notes.Trim(),
             PointsAwarded = chore.Points,
@@ -307,7 +331,7 @@ public class ChoreService
         };
         _db.ChoreCompletions.Add(completion);
 
-        AwardPoints(chore, completion, user, partner);
+        AwardPoints(chore, completion, credits);
 
         if (track is not null)
         {
@@ -325,6 +349,18 @@ public class ChoreService
             // A new occurrence only hands over once it crosses the chore's rotation period, so a
             // monthly-rotating weekly chore stays with the same person until the month turns.
             // An on-demand chore has no occurrences, so every completion is a turn and hands over.
+            // Whoever held the turn hears that someone else did it, so they don't go and do it again.
+            // Taken before rotation hands the chore on. "Anyone" chores are nobody's in particular.
+            var covered = chore.AssignmentStrategy == AssignmentStrategy.Anyone
+                ? []
+                : chore.CurrentHolderIds()
+                    .Where(h => h != actingUserId && credits.All.All(c => c.Id != h))
+                    .ToList();
+            if (covered.Count > 0)
+                await _notifications.NotifyUsersAsync(covered, NotificationTitle(chore),
+                    text => text.Covered(text.People([.. credits.All.Select(u => u.DisplayName)])), chore.Id,
+                    NotificationCategory.ChoreCovered, ct);
+
             var advancedToNewOccurrence = await AdvanceScheduleAsync(chore, completion, now, ct);
             var rotates = advancedToNewOccurrence
                 ? CrossedRotationBoundary(chore, completion.OccurrenceDueAt ?? now)
@@ -340,18 +376,60 @@ public class ChoreService
 
         await _db.SaveChangesAsync(ct);
 
-        // A completion is the main thing that can unlock an achievement — evaluate the credited user.
-        var unlocked = await _achievements.EvaluateForUserAsync(userId, now, ct);
-        // The partner earned the same completion; their badges just aren't this session's to celebrate.
-        if (partner is not null)
-            await _achievements.EvaluateForUserAsync(partner.Id, now, ct);
+        // A completion is the main thing that can unlock an achievement — evaluate everyone credited.
+        var unlocked = await EvaluateCreditedAsync(credits, actingUserId, now, ct);
 
         var result = await GetAsync(chore.Id, ct: ct);
-        // Hand any freshly-unlocked badges back to the client to celebrate, but only on the earner's own
-        // session — an admin completing on someone else's behalf shouldn't get the other user's popup.
-        if (result.Succeeded && unlocked.Count > 0 && userId == actingUserId)
+        if (result.Succeeded && unlocked.Count > 0)
             return Result.Success(result.Value! with { UnlockedAchievements = [.. unlocked] });
         return result;
+    }
+
+    /// <summary>Who a completion credits: the completer, their partner on a paired chore, and anyone
+    /// else an admin named.</summary>
+    private sealed record Credits(User User, User? Partner, IReadOnlyList<User> Helpers)
+    {
+        public IEnumerable<User> All => new[] { User, Partner }.OfType<User>().Concat(Helpers);
+    }
+
+    /// <summary>The credit when nobody was named: <paramref name="userId"/> plus the partner the chore
+    /// would pair them with. Null when the user doesn't exist.</summary>
+    private async Task<Credits?> DefaultCreditsAsync(Chore chore, Guid userId, CancellationToken ct)
+    {
+        var user = await _db.Users.FindAsync([userId], ct);
+        return user is null
+            ? null
+            : new Credits(user, chore.CreditedPartner(userId, chore.CurrentAssigneeId, chore.CurrentPartner()?.Id), []);
+    }
+
+    /// <summary>Splits an admin's explicit list of who did it into the row's columns. A holder (or their
+    /// co-holder) leads, so a turn they took part in stays theirs rather than a rescue; their partner is
+    /// whoever named shares the turn with them, else a live pair of theirs; everyone else is a helper.
+    /// Nobody is credited beyond the list.</summary>
+    private static Credits NamedCredits(Chore chore, IReadOnlyList<User> named, Guid? holderId, Guid? holderPartnerId)
+    {
+        var lead = named.FirstOrDefault(u => u.Id == holderId)
+            ?? named.FirstOrDefault(u => u.Id == holderPartnerId)
+            ?? named[0];
+        var others = named.Where(u => u.Id != lead.Id).ToList();
+        var coHolderId = lead.Id == holderId ? holderPartnerId : lead.Id == holderPartnerId ? holderId : null;
+        var partner = others.FirstOrDefault(u => u.Id == coHolderId)
+            ?? others.FirstOrDefault(u => chore.LivePairs().Any(p => p.Is(lead.Id, u.Id)));
+        return new Credits(lead, partner, [.. others.Where(u => u != partner)]);
+    }
+
+    /// <summary>Re-evaluates achievements for everyone credited. Returns only the acting user's new
+    /// badges: the others' just aren't this session's to celebrate.</summary>
+    private async Task<List<AchievementDto>> EvaluateCreditedAsync(Credits credits, Guid actingUserId, DateTimeOffset now, CancellationToken ct)
+    {
+        List<AchievementDto> mine = [];
+        foreach (var credited in credits.All)
+        {
+            var earned = await _achievements.EvaluateForUserAsync(credited.Id, now, ct);
+            if (credited.Id == actingUserId)
+                mine = earned;
+        }
+        return mine;
     }
 
     /// <summary>Skips the current occurrence of a recurring chore: advances the schedule to the
@@ -547,12 +625,10 @@ public class ChoreService
             });
         }
 
-        var title = NotificationTitle(chore);
-        var reward = req.BountyPoints > 0 ? $" for {req.BountyPoints} points" : "";
         // One fan-out call, so the routing context is loaded once for the whole eligible set
         // rather than once per recipient.
-        await _notifications.NotifyUsersAsync(eligible.Select(u => u.Id).ToList(), title,
-            $"{actor.DisplayName} put this chore up for grabs{reward}. Claim it before someone else does.",
+        await _notifications.NotifyUsersAsync(eligible.Select(u => u.Id).ToList(), NotificationTitle(chore),
+            text => text.OfferOpen(actor.DisplayName, req.BountyPoints),
             chore.Id, NotificationCategory.OfferReceived, ct);
 
         await _db.SaveChangesAsync(ct);
@@ -627,9 +703,8 @@ public class ChoreService
             });
         }
 
-        var reward = offer.BountyPoints > 0 ? $" and took your {offer.BountyPoints} points" : "";
         await _notifications.NotifyUserAsync(offer.FromUserId, NotificationTitle(chore),
-            $"{claimer.DisplayName} claimed this chore{reward}. It's off your plate.", chore.Id,
+            text => text.OfferClaimed(claimer.DisplayName, offer.BountyPoints), chore.Id,
             NotificationCategory.OfferResponse, ct);
 
         await _db.SaveChangesAsync(ct);
@@ -780,10 +855,8 @@ public class ChoreService
         foreach (var person in ready)
             _db.ChoreNudges.Add(new ChoreNudge { ChoreId = chore.Id, FromUserId = userId, ToUserId = person.Id, Note = note, CreatedAt = now });
 
-        var body = note is null
-            ? $"{actor.DisplayName} nudged you about this chore."
-            : $"{actor.DisplayName} nudged you: {note}";
-        await _notifications.NotifyUsersAsync(ready.Select(u => u.Id).ToList(), NotificationTitle(chore), body,
+        await _notifications.NotifyUsersAsync(ready.Select(u => u.Id).ToList(), NotificationTitle(chore),
+            text => text.Nudge(actor.DisplayName, note),
             chore.Id, NotificationCategory.Nudge, ct);
 
         await _db.SaveChangesAsync(ct);
@@ -834,6 +907,7 @@ public class ChoreService
     {
         var completion = await _db.ChoreCompletions
             .Include(c => c.Chore)
+            .Include(c => c.Helpers)
             .FirstOrDefaultAsync(c => c.Id == completionId, ct);
         if (completion is null)
             return Result.Fail(Error.NotFound("Completion not found."));
@@ -844,10 +918,10 @@ public class ChoreService
         if (actor is null)
             return Result.Fail(Error.NotFound("User not found."));
 
-        // Only the people credited with it (the completer, or their partner on a paired chore), or
-        // an admin, may undo.
+        // Only the people credited with it (the completer, their partner on a paired chore, anyone
+        // else an admin named), or an admin, may undo.
         if (completion.CompletedByUserId != actingUserId && completion.PartnerUserId != actingUserId
-            && actor.Role != UserRole.Admin)
+            && completion.Helpers.All(h => h.Id != actingUserId) && actor.Role != UserRole.Admin)
             return Result.Fail(Error.Forbidden("You can only undo your own completions."));
 
         await ReversePointsAsync(completionId, ct);
@@ -939,7 +1013,7 @@ public class ChoreService
         if (actor.Role != UserRole.Admin)
             return Result.Fail(Error.Forbidden("Only admins can edit activity entries."));
 
-        var completion = await _db.ChoreCompletions.FirstOrDefaultAsync(c => c.Id == completionId, ct);
+        var completion = await _db.ChoreCompletions.Include(c => c.Helpers).FirstOrDefaultAsync(c => c.Id == completionId, ct);
         if (completion is null)
             return Result.Fail(Error.NotFound("Activity entry not found."));
         if (completion.IsSkip)
@@ -997,7 +1071,7 @@ public class ChoreService
         await _db.SaveChangesAsync(ct);
 
         // A new completion, or one that now counts as on time, can unlock a badge.
-        foreach (var credited in new[] { completion.CompletedByUserId, completion.PartnerUserId })
+        foreach (var credited in new[] { completion.CompletedByUserId, completion.PartnerUserId }.Concat(completion.Helpers.Select(h => (Guid?)h.Id)))
             if (credited is { } creditedId)
                 await _achievements.EvaluateForUserAsync(creditedId, now, ct);
 
@@ -1006,30 +1080,36 @@ public class ChoreService
 
     /// <summary>Turns an auto-expired row into a real completion by <paramref name="user"/> (and their
     /// partner on a paired chore) at <paramref name="completedAt"/>, awarding the chore's current
-    /// points. The row keeps its occurrence, so nothing about the schedule moves. Does not save.</summary>
-    private void FillExpired(Chore chore, ChoreCompletion expired, User user, DateTimeOffset completedAt)
+    /// points. The row keeps its occurrence, so nothing about the schedule moves. <paramref name="named"/>
+    /// replaces that with exactly who an admin named. Returns who was credited. Does not save.</summary>
+    private Credits FillExpired(Chore chore, ChoreCompletion expired, User user, DateTimeOffset completedAt, Credits? named = null)
     {
         // One of the two who missed it shares it with the other; anyone else brings their own partner.
-        var partner = chore.CreditedPartner(user.Id, expired.PreviousAssigneeId, expired.PartnerUserId);
+        var credits = named
+            ?? new Credits(user, chore.CreditedPartner(user.Id, expired.PreviousAssigneeId, expired.PartnerUserId), []);
         expired.IsExpired = false;
-        expired.CompletedByUserId = user.Id;
-        expired.PartnerUserId = partner?.Id;
+        expired.CompletedByUserId = credits.User.Id;
+        expired.PartnerUserId = credits.Partner?.Id;
+        // An expired row has no helpers yet, so this only ever adds join rows.
+        expired.Helpers = [.. credits.Helpers];
         expired.PointsAwarded = chore.Points;
         expired.CompletedAt = completedAt;
         // Completion rows on a track chore carry no assignee snapshot (nothing rotates).
         if (IsIndependent(chore))
             expired.PreviousAssigneeId = null;
-        AwardPoints(chore, expired, user, partner);
+        AwardPoints(chore, expired, credits);
+        return credits;
     }
 
-    /// <summary>Credits a completion's points to the completer and, on a paired chore, their partner:
-    /// one <see cref="PointsLogEntry"/> per person, linked to the same completion. Does not save.</summary>
-    private void AwardPoints(Chore chore, ChoreCompletion completion, User user, User? partner)
+    /// <summary>Credits a completion's points to everyone it credits (the completer, their partner on a
+    /// paired chore, any helpers): one <see cref="PointsLogEntry"/> per person, linked to the same
+    /// completion. Does not save.</summary>
+    private void AwardPoints(Chore chore, ChoreCompletion completion, Credits credits)
     {
         if (chore.Points == 0)
             return;
 
-        foreach (var credited in partner is null ? new[] { user } : [user, partner])
+        foreach (var credited in credits.All)
         {
             _db.PointsLog.Add(new PointsLogEntry
             {
@@ -1051,16 +1131,18 @@ public class ChoreService
             .Include(c => c.Chore)
             .Include(c => c.CompletedBy)
             .Include(c => c.Partner)
+            .Include(c => c.Helpers)
             .AsQueryable();
 
         if (choreId.HasValue)
             completionQuery = completionQuery.Where(c => c.ChoreId == choreId);
         if (userId.HasValue)
             // Include expired rows where this user was the responsible assignee at expiry time, and
-            // anything they share as the partner on a paired chore.
+            // anything they share as the partner on a paired chore or were named as a helper on.
             completionQuery = completionQuery.Where(c =>
                 c.CompletedByUserId == userId ||
                 c.PartnerUserId == userId ||
+                c.Helpers.Any(h => h.Id == userId) ||
                 (c.IsExpired && c.PreviousAssigneeId == userId));
 
         List<Guid>? tagChoreIds = null;
@@ -1391,6 +1473,7 @@ public class ChoreService
         var completions = await _db.ChoreCompletions
             .Include(x => x.CompletedBy)
             .Include(x => x.Partner)
+            .Include(x => x.Helpers)
             .Where(x => choreIds.Contains(x.ChoreId))
             .ToListAsync(ct);
 

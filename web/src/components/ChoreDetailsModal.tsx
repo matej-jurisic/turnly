@@ -14,7 +14,7 @@ import { CheckIcon, DotsIcon, EditIcon, NudgeIcon, SkipIcon, TrashIcon } from '@
 import {
   calendarDaysAgo, choreDueStatus, choreHasDueTime, completionProgressLabel, dueStatus, formatDate, formatGrace,
   isIndependent, notificationRecipientsLabel, notificationTimingLabel, notificationTypeLabel,
-  relativeDayLabel, repeatLabel, showStreak, trackIsDone, trackStatusText, strategyLabel, schedulingLabel, rotationPeriodLabel, holdsChore, pairLabel,
+  relativeDayLabel, repeatLabel, showStreak, trackIsDone, trackStatusText, strategyLabel, schedulingLabel, rotationPeriodLabel, holdsChore, creditedPeople, peopleLabel,
   toLocalDateInput, toLocalDueInstant, canComplete, isOnDemand, occurrenceLabel, nudgeCandidates,
 } from '@/lib/chore-format'
 import { plural, t, tRich } from '@/lib/i18n'
@@ -375,12 +375,11 @@ function ChoreStats({ choreId }: { choreId: string }) {
   // Activity is newest-first, so the first completion is the most recent.
   const lastCompletedAt = completions[0]?.at
 
-  // Tally completions per actor, keeping the actor for avatar/name, sorted by count desc. A paired
-  // completion counts for the partner as well.
+  // Tally completions per actor, keeping the actor for avatar/name, sorted by count desc. A shared
+  // completion counts for everyone credited with it.
   const byActor = new Map<string, { actor: ChoreHistoryEntry['actor']; count: number }>()
   for (const e of completions) {
-    for (const person of [e.actor, e.partner]) {
-      if (!person) continue
+    for (const person of creditedPeople(e)) {
       const existing = byActor.get(person.id)
       if (existing) existing.count += 1
       else byActor.set(person.id, { actor: person, count: 1 })
@@ -504,7 +503,7 @@ function ActivityList({ chore }: { chore: Chore }) {
               <div className="min-w-0 flex-1">
                 <div className="flex items-center justify-between gap-2">
                   <p className="min-w-0 truncate text-foreground">
-                    {entry.kind === 'expired' ? t('activity.autoExpired') : entry.actor && pairLabel(entry.actor, entry.partner)}
+                    {entry.kind === 'expired' ? t('activity.autoExpired') : peopleLabel(creditedPeople(entry))}
                   </p>
                   <div className="flex shrink-0 items-center gap-1.5 whitespace-nowrap">
                     {entry.kind === 'expired' ? (

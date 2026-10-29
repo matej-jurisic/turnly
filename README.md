@@ -21,14 +21,15 @@ Turnly is feature-complete. See [`specs.md`](./specs.md) for the full product sp
 
 - Rotating assignment strategies, with **hand-over once a day, week, month, quarter or year** instead of
   every occurrence (one person does the weekly chore all month, then the next person takes over).
-- **Everyone (independent)**: each assignee gets their own schedule and per-person quota, so "everyone does
+- **Everyone**: each assignee gets their own schedule and per-person quota, so "everyone does
   the dishes once a week" is one chore and nobody blocks anyone else.
-- **Anyone**: nobody is assigned, and whoever gets to it first does it.
+- **Anyone**: nobody is assigned, and whoever gets to it first does it (and can credit the other assignees who helped).
 - **Fixed pairs** for two-person jobs: the pair holds the turn together, rotates as one, and both get the
   points when either marks it done. One person can be in several pairs, each taking its own turn.
 - Admin **reassignment**, and **chore offers**: put a chore you're holding up for anyone to take, optionally
   with a points bounty.
 - **Nudges**: remind whoever holds a chore, with an optional note.
+- **Covered for you**: if someone else completes a chore you're holding, you get a notification so you don't do it twice.
 - **Rescues**: stepping in late for someone else's overdue chore is logged as a rescue rather than a late
   completion.
 - **Freeze users** (admin): marks them as "Away", excluded from rotation, independent tracks paused, no
@@ -39,7 +40,7 @@ Turnly is feature-complete. See [`specs.md`](./specs.md) for the full product sp
 - Today / overdue / upcoming views in list, compact and calendar layouts, plus an admin-only config table
   of every chore's settings.
 - Filtering, global search, and a history/stats view.
-- Swipe actions, completion confetti, admin complete-on-behalf.
+- Swipe actions, completion confetti, admin complete-on-behalf (credit any number of people, who all get the points).
 - Activity-entry deletion and correction: mark an auto-expired entry as completed, or fix the time of a late
   completion.
 - Open screens **update live** when someone else changes something, so nobody has to reload.
@@ -66,7 +67,8 @@ Turnly is feature-complete. See [`specs.md`](./specs.md) for the full product sp
 - Auth, users, roles, Docker deployment, and a configurable **family timezone**.
 - **Fresh start** (Settings → Danger zone): wipes all activity, point history, redemptions, achievements and
   cosmetics progress and resets everyone's points to 0, while keeping every chore and its schedule intact.
-- The interface is available in **English and Croatian**, picked per device under Settings → Language.
+- The interface is available in **English and Croatian**, picked per device under Settings → Language. Notifications
+  follow the language of the device you used most recently.
 
 ## Stack
 
@@ -212,7 +214,7 @@ configures under **Settings** (falling back to the server's host zone when unset
 Under **Settings → What notifies you**, each person decides how every kind of notification reaches
 them: **Push** (buzz your devices, default), **Inbox** (record it in the bell without buzzing), or
 **Off** (don't send it at all). The categories cover chore reminders, chores coming due, overdue
-chases, chores put up for grabs, claims on chores you offered, and nudges from other members. App messages such as the test push are
+chases, chores put up for grabs, claims on chores you offered, nudges from other members, and chores someone else completed for you. App messages such as the test push are
 always delivered.
 
 To silence one specific chore instead of a whole category, use **Mute** on that chore's menu. A mute

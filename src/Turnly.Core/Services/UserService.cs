@@ -70,7 +70,7 @@ public class UserService
         var users = await _db.Users.OrderBy(u => u.DisplayName).ToListAsync(ct);
         var allCompletions = await _db.ChoreCompletions
             .Where(c => !c.IsSkip) // skips are not real completions — exclude from stats
-            .Select(c => new { c.ChoreId, c.CompletedByUserId, c.PartnerUserId, c.CompletedAt, c.OccurrenceDueAt, c.IsExpired, c.PreviousAssigneeId, c.PreviousPartnerId })
+            .Select(c => new { c.ChoreId, c.CompletedByUserId, c.PartnerUserId, HelperIds = c.Helpers.Select(h => h.Id).ToList(), c.CompletedAt, c.OccurrenceDueAt, c.IsExpired, c.PreviousAssigneeId, c.PreviousPartnerId })
             .ToListAsync(ct);
         // An all-day chore is on time until the household's day start, not midnight.
         var lateGrace = await AppSettingsService.ReadLateGraceByChoreAsync(_db, ct);
@@ -79,14 +79,14 @@ public class UserService
         var now = DateTimeOffset.UtcNow;
         var monthStart = new DateTimeOffset(now.Year, now.Month, 1, 0, 0, 0, TimeSpan.Zero);
 
-        // A paired completion counts for both partners. Expired rows are split out first: they carry a
+        // A paired completion counts for both partners, and for any helper an admin named. Expired rows are split out first: they carry a
         // partner too (who shares the miss), so they mustn't leak into the completion counts.
         var done = allCompletions.Where(c => !c.IsExpired).ToList();
         var missed = allCompletions.Where(c => c.IsExpired).ToList();
 
         var userStats = users.Select(u =>
         {
-            var mine = done.Where(c => c.CompletedByUserId == u.Id || c.PartnerUserId == u.Id).ToList();
+            var mine = done.Where(c => c.CompletedByUserId == u.Id || c.PartnerUserId == u.Id || c.HelperIds.Contains(u.Id)).ToList();
             var myMissed = missed.Where(c => c.PreviousAssigneeId == u.Id || c.PartnerUserId == u.Id).ToList();
             // Each bucket is keyed on the row's CompletedAt (for an expired row: when it expired).
             TimelinessCountsDto Timeliness(DateTimeOffset since)
@@ -129,7 +129,7 @@ public class UserService
                 : $"{ws:MMM d}–{end:MMM d}";
             var userCounts = users.Select(u => new UserWeeklyCountDto(
                 u.Id, u.DisplayName, u.AvatarColor,
-                done.Count(c => (c.CompletedByUserId == u.Id || c.PartnerUserId == u.Id) && c.CompletedAt >= ws && c.CompletedAt < we)
+                done.Count(c => (c.CompletedByUserId == u.Id || c.PartnerUserId == u.Id || c.HelperIds.Contains(u.Id)) && c.CompletedAt >= ws && c.CompletedAt < we)
             )).ToList();
             return new ChartWeekDto(label, ws, userCounts);
         }).ToList();
@@ -221,6 +221,22 @@ public class UserService
 
         user.QuietHoursStart = quietStart;
         user.QuietHoursEnd = quietEnd;
+        await _db.SaveChangesAsync(ct);
+        return Result.Success(UserDto.FromEntity(user));
+    }
+
+    /// <summary>Self-service: records the language the user picked on their device, so notifications
+    /// reach them worded in it. The most recent device to report wins.</summary>
+    public async Task<Result<UserDto>> SetLanguageAsync(Guid id, SetLanguageRequest req, CancellationToken ct = default)
+    {
+        if (Validators.Language(req.Language) is { } error)
+            return Result.Fail<UserDto>(error);
+
+        var user = await _db.Users.FindAsync([id], ct);
+        if (user is null)
+            return Result.Fail<UserDto>(Error.NotFound("User not found."));
+
+        user.Language = req.Language;
         await _db.SaveChangesAsync(ct);
         return Result.Success(UserDto.FromEntity(user));
     }

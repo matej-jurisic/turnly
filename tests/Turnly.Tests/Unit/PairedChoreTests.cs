@@ -69,6 +69,98 @@ public class PairedChoreTests
     }
 
     [Fact]
+    public async Task CompleteAsync_credits_the_pair_an_admin_names()
+    {
+        using var ctx = new TestContext();
+        var p = await SeedAsync(ctx);
+        var chore = (await ctx.Chores.CreateAsync(
+            Paired(p.Ana, [p.Ana, p.Ben, p.Cy], [[p.Ana, p.Ben], [p.Ana, p.Cy], [p.Ben, p.Cy]]))).Value!;
+
+        // Cy is in two pairs and not holding it, so by default they'd be credited alone.
+        var done = await ctx.Chores.CompleteAsync(chore.Id, p.Admin, new CompleteChoreRequest(null, CompletedByUserIds: [p.Cy, p.Ben]));
+
+        Assert.True(done.Succeeded);
+        Assert.Equal(0, await PointsAsync(ctx, p.Ana));
+        Assert.Equal(10, await PointsAsync(ctx, p.Ben));
+        Assert.Equal(10, await PointsAsync(ctx, p.Cy));
+        var entry = Assert.Single(await ctx.Chores.GetHistoryAsync(null, null, chore.Id));
+        Assert.Equal((p.Ben, p.Cy), (entry.Actor!.Id, entry.Partner!.Id));
+        Assert.Empty(entry.Helpers);
+    }
+
+    [Fact]
+    public async Task CompleteAsync_credits_everyone_an_admin_names_assignees_or_not()
+    {
+        using var ctx = new TestContext();
+        var p = await SeedAsync(ctx);
+        var chore = (await ctx.Chores.CreateAsync(Paired(p.Ana, [p.Ana, p.Ben, p.Cy], [[p.Ana, p.Ben]]))).Value!;
+
+        // Dee and the admin aren't assignees; Ana holds it, so Ana leads and the turn stays hers.
+        var done = await ctx.Chores.CompleteAsync(chore.Id, p.Admin,
+            new CompleteChoreRequest(null, CompletedByUserIds: [p.Dee, p.Ana, p.Admin]));
+
+        Assert.True(done.Succeeded);
+        foreach (var credited in new[] { p.Ana, p.Dee, p.Admin })
+            Assert.Equal(10, await PointsAsync(ctx, credited));
+        Assert.Equal(0, await PointsAsync(ctx, p.Ben)); // named nobody beyond the list, partner included
+        Assert.Equal(p.Cy, done.Value!.CurrentAssignee!.Id);
+
+        var entry = Assert.Single(await ctx.Chores.GetHistoryAsync(null, null, chore.Id));
+        Assert.Equal(p.Ana, entry.Actor!.Id);
+        Assert.Null(entry.Partner);
+        Assert.Equal(new[] { p.Admin, p.Dee }.Order(), entry.Helpers.Select(h => h.Id).Order());
+        Assert.Single(await ctx.Chores.GetHistoryAsync(null, p.Dee, chore.Id));
+        var stats = await ctx.Users.GetStatsAsync();
+        Assert.Equal(1, stats.UserStats.Single(u => u.UserId == p.Dee).AllTimeCount);
+
+        Assert.True((await ctx.Chores.UndoCompletionAsync(entry.Id, p.Admin)).Succeeded);
+        foreach (var credited in new[] { p.Ana, p.Dee, p.Admin })
+            Assert.Equal(0, await PointsAsync(ctx, credited));
+    }
+
+    [Fact]
+    public async Task CompleteAsync_lets_a_member_name_fellow_assignees_on_an_anyone_chore()
+    {
+        using var ctx = new TestContext();
+        var p = await SeedAsync(ctx);
+        var chore = (await ctx.Chores.CreateAsync(Paired(p.Ana, [p.Ana, p.Ben, p.Cy], [], AssignmentStrategy.Anyone))).Value!;
+
+        // Not one of the doers, or naming a non-assignee: still admin-only.
+        var withoutMe = await ctx.Chores.CompleteAsync(chore.Id, p.Ana, new CompleteChoreRequest(null, CompletedByUserIds: [p.Ben, p.Cy]));
+        Assert.Equal(ErrorType.Forbidden, withoutMe.Error!.Type);
+        var outsider = await ctx.Chores.CompleteAsync(chore.Id, p.Ana, new CompleteChoreRequest(null, CompletedByUserIds: [p.Ana, p.Dee]));
+        Assert.Equal(ErrorType.Forbidden, outsider.Error!.Type);
+
+        var done = await ctx.Chores.CompleteAsync(chore.Id, p.Ana, new CompleteChoreRequest(null, CompletedByUserIds: [p.Ana, p.Ben]));
+
+        Assert.True(done.Succeeded);
+        Assert.Equal(10, await PointsAsync(ctx, p.Ana));
+        Assert.Equal(10, await PointsAsync(ctx, p.Ben));
+        Assert.Equal(0, await PointsAsync(ctx, p.Cy));
+        var entry = Assert.Single(await ctx.Chores.GetHistoryAsync(null, null, chore.Id));
+        Assert.Equal(p.Ana, entry.Actor!.Id);
+    }
+
+    [Fact]
+    public async Task CompleteAsync_rejects_named_people_from_a_member_or_several_on_a_per_person_chore()
+    {
+        using var ctx = new TestContext();
+        var p = await SeedAsync(ctx);
+        var chore = (await ctx.Chores.CreateAsync(
+            Paired(p.Ana, [p.Ana, p.Ben, p.Cy], [[p.Ana, p.Ben], [p.Ana, p.Cy]]))).Value!;
+
+        var member = await ctx.Chores.CompleteAsync(chore.Id, p.Ana, new CompleteChoreRequest(null, CompletedByUserIds: [p.Ana, p.Cy]));
+        Assert.Equal(ErrorType.Forbidden, member.Error!.Type);
+
+        var tracks = (await ctx.Chores.CreateAsync(Paired(p.Ana, [p.Ana, p.Ben], [], AssignmentStrategy.Independent) with
+        {
+            Tracks = [new TrackInput(p.Ana, 1), new TrackInput(p.Ben, 1)]
+        })).Value!;
+        var several = await ctx.Chores.CompleteAsync(tracks.Id, p.Admin, new CompleteChoreRequest(null, CompletedByUserIds: [p.Ana, p.Ben]));
+        Assert.Equal(ErrorType.Validation, several.Error!.Type);
+    }
+
+    [Fact]
     public async Task LeastCompleted_tells_overlapping_pairs_apart()
     {
         using var ctx = new TestContext();

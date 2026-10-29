@@ -262,9 +262,34 @@ export function turnUnits(chore: Pick<Chore, 'pairs' | 'assignees'>): { user: Us
   return [...pairs, ...alone.map((user) => ({ user }))]
 }
 
+/** Who shares the credit when `userId` completes the chore. Mirrors `Chore.CreditedPartner`: a holder
+ * shares it with their co-holder, anyone else brings their partner only when they are in exactly one
+ * live pair. Null when they are credited alone. */
+export function creditedPartner(
+  chore: Pick<Chore, 'pairs' | 'assignees' | 'currentAssignee' | 'currentPartner'>,
+  userId: string,
+): User | null {
+  const active = (id?: string | null) => chore.assignees.find((u) => u.id === id && !u.isFrozen) ?? null
+  if (userId === chore.currentAssignee?.id) return active(chore.currentPartner?.id)
+  if (userId === chore.currentPartner?.id) return active(chore.currentAssignee?.id)
+  const mine = chore.pairs.filter((p) => p.includes(userId) && active(p[0]) && active(p[1]))
+  return mine.length === 1 ? active(mine[0].find((id) => id !== userId)) : null
+}
+
 /** "Ana & Ben" for a pair, or just the one name. */
 export function pairLabel(user: Pick<User, 'displayName'>, partner?: Pick<User, 'displayName'> | null): string {
-  return partner ? `${user.displayName} & ${partner.displayName}` : user.displayName
+  return peopleLabel(partner ? [user, partner] : [user])
+}
+
+/** "Ana, Ben & Cy": everyone credited with something, in the same style as `pairLabel`. */
+export function peopleLabel(people: Pick<User, 'displayName'>[]): string {
+  const names = people.map((u) => u.displayName)
+  return names.length > 1 ? `${names.slice(0, -1).join(', ')} & ${names[names.length - 1]}` : names[0] ?? ''
+}
+
+/** Everyone a logged completion credits: the completer, their partner and any helpers. */
+export function creditedPeople<T extends User>(entry: { actor?: T | null; partner?: T | null; helpers?: T[] }): T[] {
+  return [entry.actor, entry.partner, ...(entry.helpers ?? [])].filter((u): u is T => !!u)
 }
 
 /** Whether this person holds the current occurrence: the current assignee, or their partner on a
@@ -341,6 +366,12 @@ export function formatDueDate(iso?: string | null): string {
   const d = new Date(iso)
   if (d.getFullYear() !== new Date().getFullYear()) return formatDate(iso)
   return d.toLocaleDateString(locale(), { day: '2-digit', month: '2-digit' })
+}
+
+/** Short weekday of a due date in the current language, capitalized ("Mon", "Pon"). */
+export function formatDueWeekday(iso: string): string {
+  const day = new Date(iso).toLocaleDateString(locale(), { weekday: 'short' }).replace(/\.$/, '')
+  return day.charAt(0).toLocaleUpperCase(locale()) + day.slice(1)
 }
 
 /** Formats an "HH:mm" due time for display in 24-hour format (e.g. "09:00"); empty for no time. */

@@ -151,7 +151,7 @@ public class ChoreManagementTests : IDisposable
     }
 
     [Fact]
-    public async Task Member_cannot_read_another_users_points_log()
+    public async Task Member_can_read_another_users_points_log()
     {
         var (admin, adminAuth) = await AdminClientAsync();
         await admin.PostJsonAsync("/api/users",
@@ -160,7 +160,7 @@ public class ChoreManagementTests : IDisposable
         await member.LoginAsync("kid", "kidpass1");
 
         var response = await member.GetAsync($"/api/users/{adminAuth.User.Id}/points-log");
-        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
     }
 
     [Fact]

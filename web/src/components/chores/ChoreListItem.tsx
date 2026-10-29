@@ -3,7 +3,7 @@ import { Badge } from '@/components/ui/Badge'
 import { Card } from '@/components/ui/Card'
 import { Avatar } from '@/components/ui/Modal'
 import {
-  canComplete, compactRepeatLabel, completionProgressLabel, formatDueDate, isAnyone, isIndependent, nextDueTimeLabel,
+  canComplete, compactRepeatLabel, completionProgressLabel, formatDueDate, formatDueWeekday, isAnyone, isIndependent, nextDueTimeLabel,
   offerSentence, repeatLabel, showStreak, trackIsDone, trackStatusText, pairLabel,
 } from '@/lib/chore-format'
 import { BellOffIcon, CheckIcon, ReassignIcon } from '@/components/chores/icons'
@@ -66,7 +66,7 @@ export function ChoreListItem({
           <Badge tone="neutral" className="shrink-0 border border-border bg-card">{t('chores.paused')}</Badge>
         ) : chore.dueAt ? (
           <Badge tone="violet" className="shrink-0 border border-primary bg-card">
-            {t('chores.dueDate', { date: formatDueDate(chore.dueAt) })}{nextDueTimeLabel(chore) && ` · ${nextDueTimeLabel(chore)}`}
+            {t('chores.dueDate', { day: formatDueWeekday(chore.dueAt), date: formatDueDate(chore.dueAt) })}{nextDueTimeLabel(chore) && ` · ${nextDueTimeLabel(chore)}`}
           </Badge>
         ) : null}
         {chore.completionsRequired > 1 ? (
@@ -180,14 +180,7 @@ export function ChoreListItem({
                   })}
                 </div>
               ) : isAnyone(chore) ? (
-                <div className="flex min-w-0 items-center gap-2">
-                  <span className="min-w-0 truncate text-sm text-muted-foreground">{t('chore.anyone')}</span>
-                  <span className="flex shrink-0 -space-x-1.5">
-                    {chore.assignees.map((u) => (
-                      <Avatar key={u.id} color={u.avatarColor} name={u.displayName} size={24} frame={u.equippedFrameKey} emoji={u.avatarEmoji} />
-                    ))}
-                  </span>
-                </div>
+                <span className="min-w-0 truncate text-sm text-muted-foreground">{t('chore.anyone')}</span>
               ) : !chore.currentAssignee ? (
                 <Badge tone="amber">{t('chore.unassigned')}</Badge>
               ) : (

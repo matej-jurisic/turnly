@@ -478,6 +478,7 @@ const CATEGORY_COPY: Record<NotificationCategory, { label: string; hint: string 
   OfferReceived: localized({}, { label: 'category.OfferReceived.label', hint: 'category.OfferReceived.hint' }),
   OfferResponse: localized({}, { label: 'category.OfferResponse.label', hint: 'category.OfferResponse.hint' }),
   Nudge: localized({}, { label: 'category.Nudge.label', hint: 'category.Nudge.hint' }),
+  ChoreCovered: localized({}, { label: 'category.ChoreCovered.label', hint: 'category.ChoreCovered.hint' }),
   System: localized({}, { label: 'category.System.label', hint: 'category.System.hint' }),
 }
 

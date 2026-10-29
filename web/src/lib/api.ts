@@ -171,6 +171,8 @@ export const authApi = {
     }),
   updateProfile: (body: ProfileUpdate) =>
     request<User>('/users/me', { method: 'PUT', body: json(body) }),
+  setLanguage: (language: string) =>
+    request<User>('/users/me/language', { method: 'PUT', body: json({ language }) }),
 }
 
 export const usersApi = {

@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from 'react'
 import type { User } from '@/lib/types'
 import { Avatar } from '@/components/ui/Modal'
 import { REPEAT_OPTIONS } from '@/lib/chore-format'
-import { localized, t } from '@/lib/i18n'
+import { locale, localized, t } from '@/lib/i18n'
+import { householdNow } from '@/lib/day-start'
 import { emptyFilters, filterCount, type ChoreFilterState, type DueStatus } from '@/lib/chore-filters'
 
 export type ChoreView = 'list' | 'compact' | 'calendar' | 'config'
@@ -80,6 +81,11 @@ export function ChoreFilters({
   return (
     <div className="flex items-center justify-end gap-2">
       {currentUserId && showAssignees && <MineToggle value={value} onChange={onChange} userId={currentUserId} />}
+
+      {/* Today's date, by the household clock so it agrees with the "Today" section. */}
+      <span className="mr-auto min-w-0 truncate px-1 text-sm text-muted-foreground">
+        {householdNow().toLocaleDateString(locale(), { weekday: 'short', day: 'numeric', month: 'numeric' })}
+      </span>
 
       <ViewMenu view={view} onViewChange={onViewChange} isAdmin={isAdmin} />
 
@@ -202,7 +208,7 @@ function MineToggle({
     (active ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:text-foreground')
 
   return (
-    <div role="group" className="mr-auto inline-flex h-9 items-center gap-0.5 rounded-full border border-border bg-card p-0.5">
+    <div role="group" className="inline-flex shrink-0 h-9 items-center gap-0.5 rounded-full border border-border bg-card p-0.5">
       <button
         type="button"
         aria-pressed={mine}

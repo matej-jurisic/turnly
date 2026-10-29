@@ -88,14 +88,18 @@ public static class UserEndpoints
             return result.Succeeded ? Results.Ok(result.Value) : result.Error!.ToProblem();
         });
 
-        self.MapGet("/{id:guid}/points-log", async (Guid id, ClaimsPrincipal principal,
+        self.MapPut("/me/language", async (SetLanguageRequest req, ClaimsPrincipal principal,
             UserService users, CancellationToken ct) =>
         {
-            if (principal.GetUserId() is not { } actingUserId)
+            if (principal.GetUserId() is not { } userId)
                 return Results.Unauthorized();
-            if (actingUserId != id && !principal.IsInRole(nameof(Core.Enums.UserRole.Admin)))
-                return Results.Forbid();
+            var result = await users.SetLanguageAsync(userId, req, ct);
+            return result.Succeeded ? Results.Ok(result.Value) : result.Error!.ToProblem();
+        });
 
+        // Any member can read anyone's log: the leaderboard's user dialog shows what they spent.
+        self.MapGet("/{id:guid}/points-log", async (Guid id, UserService users, CancellationToken ct) =>
+        {
             var result = await users.GetPointsLogAsync(id, ct);
             return result.Succeeded ? Results.Ok(result.Value) : result.Error!.ToProblem();
         });
