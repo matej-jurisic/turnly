@@ -224,6 +224,8 @@ export const en = {
   'due.today': 'Today',
   'due.upcoming': 'This week',
   'due.later': 'Later',
+  'chores.section.now': 'Now',
+  'chores.section.soon': 'Coming up',
   'due.anytime': 'Anytime',
   'chores.paused': 'Paused',
   'chores.add': 'Add chore',

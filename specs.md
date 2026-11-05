@@ -92,7 +92,7 @@
       often as needed. Every completion awards points and counts as a turn, so a rotating chore hands
       over after each one. No start date, due time, completion count, scheduling preference,
       auto-advance or reminders; it can't be skipped, rescheduled or use per-person scheduling. Listed
-      under its own "Anytime" section on the chores page
+      under its own "Anytime" section on the chores page (collapsed by default)
     - Daily
     - Weekly
     - Monthly
@@ -277,7 +277,7 @@ receives, and an admin cannot set them on someone's behalf.
 
 - Admin can **Pause** any chore from the chore menu or details modal
 - While paused, completions and skips are blocked (the server rejects them)
-- The chore appears in a **"Paused"** bucket on the chores page, separate from the normal overdue/today/upcoming/later sections
+- The chore appears in a **"Paused"** bucket on the chores page, separate from the normal "Now" (overdue + today) and "Coming up" sections; collapsed by default
 - No auto-advance fires, no notifications are sent
 - On **Unpause**, recurring chores that are overdue have their due date stepped forward to the first future occurrence; one-time chores are left at their current due date
 

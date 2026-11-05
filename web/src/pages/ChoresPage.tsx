@@ -32,6 +32,13 @@ import { t } from '@/lib/i18n'
 
 const VIEW_KEY = 'turnly:chore-view'
 
+/** Due order, soonest first; chores with no due date (finished one-time) go last. */
+function byDue(a: Chore, b: Chore) {
+  const da = a.dueAt ? Date.parse(a.dueAt) : Infinity
+  const db = b.dueAt ? Date.parse(b.dueAt) : Infinity
+  return da === db ? a.name.localeCompare(b.name) : da - db
+}
+
 export function ChoresPage() {
   const currentUser = useAuthStore((s) => s.user)
   const isAdmin = currentUser?.role === 'Admin'
@@ -149,7 +156,7 @@ export function ChoresPage() {
     [pickedFilters, meId, allAssignees.length],
   )
 
-  const { overdue, today, upcoming, later, anytime, paused, filtered } = useMemo(() => {
+  const { now, soon, anytime, paused, filtered } = useMemo(() => {
     const filtered = (chores ?? []).filter((c) => {
       // OR within each dimension, AND across dimensions.
       if (filters.tags.length && !filters.tags.some((t) => c.tags.includes(t))) return false
@@ -170,10 +177,19 @@ export function ChoresPage() {
     })
     const paused = filtered.filter((c) => c.isFrozen)
     const active = filtered.filter((c) => !c.isFrozen)
-    const buckets = { overdue: [] as Chore[], today: [] as Chore[], upcoming: [] as Chore[], later: [] as Chore[] }
-    for (const c of active) if (!isOnDemand(c)) buckets[choreDueStatus(c)].push(c)
+    // Two due groups instead of one per status: "now" (overdue + today) and "soon" (everything later),
+    // each in due order so overdue rows lead "now". The row's own date badge carries the finer status.
+    const now: Chore[] = []
+    const soon: Chore[] = []
+    for (const c of active) {
+      if (isOnDemand(c)) continue
+      const status = choreDueStatus(c)
+      ;(status === 'overdue' || status === 'today' ? now : soon).push(c)
+    }
+    now.sort(byDue)
+    soon.sort(byDue)
     const anytime = active.filter(isOnDemand)
-    return { ...buckets, anytime, paused, filtered }
+    return { now, soon, anytime, paused, filtered }
   }, [chores, filters])
 
   const itemProps = (chore: Chore) => ({
@@ -281,16 +297,28 @@ export function ChoresPage() {
 
             {sectioned &&
               ([
-                { title: t('due.overdue'), tone: 'destructive' as const, items: overdue },
-                { title: t('due.today'), tone: undefined, items: today },
-                { title: t('due.upcoming'), tone: undefined, items: upcoming },
-                { title: t('due.later'), tone: undefined, items: later },
-                { title: t('due.anytime'), tone: undefined, items: anytime },
-                { title: t('chores.paused'), tone: 'neutral' as const, items: paused },
+                {
+                  id: 'now',
+                  title: t('chores.section.now'),
+                  tone: now.some((c) => choreDueStatus(c) === 'overdue') ? ('destructive' as const) : undefined,
+                  items: now,
+                },
+                { id: 'soon', title: t('chores.section.soon'), tone: undefined, items: soon },
+                { id: 'anytime', title: t('due.anytime'), tone: undefined, items: anytime, collapsed: true },
+                { id: 'paused', title: t('chores.paused'), tone: 'neutral' as const, items: paused, collapsed: true },
               ])
                 .filter((s) => s.items.length > 0)
-                .map((s) => (
-                  <ChoreSection key={s.title} title={s.title} tone={s.tone} count={s.items.length}>
+                .map((s, _, shown) => (
+                  <ChoreSection
+                    key={s.id}
+                    id={s.id}
+                    title={s.title}
+                    tone={s.tone}
+                    count={s.items.length}
+                    defaultCollapsed={s.collapsed}
+                    // A lone section needs no header: it would just label the whole page.
+                    bare={shown.length === 1}
+                  >
                     {view === 'compact' ? (
                       <Card className="divide-y divide-border p-0">
                         {s.items.map((chore) => <ChoreCompactItem key={chore.id} {...itemProps(chore)} />)}

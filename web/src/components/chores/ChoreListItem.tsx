@@ -3,12 +3,13 @@ import { Badge } from '@/components/ui/Badge'
 import { Card } from '@/components/ui/Card'
 import { Avatar } from '@/components/ui/Modal'
 import {
-  canComplete, compactRepeatLabel, completionProgressLabel, formatDueDate, formatDueWeekday, isAnyone, isIndependent, nextDueTimeLabel,
+  canComplete, choreDueStatus, compactRepeatLabel, completionProgressLabel, formatDueDate, formatDueWeekday, isAnyone, isIndependent, nextDueTimeLabel,
   offerSentence, repeatLabel, showStreak, trackIsDone, trackStatusText, pairLabel,
 } from '@/lib/chore-format'
 import { BellOffIcon, CheckIcon, ReassignIcon } from '@/components/chores/icons'
 import { ChoreMenu } from '@/components/chores/ChoreMenu'
 import { SwipeRow } from '@/components/chores/SwipeRow'
+import { cn } from '@/lib/utils'
 import { t } from '@/lib/i18n'
 
 export function ChoreListItem({
@@ -65,7 +66,10 @@ export function ChoreListItem({
         {chore.isFrozen ? (
           <Badge tone="neutral" className="shrink-0 border border-border bg-card">{t('chores.paused')}</Badge>
         ) : chore.dueAt ? (
-          <Badge tone="violet" className="shrink-0 border border-primary bg-card">
+          <Badge
+            tone={choreDueStatus(chore) === 'overdue' ? 'red' : 'violet'}
+            className={cn('shrink-0 border bg-card', choreDueStatus(chore) === 'overdue' ? 'border-destructive' : 'border-primary')}
+          >
             {t('chores.dueDate', { day: formatDueWeekday(chore.dueAt), date: formatDueDate(chore.dueAt) })}{nextDueTimeLabel(chore) && ` · ${nextDueTimeLabel(chore)}`}
           </Badge>
         ) : null}

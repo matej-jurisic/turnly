@@ -1,18 +1,49 @@
 import { useState, type ReactNode } from 'react'
 import { cn } from '@/lib/utils'
 
+const COLLAPSE_KEY = 'turnly:chore-section:'
+
+function readCollapsed(id: string, fallback: boolean): boolean {
+  try {
+    const v = localStorage.getItem(COLLAPSE_KEY + id)
+    return v === null ? fallback : v === '1'
+  } catch {
+    return fallback
+  }
+}
+
 export function ChoreSection({
+  id,
   title,
   tone = 'default',
   count,
+  defaultCollapsed = false,
+  bare = false,
   children,
 }: {
+  /** Stable key the collapsed state is remembered under (per device). */
+  id: string
   title: string
   tone?: 'default' | 'destructive' | 'neutral'
   count?: number
+  defaultCollapsed?: boolean
+  /** Render only the content, no header (the section is the only one on the page). */
+  bare?: boolean
   children: ReactNode
 }) {
-  const [collapsed, setCollapsed] = useState(false)
+  const [collapsed, setCollapsedState] = useState(() => readCollapsed(id, defaultCollapsed))
+  const setCollapsed = (update: (v: boolean) => boolean) =>
+    setCollapsedState((v) => {
+      const next = update(v)
+      try {
+        localStorage.setItem(COLLAPSE_KEY + id, next ? '1' : '0')
+      } catch {
+        // Storage unavailable: the toggle still works for this visit.
+      }
+      return next
+    })
+
+  if (bare) return <section>{children}</section>
 
   const pillClass =
     tone === 'destructive'

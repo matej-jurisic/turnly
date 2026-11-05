@@ -231,6 +231,8 @@ export const hr: Record<TKey | `${PluralKey}_few`, string> = {
   'due.today': 'Danas',
   'due.upcoming': 'Ovaj tjedan',
   'due.later': 'Kasnije',
+  'chores.section.now': 'Sada',
+  'chores.section.soon': 'Uskoro',
   'due.anytime': 'Bilo kada',
   'chores.paused': 'Pauzirano',
   'chores.add': 'Dodaj posao',
