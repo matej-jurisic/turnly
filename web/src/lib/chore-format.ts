@@ -4,6 +4,7 @@ import type {
   Chore,
   ChoreNotification,
   ChoreOffer,
+  ChoreSlotTurn,
   ChoreTrack,
   CustomRecurrenceMode,
   RepeatType,
@@ -293,25 +294,95 @@ export function creditedPeople<T extends User>(entry: { actor?: T | null; partne
 }
 
 /** Whether this person holds the current occurrence: the current assignee, or their partner on a
- * paired chore. */
-export function holdsChore(chore: Pick<Chore, 'currentAssignee' | 'currentPartner'>, userId?: string | null): boolean {
-  return Boolean(userId) && (chore.currentAssignee?.id === userId || chore.currentPartner?.id === userId)
+ * paired chore. On a slot-turn chore, any of its slots. */
+export function holdsChore(
+  chore: Pick<Chore, 'currentAssignee' | 'currentPartner'> & Partial<Pick<Chore, 'turnPerSlot' | 'slotTurns'>>,
+  userId?: string | null,
+): boolean {
+  if (!userId) return false
+  if (chore.turnPerSlot && chore.slotTurns?.length) return chore.slotTurns.some((s) => holdsSlot(s, userId))
+  return chore.currentAssignee?.id === userId || chore.currentPartner?.id === userId
+}
+
+/** Whether each time of day has its own turn on this chore. */
+export function hasSlotTurns(chore: Pick<Chore, 'turnPerSlot' | 'slotTurns'>): boolean {
+  return chore.turnPerSlot && chore.slotTurns.length > 0
+}
+
+/** Whether the slots are held by different people, so the list has to show each one. When one person
+ * (or pair) holds every slot, the chore's own holder (the earliest slot's) already says it all. */
+export function slotHoldersDiffer(chore: Pick<Chore, 'turnPerSlot' | 'slotTurns'>): boolean {
+  if (!hasSlotTurns(chore)) return false
+  const key = (s: ChoreSlotTurn) => [s.currentAssignee?.id, s.currentPartner?.id].sort().join()
+  const first = key(chore.slotTurns[0])
+  return chore.slotTurns.some((s) => key(s) !== first)
+}
+
+/** Whether this person holds one slot's turn (as its assignee or their partner). */
+export function holdsSlot(slot: ChoreSlotTurn, userId?: string | null): boolean {
+  return Boolean(userId) && (slot.currentAssignee?.id === userId || slot.currentPartner?.id === userId)
+}
+
+/** A slot's name: its label, or its time when it has none. */
+export function slotName(slot: Pick<ChoreSlotTurn, 'label' | 'time'>): string {
+  return slot.label || formatDueTime(slot.time)
+}
+
+function slotsByDue(chore: Pick<Chore, 'slotTurns'>): ChoreSlotTurn[] {
+  return chore.slotTurns
+    .filter((s) => s.dueAt)
+    .sort((a, b) => new Date(a.dueAt!).getTime() - new Date(b.dueAt!).getTime())
+}
+
+/** The slot that comes due first: the one the chore's own due date (and its pill) shows. */
+export function nextSlot(chore: Pick<Chore, 'slotTurns'>): ChoreSlotTurn | undefined {
+  return slotsByDue(chore)[0]
+}
+
+/** The slot an action is for when none is picked. Mirrors `ChoreService.ResolveSlot`: your own
+ * earliest slot on the same day as the earliest one, else the earliest. */
+export function defaultSlot(chore: Pick<Chore, 'slotTurns'>, userId?: string | null): ChoreSlotTurn | undefined {
+  const byDue = slotsByDue(chore)
+  const earliest = byDue[0] ?? chore.slotTurns[0]
+  if (!earliest?.dueAt) return earliest
+  const day = new Date(earliest.dueAt).toDateString()
+  return byDue.find((s) => new Date(s.dueAt!).toDateString() === day && holdsSlot(s, userId)) ?? earliest
+}
+
+/** The chore as seen from one slot: that slot's due date, holder, preview and offer in the chore's own
+ * fields, so anything written for a single turn (crediting, offers, reassigning) works on it as is. */
+export function focusSlot(chore: Chore, slot?: ChoreSlotTurn | null): Chore {
+  if (!slot) return chore
+  return {
+    ...chore,
+    dueAt: slot.dueAt,
+    dueLabel: slot.label,
+    currentAssignee: slot.currentAssignee,
+    currentPartner: slot.currentPartner,
+    nextAssignee: slot.nextAssignee,
+    nextPartner: slot.nextPartner,
+    openOffer: slot.openOffer,
+  }
 }
 
 /** Who the viewer can nudge about this chore: whoever owes the current occurrence (the assignee and
- * their partner, every assignee on an Anyone chore, or everyone with an open track on a per-person
- * chore), minus the viewer and anyone
+ * their partner, every assignee on an Anyone chore, everyone with an open track on a per-person
+ * chore, or every slot's holders on a slot-turn chore), minus the viewer and anyone
  * on leave. Mirrors `ChoreService.NudgeAsync`; the server still has the final say. */
 export function nudgeCandidates(chore: Chore, meId?: string | null): User[] {
   if (chore.isFrozen) return []
   const holders = isIndependent(chore)
     ? chore.tracks.filter((tr) => tr.dueAt).map((tr) => tr.user)
-    : !chore.dueAt && !isOnDemand(chore)
-      ? []
-      : isAnyone(chore)
-        ? chore.assignees
-        : [chore.currentAssignee, chore.currentPartner].filter((u): u is User => Boolean(u))
-  return holders.filter((u) => u.id !== meId && !u.isFrozen)
+    : hasSlotTurns(chore)
+      ? chore.slotTurns.filter((s) => s.dueAt).flatMap((s) => [s.currentAssignee, s.currentPartner])
+      : !chore.dueAt && !isOnDemand(chore)
+        ? []
+        : isAnyone(chore)
+          ? chore.assignees
+          : [chore.currentAssignee, chore.currentPartner]
+  return holders
+    .filter((u): u is User => Boolean(u) && u!.id !== meId && !u!.isFrozen)
+    .filter((u, i, all) => all.findIndex((x) => x.id === u.id) === i)
 }
 
 /** Whether to surface a chore's on-time streak: only for recurring chores with a streak worth
@@ -344,14 +415,16 @@ export function notificationTypeLabel(n: ChoreNotification): string {
 }
 
 /** Human-readable timing phrase, e.g. "1 hour before due", "at due time", "2 days after due". */
-export function notificationTimingLabel(n: ChoreNotification): string {
+export function notificationTimingLabel(n: Pick<ChoreNotification, 'timing' | 'offsetValue' | 'offsetUnit'>): string {
   if (n.timing === 'AtDue') return t('notifTiming.atDue')
   const duration = plural(NOTIFICATION_UNIT_KEYS[n.offsetUnit], n.offsetValue)
   return t(n.timing === 'Before' ? 'notifTiming.before' : 'notifTiming.after', { duration })
 }
 
-/** Recipient phrase for a notification entry. */
-export function notificationRecipientsLabel(n: ChoreNotification): string {
+/** Recipient phrase for a notification entry. A personal entry only ever reaches its owner, so its
+ * recipients read as when it fires for them. */
+export function notificationRecipientsLabel(n: ChoreNotification, personal = false): string {
+  if (personal) return n.recipients === 'AllAssignees' ? t('notifRecipients.always') : t('notifRecipients.myTurn')
   return n.recipients === 'AllAssignees' ? t('notifRecipients.everyone') : t('notifRecipients.assignee')
 }
 
@@ -441,6 +514,13 @@ export function relativeDayLabel(iso: string): string {
   if (d === 0) return t('relative.today')
   if (d === 1) return t('relative.yesterday')
   return d > 0 ? plural('relative.daysAgo', d) : plural('relative.inDays', -d)
+}
+
+/** The due pill's date, relative day first ("Today, Thu 29/10", "Tomorrow, Fri 30/10", "In 4 days, Mon 02/11"). */
+export function formatDuePill(iso: string): string {
+  const rel = calendarDaysAgo(iso) === -1 ? t('relative.tomorrow') : relativeDayLabel(iso)
+  const relative = rel.charAt(0).toLocaleUpperCase(locale()) + rel.slice(1)
+  return `${relative}, ${t('chores.dueDate', { day: formatDueWeekday(iso), date: formatDueDate(iso) })}`
 }
 
 /** Compact "how long ago" for activity feeds: minutes, hours, then days, then the plain date. */

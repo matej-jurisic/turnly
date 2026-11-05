@@ -217,6 +217,9 @@ namespace Turnly.Core.Migrations
                         .IsRequired()
                         .HasColumnType("TEXT");
 
+                    b.Property<bool>("TurnPerSlot")
+                        .HasColumnType("INTEGER");
+
                     b.Property<string>("Weekdays")
                         .IsRequired()
                         .HasColumnType("TEXT");
@@ -286,6 +289,9 @@ namespace Turnly.Core.Migrations
                     b.Property<Guid?>("PreviousAssigneeId")
                         .HasColumnType("TEXT");
 
+                    b.Property<TimeOnly?>("SlotTime")
+                        .HasColumnType("TEXT");
+
                     b.Property<Guid>("UserId")
                         .HasColumnType("TEXT");
 
@@ -340,6 +346,9 @@ namespace Turnly.Core.Migrations
                         .HasColumnType("TEXT");
 
                     b.Property<Guid?>("PreviousPartnerId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid?>("TakenOverFromId")
                         .HasColumnType("TEXT");
 
                     b.HasKey("Id");
@@ -416,9 +425,14 @@ namespace Turnly.Core.Migrations
                         .HasMaxLength(16)
                         .HasColumnType("TEXT");
 
+                    b.Property<Guid?>("UserId")
+                        .HasColumnType("TEXT");
+
                     b.HasKey("Id");
 
                     b.HasIndex("ChoreId");
+
+                    b.HasIndex("UserId");
 
                     b.ToTable("ChoreNotifications");
                 });
@@ -480,6 +494,9 @@ namespace Turnly.Core.Migrations
                     b.Property<DateTimeOffset?>("RespondedAt")
                         .HasColumnType("TEXT");
 
+                    b.Property<TimeOnly?>("SlotTime")
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("Status")
                         .IsRequired()
                         .HasMaxLength(16)
@@ -494,6 +511,40 @@ namespace Turnly.Core.Migrations
                     b.HasIndex("FromUserId");
 
                     b.ToTable("ChoreOffers");
+                });
+
+            modelBuilder.Entity("Turnly.Core.Entities.ChoreSlotTurn", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("ChoreId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid?>("CurrentAssigneeId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid?>("CurrentPartnerId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTimeOffset?>("DueAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<TimeOnly>("Time")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CurrentAssigneeId");
+
+                    b.HasIndex("ChoreId", "Time")
+                        .IsUnique();
+
+                    b.ToTable("ChoreSlotTurns");
                 });
 
             modelBuilder.Entity("Turnly.Core.Entities.FcmDevice", b =>
@@ -750,6 +801,12 @@ namespace Turnly.Core.Migrations
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("TEXT");
 
+                    b.Property<DateOnly?>("DigestSentOn")
+                        .HasColumnType("TEXT");
+
+                    b.Property<TimeOnly?>("DigestTime")
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("DisplayName")
                         .IsRequired()
                         .HasMaxLength(128)
@@ -778,6 +835,9 @@ namespace Turnly.Core.Migrations
                     b.Property<int>("Points")
                         .HasColumnType("INTEGER");
 
+                    b.Property<int>("PullTickets")
+                        .HasColumnType("INTEGER");
+
                     b.Property<int>("PullsSinceLegendary")
                         .HasColumnType("INTEGER");
 
@@ -791,6 +851,9 @@ namespace Turnly.Core.Migrations
                         .IsRequired()
                         .HasMaxLength(16)
                         .HasColumnType("TEXT");
+
+                    b.Property<int>("TicketProgress")
+                        .HasColumnType("INTEGER");
 
                     b.Property<string>("Username")
                         .IsRequired()
@@ -1084,7 +1147,14 @@ namespace Turnly.Core.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
+                    b.HasOne("Turnly.Core.Entities.User", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade);
+
                     b.Navigation("Chore");
+
+                    b.Navigation("User");
                 });
 
             modelBuilder.Entity("Turnly.Core.Entities.ChoreNudge", b =>
@@ -1138,6 +1208,24 @@ namespace Turnly.Core.Migrations
                     b.Navigation("ClaimedBy");
 
                     b.Navigation("FromUser");
+                });
+
+            modelBuilder.Entity("Turnly.Core.Entities.ChoreSlotTurn", b =>
+                {
+                    b.HasOne("Turnly.Core.Entities.Chore", "Chore")
+                        .WithMany("SlotTurns")
+                        .HasForeignKey("ChoreId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Turnly.Core.Entities.User", "CurrentAssignee")
+                        .WithMany()
+                        .HasForeignKey("CurrentAssigneeId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.Navigation("Chore");
+
+                    b.Navigation("CurrentAssignee");
                 });
 
             modelBuilder.Entity("Turnly.Core.Entities.FcmDevice", b =>
@@ -1278,6 +1366,8 @@ namespace Turnly.Core.Migrations
                     b.Navigation("Completions");
 
                     b.Navigation("Notifications");
+
+                    b.Navigation("SlotTurns");
                 });
 
             modelBuilder.Entity("Turnly.Core.Entities.User", b =>

@@ -6,26 +6,40 @@ import type { Chore } from '@/lib/types'
 import { Button } from '@/components/ui/Button'
 import { Label, Select } from '@/components/ui/Field'
 import { Modal } from '@/components/ui/Modal'
-import { pairLabel, turnUnits } from '@/lib/chore-format'
+import { defaultSlot, focusSlot, hasSlotTurns, pairLabel, turnUnits } from '@/lib/chore-format'
+import { SlotPicker } from '@/components/chores/SlotPicker'
 import { t, tRich } from '@/lib/i18n'
 
 /** Admin-only direct move. Members hand a chore over via `OfferModal` instead. */
-export function ReassignModal({ chore, onClose, onDone }: { chore: Chore; onClose: () => void; onDone: () => void }) {
+export function ReassignModal({ chore: fullChore, onClose, onDone }: { chore: Chore; onClose: () => void; onDone: () => void }) {
+  // A slot-turn chore moves one slot at a time.
+  const slotted = hasSlotTurns(fullChore)
+  const [slotTime, setSlotTime] = useState(() => defaultSlot(fullChore)?.time)
+  const chore = focusSlot(fullChore, slotted ? fullChore.slotTurns.find((s) => s.time === slotTime) : undefined)
   // One entry per pair or lone assignee; a person in several pairs is listed once per pair.
   const units = turnUnits(chore)
-  const [selected, setSelected] = useState(() => {
-    const holders = [chore.currentAssignee?.id, chore.currentPartner?.id].filter(Boolean)
+  const heldUnit = (c: Chore) => {
+    const holders = [c.currentAssignee?.id, c.currentPartner?.id].filter(Boolean)
     const held = units.findIndex((u) => holders.length > 0
       && holders.every((id) => id === u.user.id || id === u.partner?.id)
       && holders.length === (u.partner ? 2 : 1))
     return Math.max(held, 0)
-  })
+  }
+  const [selected, setSelected] = useState(() => heldUnit(chore))
   const unit = units[selected]
   // Nobody holds it yet (a Manual chore waiting on an admin), so this is a first placement.
   const unassigned = !chore.currentAssignee
+  const pickSlot = (time: string) => {
+    setSlotTime(time)
+    setSelected(heldUnit(focusSlot(fullChore, fullChore.slotTurns.find((s) => s.time === time))))
+  }
 
   const mutation = useMutation({
-    mutationFn: () => choresApi.reassign(chore.id, { assigneeId: unit.user.id, partnerId: unit.partner?.id ?? null }),
+    mutationFn: () => choresApi.reassign(chore.id, {
+      assigneeId: unit.user.id,
+      partnerId: unit.partner?.id ?? null,
+      slotTime: slotted ? slotTime : null,
+    }),
     onSuccess: onDone,
     onError: (err) => toast.error(err instanceof ApiError ? err.message : unassigned ? t('reassign.failedAssign') : t('reassign.failedReassign')),
   })
@@ -42,6 +56,7 @@ export function ReassignModal({ chore, onClose, onDone }: { chore: Chore; onClos
           })}
           {chore.assignmentStrategy !== 'Manual' && ` ${t('reassign.future')}`}
         </p>
+        {slotted && <SlotPicker slots={fullChore.slotTurns} value={slotTime} onChange={pickSlot} />}
         <div className="space-y-1.5">
           <Label htmlFor="reassign-assignee">{t('filters.assignee')}</Label>
           <Select id="reassign-assignee" value={selected} onChange={(e) => setSelected(Number(e.target.value))}>

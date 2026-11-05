@@ -32,6 +32,36 @@ public abstract class NotificationText
     public abstract string DueIn(string? who, TimeSpan span, int points);
     public abstract string Overdue(string? who, TimeSpan span, int points);
 
+    /// <summary>Title of the daily digest.</summary>
+    public abstract string DigestTitle();
+
+    /// <summary>A digest with nothing to list (only ever sent as a test).</summary>
+    public abstract string DigestEmpty();
+
+    /// <summary>The daily digest body: chore names overdue and chore names due today. Either part may
+    /// be empty, not both.</summary>
+    public string Digest(IReadOnlyList<string> today, IReadOnlyList<string> overdue)
+    {
+        var parts = new List<string>();
+        if (overdue.Count > 0)
+            parts.Add(DigestOverdue(Names(overdue)));
+        if (today.Count > 0)
+            parts.Add(DigestToday(Names(today)));
+        return string.Join(" ", parts);
+    }
+
+    /// <summary>The first few names, then "+N" for the rest, so a busy day still fits a push.</summary>
+    private string Names(IReadOnlyList<string> names)
+    {
+        const int shown = 4;
+        var head = string.Join(", ", names.Take(shown));
+        return names.Count > shown ? $"{head} {More(names.Count - shown)}" : head;
+    }
+
+    protected abstract string DigestToday(string names);
+    protected abstract string DigestOverdue(string names);
+    protected abstract string More(int count);
+
     /// <summary>Coarse duration bucket: minutes under an hour, then hours, then days. Null under a minute.</summary>
     protected static (int Count, char Unit)? Bucket(TimeSpan span)
     {
@@ -70,6 +100,12 @@ public abstract class NotificationText
 
         public override string Overdue(string? who, TimeSpan span, int points) =>
             $"{Prefix(who)}overdue by {Duration(span)}{Points(points)}";
+
+        public override string DigestTitle() => "📅 Your day";
+        public override string DigestEmpty() => "Nothing due today.";
+        protected override string DigestToday(string names) => $"Today: {names}.";
+        protected override string DigestOverdue(string names) => $"Overdue: {names}.";
+        protected override string More(int count) => $"+{count} more";
 
         private static string Prefix(string? who) => who is null ? "" : $"{who} - ";
         private static string Points(int points) => points > 0 ? $" ({points} pts)" : "";
@@ -111,6 +147,12 @@ public abstract class NotificationText
 
         public override string Overdue(string? who, TimeSpan span, int points) =>
             $"{Prefix(who)}kasni {Duration(span)}{Points(points)}";
+
+        public override string DigestTitle() => "📅 Vaš dan";
+        public override string DigestEmpty() => "Danas nema poslova.";
+        protected override string DigestToday(string names) => $"Danas: {names}.";
+        protected override string DigestOverdue(string names) => $"Kasni: {names}.";
+        protected override string More(int count) => $"i još {count}";
 
         private static string Prefix(string? who) => who is null ? "" : $"{who} - ";
         private static string Points(int points) => points > 0 ? $" ({points} bod.)" : "";

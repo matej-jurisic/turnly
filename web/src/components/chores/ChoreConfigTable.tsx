@@ -7,7 +7,7 @@ import { EditIcon } from '@/components/chores/icons'
 import {
   formatDate, formatDueTime, formatGrace, isAnyone, isIndependent, notificationRecipientsLabel,
   notificationTimingLabel, notificationTypeLabel, pairLabel, repeatLabel,
-  rotationPeriodLabel, schedulingLabel, strategyLabel,
+  rotationPeriodLabel, schedulingLabel, strategyLabel, hasSlotTurns, slotName,
 } from '@/lib/chore-format'
 import { t } from '@/lib/i18n'
 
@@ -175,7 +175,11 @@ function AssignmentCell({ chore }: { chore: Chore }) {
           {t('config.current', {
             name: isAnyone(chore)
               ? t('chore.anyone')
-              : chore.currentAssignee ? pairLabel(chore.currentAssignee, chore.currentPartner) : t('chore.unassigned'),
+              : hasSlotTurns(chore)
+                ? chore.slotTurns
+                    .map((s) => `${slotName(s)} ${s.currentAssignee ? pairLabel(s.currentAssignee, s.currentPartner) : t('chore.unassigned')}`)
+                    .join(' · ')
+                : chore.currentAssignee ? pairLabel(chore.currentAssignee, chore.currentPartner) : t('chore.unassigned'),
           })}
         </Sub>
       )}

@@ -36,6 +36,18 @@ public class AppSettingsService
         return TimeOnly.TryParseExact(value, "HH:mm", out var time) ? time.ToTimeSpan() : TimeSpan.Zero;
     }
 
+    /// <summary>The configured household timezone, or null when none is set: schedules then keep their
+    /// stored offsets rather than falling back to the host zone (UTC in the container), which would move
+    /// every due time. Synchronous so the recurrence code can read it lazily from anywhere.</summary>
+    public static TimeZoneInfo? ReadHouseholdZone(TurnlyDbContext db)
+    {
+        var value = db.AppSettings
+            .Where(s => s.Key == TimeZoneKey)
+            .Select(s => s.Value)
+            .FirstOrDefault();
+        return !string.IsNullOrWhiteSpace(value) && TimeZoneResolver.IsValid(value) ? TimeZoneResolver.Resolve(value) : null;
+    }
+
     /// <summary>The lateness grace of every all-day chore, keyed by chore id (see
     /// <see cref="Chore.LateGrace"/>). Timed chores are absent, and so is everything when the day
     /// starts at midnight, so a missing key means "no grace".</summary>

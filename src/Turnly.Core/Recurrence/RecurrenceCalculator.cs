@@ -23,6 +23,8 @@ public static class RecurrenceCalculator
     /// <summary>The first due date on or after <paramref name="start"/> for the given rule.</summary>
     public static DateTimeOffset FirstOccurrence(RecurrenceRule rule, DateTimeOffset start)
     {
+        if (rule.Zone is { } zone)
+            return FromWall(zone, FirstOccurrence(rule with { Zone = null }, ToWall(zone, start)));
         if (IsSlotScanned(rule))
             return FixedSlotOnOrAfter(rule, start);
         // One-time and all interval-style schedules start exactly at the start date.
@@ -42,6 +44,13 @@ public static class RecurrenceCalculator
     {
         if (rule.Type is RepeatType.OneTime or RepeatType.OnDemand)
             return null;
+
+        if (rule.Zone is { } zone)
+        {
+            var wall = NextDue(rule with { Zone = null }, pref,
+                ToWall(zone, scheduledDue), ToWall(zone, completedAt), ToWall(zone, now), grace);
+            return wall is { } w ? FromWall(zone, w) : null;
+        }
 
         if (pref == SchedulingPreference.SmartScheduling)
         {
@@ -122,6 +131,21 @@ public static class RecurrenceCalculator
     {
         var localDate = result.ToOffset(canonical.Offset).Date;
         return new DateTimeOffset(localDate.Add(canonical.TimeOfDay), canonical.Offset);
+    }
+
+    // ── Household wall clock ──────────────────────────────────────────────────────────────
+
+    /// <summary>The household's local wall-clock reading of <paramref name="instant"/>, carried with a zero
+    /// offset so the offset-keeping math below runs on plain local dates and times.</summary>
+    private static DateTimeOffset ToWall(TimeZoneInfo zone, DateTimeOffset instant) =>
+        new(TimeZoneInfo.ConvertTime(instant, zone).DateTime, TimeSpan.Zero);
+
+    /// <summary>The instant a household wall-clock reading names, with the zone's offset on that date. A
+    /// time skipped by a spring-forward change takes the standard offset, landing an hour later.</summary>
+    private static DateTimeOffset FromWall(TimeZoneInfo zone, DateTimeOffset wall)
+    {
+        var local = DateTime.SpecifyKind(wall.DateTime, DateTimeKind.Unspecified);
+        return new DateTimeOffset(local, zone.GetUtcOffset(local));
     }
 
     // ── Classification ────────────────────────────────────────────────────────────────────

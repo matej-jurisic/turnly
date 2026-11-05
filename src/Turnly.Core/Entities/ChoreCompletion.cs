@@ -52,19 +52,27 @@ public class ChoreCompletion
     /// (<see cref="Chore.HeldPartnerId"/> at the time); restored on undo. A plain snapshot.</summary>
     public Guid? PreviousPartnerId { get; set; }
 
+    /// <summary>Who held the chore before the completer's side took it over (an offer claim or an admin
+    /// reassignment) after the occurrence was already late; null otherwise. Makes the late completion a
+    /// rescue even though the completer was the holder by then. A plain snapshot, never restored by undo.</summary>
+    public Guid? TakenOverFromId { get; set; }
+
     /// <summary>A late completion logged by someone other than the person (or pair) who held the
-    /// chore: they stepped in for an overdue chore, so it counts as late for nobody. Always false on
+    /// chore, or by someone who took it over once it was already late (<see cref="TakenOverFromId"/>):
+    /// they stepped in for an overdue chore, so it counts as late for nobody. Always false on
     /// <see cref="Enums.AssignmentStrategy.Independent"/> chores, which snapshot no holder.</summary>
     /// <param name="lateGrace">How long past its due instant the occurrence still counts as on time
     /// (<see cref="Chore.LateGrace"/>).</param>
     public bool IsRescue(TimeSpan lateGrace) =>
-        IsRescue(IsSkip, IsExpired, CompletedAt, OccurrenceDueAt, CompletedByUserId, PartnerUserId, PreviousAssigneeId, PreviousPartnerId, lateGrace);
+        IsRescue(IsSkip, IsExpired, CompletedAt, OccurrenceDueAt, CompletedByUserId, PartnerUserId, PreviousAssigneeId, PreviousPartnerId, TakenOverFromId, lateGrace);
 
     /// <summary>The same rule over bare columns, for readers that project instead of loading rows.</summary>
     public static bool IsRescue(bool isSkip, bool isExpired, DateTimeOffset completedAt, DateTimeOffset? occurrenceDueAt,
-        Guid? completedByUserId, Guid? partnerUserId, Guid? previousAssigneeId, Guid? previousPartnerId, TimeSpan lateGrace) =>
+        Guid? completedByUserId, Guid? partnerUserId, Guid? previousAssigneeId, Guid? previousPartnerId, Guid? takenOverFromId,
+        TimeSpan lateGrace) =>
         !isSkip && !isExpired
         && occurrenceDueAt is { } due && completedAt > due + lateGrace
-        && previousAssigneeId is { } holder && holder != completedByUserId && holder != partnerUserId
-        && (previousPartnerId is not { } coHolder || (coHolder != completedByUserId && coHolder != partnerUserId));
+        && ((previousAssigneeId is { } holder && holder != completedByUserId && holder != partnerUserId
+                && (previousPartnerId is not { } coHolder || (coHolder != completedByUserId && coHolder != partnerUserId)))
+            || (takenOverFromId is { } from && from != completedByUserId && from != partnerUserId));
 }

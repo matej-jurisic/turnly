@@ -13,7 +13,7 @@ namespace Turnly.Core.Entities;
 /// not go through offers at all.</para>
 ///
 /// <para>At most one Pending offer exists per chore at a time — a newer offer supersedes an older one
-/// (Cancelled + refunded).</para></summary>
+/// (Cancelled + refunded). On a <see cref="Chore.TurnPerSlot"/> chore that holds per slot instead.</para></summary>
 public class ChoreOffer
 {
     public Guid Id { get; set; } = Guid.NewGuid();
@@ -28,6 +28,10 @@ public class ChoreOffer
     /// <summary>Points the offerer pays whoever takes the chore. Zero for a plain "anyone want this?".
     /// Held in escrow (already deducted from <see cref="FromUser"/>) while the offer is pending.</summary>
     public int BountyPoints { get; set; }
+
+    /// <summary>On a <see cref="Chore.TurnPerSlot"/> chore, the slot being handed over; null for the
+    /// whole chore.</summary>
+    public TimeOnly? SlotTime { get; set; }
 
     /// <summary>Who actually took the chore (whoever got there first); null until claimed.</summary>
     public Guid? ClaimedByUserId { get; set; }

@@ -35,6 +35,7 @@ export function Layout() {
   const [searchOpen, setSearchOpen] = useState(false)
   const [detailChore, setDetailChore] = useState<Chore | null>(null)
   const [completeChore, setCompleteChore] = useState<Chore | null>(null)
+  const [completeSlot, setCompleteSlot] = useState<string | undefined>()
   const [detailUser, setDetailUser] = useState<LeaderboardEntry | null>(null)
 
   async function logout() {
@@ -226,13 +227,14 @@ export function Layout() {
         <ChoreDetailsModal
           chore={detailChore}
           onClose={() => setDetailChore(null)}
-          onComplete={() => { setCompleteChore(detailChore); setDetailChore(null) }}
+          onComplete={(slotTime) => { setCompleteChore(detailChore); setCompleteSlot(slotTime); setDetailChore(null) }}
         />
       )}
 
       {completeChore && (
         <CompleteModal
           chore={completeChore}
+          slotTime={completeSlot}
           onClose={() => setCompleteChore(null)}
           onDone={() => {
             setCompleteChore(null)
@@ -248,7 +250,7 @@ export function Layout() {
           avatarColor={detailUser.avatarColor}
           avatarEmoji={detailUser.avatarEmoji}
           equippedFrameKey={detailUser.equippedFrameKey}
-          points={detailUser.points}
+          points={detailUser.earnedPoints}
           weeklyPoints={detailUser.weeklyPoints}
           onClose={() => setDetailUser(null)}
         />

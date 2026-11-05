@@ -11,9 +11,9 @@ import type { Cosmetic, CosmeticRarity, CosmeticSlot, PullResult } from '@/lib/t
 import { useAuthStore } from '@/store/auth'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useState } from 'react'
-import { t } from '@/lib/i18n'
+import { plural, t } from '@/lib/i18n'
 
-/** Cosmetics tab of `RewardsPage`: spend points on pulls, craft with dust, browse the collection. */
+/** Cosmetics tab of `RewardsPage`: spend tickets on pulls, craft with dust, browse the collection. */
 export function CosmeticsTab() {
   const user = useAuthStore((s) => s.user)
   const queryClient = useQueryClient()
@@ -48,6 +48,9 @@ export function CosmeticsTab() {
 
   const busy = pull.isPending || craft.isPending
   const pityPct = Math.min(100, Math.round((state.pullsSinceLegendary / state.pityThreshold) * 100))
+  // Progress can dip below zero after a reversal; the bar just shows empty until it is paid off.
+  const ticketProgress = Math.max(0, state.ticketProgress)
+  const ticketPct = Math.min(100, Math.round((ticketProgress / state.pointsPerTicket) * 100))
 
   // Group the catalog by slot, then by rarity (rarest first).
   const bySlot: Record<CosmeticSlot, Cosmetic[]> = { Frame: [], Theme: [], Color: [], Emoji: [] }
@@ -59,27 +62,43 @@ export function CosmeticsTab() {
       <Card>
         <CardHeader className="flex items-center justify-between gap-3">
           <CardTitle>{t('cosmetics.pull')}</CardTitle>
-          <Badge tone="amber">{t('cosmetics.dust', { count: state.dust })}</Badge>
+          <div className="flex gap-2">
+            <Badge tone="violet">{plural('cosmetics.tickets', state.tickets)}</Badge>
+            <Badge tone="amber">{t('cosmetics.dust', { count: state.dust })}</Badge>
+          </div>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="flex gap-3">
             <Button
               className="h-auto flex-1 flex-col py-1.5 leading-tight"
               onClick={() => pull.mutate(1)}
-              disabled={busy || state.points < state.pullCost}
+              disabled={busy || state.tickets < state.pullCost}
             >
               <span>{t('cosmetics.pull1')}</span>
-              <span className="text-xs opacity-90">{t('cosmetics.cost', { count: state.pullCost })}</span>
+              <span className="text-xs opacity-90">{plural('cosmetics.cost', state.pullCost)}</span>
             </Button>
             <Button
               className="h-auto flex-1 flex-col py-1.5 leading-tight"
               variant="secondary"
               onClick={() => pull.mutate(10)}
-              disabled={busy || state.points < state.tenPullCost}
+              disabled={busy || state.tickets < state.tenPullCost}
             >
               <span>{t('cosmetics.pull10')}</span>
-              <span className="text-xs opacity-90">{t('cosmetics.cost', { count: state.tenPullCost })}</span>
+              <span className="text-xs opacity-90">{plural('cosmetics.cost', state.tenPullCost)}</span>
             </Button>
+          </div>
+
+          {/* Next ticket */}
+          <div className="space-y-1">
+            <div className="flex justify-between text-xs text-muted-foreground">
+              <span>{t('cosmetics.nextTicket')}</span>
+              <span>
+                {ticketProgress} / {t('common.pts', { count: state.pointsPerTicket })}
+              </span>
+            </div>
+            <div className="h-2 overflow-hidden rounded-full bg-muted">
+              <div className="h-full rounded-full bg-primary transition-all" style={{ width: `${ticketPct}%` }} />
+            </div>
           </div>
 
           {/* Pity */}

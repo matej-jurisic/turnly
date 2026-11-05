@@ -76,8 +76,9 @@ public static class UserEndpoints
         // Endpoints accessible to any authenticated member.
         var self = app.MapGroup("/api/users").RequireAuthorization();
 
-        self.MapGet("/leaderboard", async (UserService users, CancellationToken ct) =>
-            Results.Ok(await users.GetLeaderboardAsync(ct)));
+        self.MapGet("/leaderboard", async (DateTimeOffset? from, DateTimeOffset? to,
+            UserService users, CancellationToken ct) =>
+            Results.Ok(await users.GetLeaderboardAsync(from, to, ct)));
 
         self.MapPut("/me", async (UpdateProfileRequest req, ClaimsPrincipal principal,
             UserService users, CancellationToken ct) =>
@@ -94,6 +95,15 @@ public static class UserEndpoints
             if (principal.GetUserId() is not { } userId)
                 return Results.Unauthorized();
             var result = await users.SetLanguageAsync(userId, req, ct);
+            return result.Succeeded ? Results.Ok(result.Value) : result.Error!.ToProblem();
+        });
+
+        self.MapPut("/me/notification-schedule", async (UpdateNotificationScheduleRequest req, ClaimsPrincipal principal,
+            UserService users, CancellationToken ct) =>
+        {
+            if (principal.GetUserId() is not { } userId)
+                return Results.Unauthorized();
+            var result = await users.UpdateNotificationScheduleAsync(userId, req, ct);
             return result.Succeeded ? Results.Ok(result.Value) : result.Error!.ToProblem();
         });
 

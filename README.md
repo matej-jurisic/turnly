@@ -26,6 +26,8 @@ Turnly is feature-complete. See [`specs.md`](./specs.md) for the full product sp
 - **Anyone**: nobody is assigned, and whoever gets to it first does it (and can credit the other assignees who helped).
 - **Fixed pairs** for two-person jobs: the pair holds the turn together, rotates as one, and both get the
   points when either marks it done. One person can be in several pairs, each taking its own turn.
+- **A turn per time of day**: a twice-a-day chore can give its morning and evening to different people,
+  each rotating on its own and doable in any order, while the history stays one chore's.
 - Admin **reassignment**, and **chore offers**: put a chore you're holding up for anyone to take, optionally
   with a points bounty.
 - **Nudges**: remind whoever holds a chore, with an optional note.
@@ -53,7 +55,8 @@ Turnly is feature-complete. See [`specs.md`](./specs.md) for the full product sp
 - **Achievements**: collectible, permanently earned badges for milestones (completion counts, on-time
   streaks, points earned, redemptions, variety), unlocked the moment they're earned. Admins can view any
   user's badges and revoke them.
-- A points-funded **Cosmetics** tab (no real money): random pulls for rarity-tiered **avatar frames** and
+- A **Cosmetics** tab (no real money) paid for with pull tickets, earned one per 50 points so
+  cosmetics never cost points: random pulls for rarity-tiered **avatar frames** and
   **app theme palettes**, with a pity counter that guarantees a Legendary, a dust economy that crafts
   specific items from duplicates, published drop rates, and one-per-slot equipping.
 
@@ -61,6 +64,7 @@ Turnly is feature-complete. See [`specs.md`](./specs.md) for the full product sp
 
 - Web Push and native (FCM) push with a per-chore reminder / due / follow-up schedule.
 - Per-user quiet hours, per-category delivery controls, and per-chore mutes.
+- Your own notification schedule per chore, and a daily summary at a time you pick.
 
 ### Administration
 
@@ -222,6 +226,14 @@ is personal: everyone else still gets notified normally, and the chore shows a s
 in your list. Muting and quiet hours downgrade a push to an inbox record rather than discarding it,
 so nothing is lost; only **Off** drops a notification entirely. These are per-user settings, so an
 admin cannot change them for someone else, and a fresh start leaves them intact.
+
+**Reminders** on a chore's menu lets you set your own notification schedule for that chore,
+with the same options an admin has (reminder, due, follow-up; before, at or after the due time; on
+your turn or always). It replaces the chore's schedule for you only; **Use the chore's** goes back.
+
+Under **Settings → Daily summary** you can also turn on one push a day at a time you pick, listing
+your chores that are overdue or due today. Quiet hours delay it instead
+of silencing it, and nothing is sent on a quiet day.
 
 ## Tests
 

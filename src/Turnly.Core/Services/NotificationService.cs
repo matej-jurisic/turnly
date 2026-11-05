@@ -116,22 +116,29 @@ public class NotificationService
     public async Task<List<PushDeviceDto>> ListDevicesAsync(Guid userId, CancellationToken ct = default)
     {
         var subs = await _db.PushSubscriptions.Where(s => s.UserId == userId).ToListAsync(ct);
-        return subs
-            .OrderByDescending(s => s.CreatedAt)
-            .Select(PushDeviceDto.FromEntity)
+        var fcm = await _db.FcmDevices.Where(d => d.UserId == userId).ToListAsync(ct);
+        // Sorted client-side: SQLite can't order a DateTimeOffset.
+        return subs.Select(PushDeviceDto.FromEntity)
+            .Concat(fcm.Select(PushDeviceDto.FromEntity))
+            .OrderByDescending(d => d.CreatedAt)
             .ToList();
     }
 
-    /// <summary>Removes one of the user's own push devices by id.</summary>
+    /// <summary>Removes one of the user's own push devices (browser or Android app) by id.</summary>
     public async Task<Result> RemoveDeviceAsync(Guid userId, Guid id, CancellationToken ct = default)
     {
         var sub = await _db.PushSubscriptions.FirstOrDefaultAsync(s => s.Id == id, ct);
-        if (sub is null)
+        var fcm = sub is null ? await _db.FcmDevices.FirstOrDefaultAsync(d => d.Id == id, ct) : null;
+        var ownerId = sub?.UserId ?? fcm?.UserId;
+        if (ownerId is null)
             return Result.Fail(Error.NotFound("Device not found."));
-        if (sub.UserId != userId)
+        if (ownerId != userId)
             return Result.Fail(Error.Forbidden("You can only remove your own devices."));
 
-        _db.PushSubscriptions.Remove(sub);
+        if (sub is not null)
+            _db.PushSubscriptions.Remove(sub);
+        else
+            _db.FcmDevices.Remove(fcm!);
         await _db.SaveChangesAsync(ct);
         return Result.Success();
     }
@@ -166,8 +173,7 @@ public class NotificationService
     /// push service accepted.</summary>
     public async Task<Result<int>> SendTestAsync(Guid userId, CancellationToken ct = default)
     {
-        var hasSub = await _db.PushSubscriptions.AnyAsync(s => s.UserId == userId, ct);
-        if (!hasSub)
+        if (!await HasPushDeviceAsync(userId, ct))
             return Result.Fail<int>(Error.Validation(
                 "No push subscription on this account. Enable notifications on this device first."));
 
@@ -191,7 +197,13 @@ public class NotificationService
     /// <summary>Fans one message out to several recipients, loading the routing context (preferences,
     /// mutes, quiet hours) once for the whole set rather than once per user. Each recipient is routed
     /// independently, so one person muting the chore doesn't affect anyone else.</summary>
-    public async Task<int> NotifyUsersAsync(IReadOnlyCollection<Guid> userIds, string title,
+    public Task<int> NotifyUsersAsync(IReadOnlyCollection<Guid> userIds, string title,
+        Func<NotificationText, string> body, Guid? choreId, NotificationCategory category, CancellationToken ct = default) =>
+        NotifyUsersAsync(userIds, _ => title, body, choreId, category, ct);
+
+    /// <summary>As above, with the title also worded per recipient (for messages that aren't titled
+    /// by a chore name).</summary>
+    public async Task<int> NotifyUsersAsync(IReadOnlyCollection<Guid> userIds, Func<NotificationText, string> title,
         Func<NotificationText, string> body, Guid? choreId, NotificationCategory category, CancellationToken ct = default)
     {
         if (userIds.Count == 0)
@@ -202,29 +214,31 @@ public class NotificationService
 
         var url = choreId is { } cid ? $"/chores?chore={cid}" : "/chores";
 
-        // Each recipient gets the body in their own language: the inbox row is stored that way too.
-        var pushBodies = new Dictionary<Guid, string>();
+        // Each recipient gets the text in their own language: the inbox row is stored that way too.
+        var pushes = new Dictionary<Guid, (string Title, string Body)>();
         foreach (var userId in userIds.Distinct())
         {
             var channel = routing.Resolve(userId, category, choreId);
             if (channel == DeliveryChannel.Off)
                 continue;
 
-            var text = body(routing.TextFor(userId));
-            _db.UserNotifications.Add(new UserNotification { UserId = userId, Title = title, Body = text, ChoreId = choreId });
+            var text = routing.TextFor(userId);
+            var message = (Title: title(text), Body: body(text));
+            _db.UserNotifications.Add(new UserNotification { UserId = userId, Title = message.Title, Body = message.Body, ChoreId = choreId });
             if (channel == DeliveryChannel.PushAndInbox)
-                pushBodies[userId] = text;
+                pushes[userId] = message;
         }
 
-        if (pushBodies.Count == 0)
+        if (pushes.Count == 0)
             return 0;
 
-        var pushIds = pushBodies.Keys.ToList();
+        var pushIds = pushes.Keys.ToList();
         var sent = 0;
         var subs = await _db.PushSubscriptions.Where(s => pushIds.Contains(s.UserId)).ToListAsync(ct);
         foreach (var sub in subs)
         {
-            var payload = JsonSerializer.Serialize(new { title, body = pushBodies[sub.UserId], url, choreId });
+            var push = pushes[sub.UserId];
+            var payload = JsonSerializer.Serialize(new { title = push.Title, body = push.Body, url, choreId });
             PushSendResult result;
             try
             {
@@ -248,7 +262,8 @@ public class NotificationService
             PushSendResult result;
             try
             {
-                result = await _fcm.SendAsync(device.Token, title, pushBodies[device.UserId], url, choreId, ct);
+                var push = pushes[device.UserId];
+                result = await _fcm.SendAsync(device.Token, push.Title, push.Body, url, choreId, ct);
             }
             catch
             {
@@ -406,6 +421,44 @@ public class NotificationService
         return Result.Success();
     }
 
+    /// <summary>Replaces the calling user's own notification entries on a chore. They take the place
+    /// of the chore's shared entries for that user only; an empty list drops them, so the user follows
+    /// the chore's schedule again. Returns the entries as saved.</summary>
+    public async Task<Result<ChoreNotificationDto[]>> SetPersonalNotificationsAsync(
+        Guid userId, Guid choreId, ChoreNotificationInput[] entries, CancellationToken ct = default)
+    {
+        if (entries.Length > Validators.MaxNotificationsPerChore)
+            return Result.Fail<ChoreNotificationDto[]>(Error.Validation($"A chore can have at most {Validators.MaxNotificationsPerChore} notifications."));
+        foreach (var n in entries)
+            if (Validators.NotificationOffset(n.Timing, n.OffsetValue) is { } offsetError)
+                return Result.Fail<ChoreNotificationDto[]>(offsetError);
+
+        var chore = await _db.Chores.FirstOrDefaultAsync(c => c.Id == choreId, ct);
+        if (chore is null)
+            return Result.Fail<ChoreNotificationDto[]>(Error.NotFound("Chore not found."));
+        // Every notification fires relative to a due time, which an on-demand chore never has.
+        if (chore.RepeatType == RepeatType.OnDemand && entries.Length > 0)
+            return Result.Fail<ChoreNotificationDto[]>(Error.Validation("An on-demand chore has no due time to notify about."));
+
+        var existing = await _db.ChoreNotifications.Where(n => n.ChoreId == choreId && n.UserId == userId).ToListAsync(ct);
+        _db.ChoreNotifications.RemoveRange(existing);
+
+        var saved = entries.Select(n => new ChoreNotification
+        {
+            ChoreId = choreId,
+            UserId = userId,
+            Type = n.Type,
+            Timing = n.Timing,
+            OffsetValue = n.Timing == NotificationTiming.AtDue ? 0 : n.OffsetValue,
+            OffsetUnit = n.OffsetUnit,
+            Recipients = n.Recipients
+        }).ToList();
+        _db.ChoreNotifications.AddRange(saved);
+
+        await _db.SaveChangesAsync(ct);
+        return Result.Success(saved.Select(ChoreNotificationDto.FromEntity).ToArray());
+    }
+
     /// <summary>Everything <see cref="NotificationRouter.Resolve"/> needs for a set of recipients,
     /// loaded once per scan (or once per fan-out) instead of once per notification.</summary>
     private sealed class RoutingContext
@@ -486,6 +539,7 @@ public class NotificationService
             .Include(c => c.Notifications)
             .Include(c => c.Assignees)
             .Include(c => c.AssigneeTracks)
+            .Include(c => c.SlotTurns)
             .Where(c => c.DueAt != null && c.Notifications.Any() && !c.IsFrozen)
             .AsSplitQuery()
             .ToListAsync(ct);
@@ -536,6 +590,12 @@ public class NotificationService
         var fired = 0;
         foreach (var chore in chores)
         {
+            // Anyone with entries of their own on this chore gets those in place of the shared ones.
+            var personalUserIds = chore.Notifications
+                .Where(n => n.UserId != null)
+                .Select(n => n.UserId!.Value)
+                .ToHashSet();
+
             foreach (var entry in chore.Notifications)
             {
                 if (chore.AssignmentStrategy == AssignmentStrategy.Independent)
@@ -546,7 +606,27 @@ public class NotificationService
                     {
                         if (track.DueAt is not { } trackDue) continue;
                         if (frozenUserIds.Contains(track.UserId)) continue;
-                        if (await TryFireAsync(chore, entry, trackDue, track.UserId, [track.UserId],
+                        if (!Reaches(entry, track.UserId, personalUserIds)) continue;
+                        if (await TryFireAsync(chore, entry, trackDue, track.UserId, [track.UserId], (track.UserId, null),
+                                delivered, subsByUser, fcmByUser, routing, now, ct))
+                            fired++;
+                    }
+                }
+                else if (chore.TurnPerSlot && chore.SlotTurns.Count > 0)
+                {
+                    // Fire per slot, off that slot's own due date, to whoever holds that slot. Each slot's
+                    // occurrence is its own instant, so the per-occurrence dedup already tells them apart.
+                    foreach (var slot in chore.SlotTurns)
+                    {
+                        if (slot.DueAt is not { } slotDue) continue;
+                        var recipients = (entry.Recipients == NotificationRecipients.AllAssignees
+                                ? chore.Assignees.Select(a => a.Id).Where(id => !frozenUserIds.Contains(id))
+                                : chore.SlotHolderIds(slot))
+                            .Where(id => Reaches(entry, id, personalUserIds))
+                            .Distinct()
+                            .ToList();
+                        if (await TryFireAsync(chore, entry, slotDue, dedupUserId: null, recipients,
+                                (slot.CurrentAssigneeId, chore.PartnerOf(slot.CurrentAssigneeId, slot.CurrentPartnerId)?.Id),
                                 delivered, subsByUser, fcmByUser, routing, now, ct))
                             fired++;
                     }
@@ -558,9 +638,11 @@ public class NotificationService
                             ? chore.Assignees.Select(a => a.Id).Where(id => !frozenUserIds.Contains(id))
                             // The current assignee, plus their partner on a paired chore.
                             : chore.CurrentHolderIds())
+                        .Where(id => Reaches(entry, id, personalUserIds))
                         .Distinct()
                         .ToList();
                     if (await TryFireAsync(chore, entry, dueAt, dedupUserId: null, recipients,
+                            (chore.CurrentAssigneeId, chore.CurrentPartner()?.Id),
                             delivered, subsByUser, fcmByUser, routing, now, ct))
                         fired++;
                 }
@@ -572,12 +654,164 @@ public class NotificationService
         return fired;
     }
 
+    /// <summary>Sends each user whose digest time has come their daily digest: the chores they hold
+    /// that are overdue or due today (household day). Skipped
+    /// when there's nothing to say, frozen users get none, and muted chores are left out. One per
+    /// household-local date (<see cref="User.DigestSentOn"/>). Sent as
+    /// <see cref="NotificationCategory.System"/>, so it always pushes: quiet hours postpone it instead
+    /// (<see cref="DailyDigest.IsDue"/>). Returns the number of digests sent.</summary>
+    public async Task<int> ProcessDigestsAsync(DateTimeOffset now, CancellationToken ct = default)
+    {
+        var (tz, localNow) = await HouseholdNowAsync(now, ct);
+        var localDate = DateOnly.FromDateTime(localNow);
+        var localTime = TimeOnly.FromDateTime(localNow);
+
+        var users = (await _db.Users
+                .Where(u => u.DigestTime != null && !u.IsFrozen)
+                .ToListAsync(ct))
+            .Where(u => u.DigestSentOn != localDate
+                && DailyDigest.IsDue(u.DigestTime!.Value, localTime, u.QuietHoursStart, u.QuietHoursEnd))
+            .ToList();
+        if (users.Count == 0)
+            return 0;
+
+        var source = await LoadDigestSourceAsync(users.Select(u => u.Id).ToList(), now, tz, localNow, ct);
+
+        var sent = 0;
+        foreach (var user in users)
+        {
+            user.DigestSentOn = localDate;
+
+            var (today, overdue) = BuildDigest(user.Id, source);
+            if (today.Count == 0 && overdue.Count == 0)
+                continue;
+
+            await NotifyUsersAsync([user.Id], text => text.DigestTitle(),
+                text => Truncate(text.Digest(today, overdue), 512),
+                choreId: null, NotificationCategory.System, ct);
+            sent++;
+        }
+
+        await _db.SaveChangesAsync(ct);
+        return sent;
+    }
+
+    /// <summary>Sends the caller their daily digest right now, as it would read at this moment, so an
+    /// admin can check what it looks like. Sent even on a day with nothing to say, and leaves
+    /// <see cref="User.DigestSentOn"/> alone so the real one still goes out.</summary>
+    public async Task<Result<int>> SendTestDigestAsync(Guid userId, DateTimeOffset now, CancellationToken ct = default)
+    {
+        if (!await HasPushDeviceAsync(userId, ct))
+            return Result.Fail<int>(Error.Validation(
+                "No push subscription on this account. Enable notifications on this device first."));
+
+        var (tz, localNow) = await HouseholdNowAsync(now, ct);
+        var source = await LoadDigestSourceAsync([userId], now, tz, localNow, ct);
+        var (today, overdue) = BuildDigest(userId, source);
+
+        var sent = await NotifyUsersAsync([userId], text => text.DigestTitle(),
+            text => Truncate(today.Count == 0 && overdue.Count == 0
+                ? text.DigestEmpty()
+                : text.Digest(today, overdue), 512),
+            choreId: null, NotificationCategory.System, ct);
+        await _db.SaveChangesAsync(ct);
+        return Result.Success(sent);
+    }
+
+    private async Task<bool> HasPushDeviceAsync(Guid userId, CancellationToken ct) =>
+        await _db.PushSubscriptions.AnyAsync(s => s.UserId == userId, ct)
+        || await _db.FcmDevices.AnyAsync(d => d.UserId == userId, ct);
+
+    private async Task<(TimeZoneInfo Tz, DateTime LocalNow)> HouseholdNowAsync(DateTimeOffset now, CancellationToken ct)
+    {
+        var tzId = await _db.AppSettings
+            .Where(s => s.Key == AppSettingsService.TimeZoneKey)
+            .Select(s => s.Value)
+            .FirstOrDefaultAsync(ct);
+        var tz = TimeZoneResolver.Resolve(tzId);
+        return (tz, TimeZoneInfo.ConvertTime(now, tz).DateTime);
+    }
+
+    /// <summary>Everything a batch of digests reads, loaded once.</summary>
+    private sealed record DigestSource(
+        TimeZoneInfo Tz, DateTime LocalNow, TimeSpan DayStart, List<Chore> Chores,
+        HashSet<(Guid UserId, Guid ChoreId)> Mutes);
+
+    private async Task<DigestSource> LoadDigestSourceAsync(
+        List<Guid> userIds, DateTimeOffset now, TimeZoneInfo tz, DateTime localNow, CancellationToken ct)
+    {
+        var dayStart = await AppSettingsService.ReadDayStartAsync(_db, ct);
+
+        var chores = await _db.Chores
+            .Include(c => c.Assignees)
+            .Include(c => c.AssigneeTracks)
+            .Include(c => c.SlotTurns)
+            .Where(c => c.DueAt != null && !c.IsFrozen)
+            .AsSplitQuery()
+            .ToListAsync(ct);
+
+        var mutes = (await _db.ChoreMutes
+                .Where(m => userIds.Contains(m.UserId))
+                .Select(m => new { m.UserId, m.ChoreId, m.Until })
+                .ToListAsync(ct))
+            .Where(m => m.Until == null || m.Until > now)
+            .Select(m => (m.UserId, m.ChoreId))
+            .ToHashSet();
+
+        return new DigestSource(tz, localNow, dayStart, chores, mutes);
+    }
+
+    /// <summary>One user's digest content: names of the chores they hold that are due today and
+    /// overdue (soonest first, muted chores left out).</summary>
+    private static (List<string> Today, List<string> Overdue) BuildDigest(Guid userId, DigestSource source)
+    {
+        var mine = new List<(DateTimeOffset Due, string Name, DailyDigest.Bucket Bucket)>();
+        foreach (var chore in source.Chores)
+        {
+            if (source.Mutes.Contains((userId, chore.Id)))
+                continue;
+            // Every slot they hold on a slot-turn chore, each listed under its own label.
+            IEnumerable<DateTimeOffset?> dues = chore.AssignmentStrategy == AssignmentStrategy.Independent
+                ? [chore.AssigneeTracks.FirstOrDefault(t => t.UserId == userId)?.DueAt]
+                : chore.TurnPerSlot && chore.SlotTurns.Count > 0
+                    ? chore.SlotTurns.Where(st => chore.SlotHolderIds(st).Contains(userId)).Select(st => st.DueAt)
+                    : [chore.CurrentHolderIds().Contains(userId) ? chore.DueAt : null];
+            foreach (var due in dues)
+            {
+                if (due is not { } dueAt)
+                    continue;
+
+                var bucket = DailyDigest.Classify(
+                    TimeZoneInfo.ConvertTime(dueAt, source.Tz).DateTime, chore.HasDueTime, source.LocalNow, source.DayStart);
+                if (bucket == DailyDigest.Bucket.Later)
+                    continue;
+                var name = chore.SlotLabel(dueAt) is { } label ? $"{chore.Name} ({label})" : chore.Name;
+                mine.Add((dueAt, name, bucket));
+            }
+        }
+
+        // Sorted client-side: SQLite can't order a DateTimeOffset.
+        mine.Sort((x, y) => x.Due.CompareTo(y.Due));
+        var today = mine.Where(m => m.Bucket == DailyDigest.Bucket.Today).Select(m => m.Name).ToList();
+        var overdue = mine.Where(m => m.Bucket == DailyDigest.Bucket.Overdue).Select(m => m.Name).ToList();
+        return (today, overdue);
+    }
+
+    private static string Truncate(string value, int max) =>
+        value.Length <= max ? value : value[..(max - 1)] + "…";
+
+    /// <summary>Whether <paramref name="entry"/> may reach <paramref name="userId"/>: a personal entry
+    /// only its owner, a shared one everyone without entries of their own on the chore.</summary>
+    private static bool Reaches(ChoreNotification entry, Guid userId, HashSet<Guid> personalUserIds) =>
+        entry.UserId is { } owner ? userId == owner : !personalUserIds.Contains(userId);
+
     /// <summary>Fires a single entry for one occurrence if its moment has arrived and it hasn't already
     /// fired (per the dedup key). <paramref name="dedupUserId"/> is the track owner in Independent mode
-    /// (null otherwise) and is also the assignee whose name drives the message.</summary>
+    /// (null otherwise). <paramref name="named"/> is who the message says owes it: the holder (the
+    /// track owner, or a slot's holder) and their partner on a paired chore.</summary>
     private async Task<bool> TryFireAsync(
         Chore chore, ChoreNotification entry, DateTimeOffset occurrenceDueAt, Guid? dedupUserId,
-        IReadOnlyList<Guid> recipientIds, HashSet<(Guid, long, Guid?)> delivered,
+        IReadOnlyList<Guid> recipientIds, (Guid? Holder, Guid? Partner) named, HashSet<(Guid, long, Guid?)> delivered,
         Dictionary<Guid, List<PushSubscription>> subsByUser,
         Dictionary<Guid, List<FcmDevice>> fcmByUser,
         RoutingContext routing, DateTimeOffset now, CancellationToken ct)
@@ -590,9 +824,8 @@ public class NotificationService
         if (!delivered.Add(key))
             return false;
 
-        // In track mode the message names the track owner; otherwise the chore's current assignee.
         await SendEntryAsync(chore, entry, occurrenceDueAt, recipientIds,
-            dedupUserId ?? chore.CurrentAssigneeId, subsByUser, fcmByUser, routing, now, ct);
+            named, subsByUser, fcmByUser, routing, now, ct);
 
         _db.NotificationDeliveries.Add(new NotificationDelivery
         {
@@ -607,11 +840,11 @@ public class NotificationService
 
     private async Task SendEntryAsync(
         Chore chore, ChoreNotification entry, DateTimeOffset occurrenceDueAt, IReadOnlyList<Guid> recipientIds,
-        Guid? messageAssigneeId, Dictionary<Guid, List<PushSubscription>> subsByUser,
+        (Guid? Holder, Guid? Partner) named, Dictionary<Guid, List<PushSubscription>> subsByUser,
         Dictionary<Guid, List<FcmDevice>> fcmByUser,
         RoutingContext routing, DateTimeOffset now, CancellationToken ct)
     {
-        var (title, render) = BuildMessage(chore, entry, occurrenceDueAt, messageAssigneeId, now);
+        var (title, render) = BuildMessage(chore, entry, occurrenceDueAt, named, now);
         var url = $"/chores?chore={chore.Id}";
         var category = NotificationRouter.CategoryOf(entry.Type);
 
@@ -696,19 +929,19 @@ public class NotificationService
     }
 
     private static (string Title, Func<NotificationText, string> Body) BuildMessage(Chore chore,
-        ChoreNotification entry, DateTimeOffset occurrenceDueAt, Guid? assigneeId, DateTimeOffset now)
+        ChoreNotification entry, DateTimeOffset occurrenceDueAt, (Guid? Holder, Guid? Partner) named, DateTimeOffset now)
     {
         // A labelled slot names itself in the title ("Feed the dog (Morning)") so the two pushes of a
         // twice-a-day chore don't read identically.
         var name = chore.SlotLabel(occurrenceDueAt) is { } label ? $"{chore.Name} ({label})" : chore.Name;
         var title = string.IsNullOrWhiteSpace(chore.Emoji) ? name : $"{chore.Emoji} {name}";
 
-        // The named assignee (current assignee, or the track owner in Independent mode) is one of the
-        // loaded Assignees, so resolve the name without an extra include.
-        var assignee = chore.Assignees.FirstOrDefault(a => a.Id == assigneeId)?.DisplayName;
+        // The named holder (current assignee, a slot's holder, or the track owner in Independent mode)
+        // is one of the loaded Assignees, so resolve the name without an extra include.
+        var assignee = chore.Assignees.FirstOrDefault(a => a.Id == named.Holder)?.DisplayName;
         // A paired chore names both people doing it.
         List<string>? who = assignee is null ? null : [assignee];
-        if (who is not null && assigneeId == chore.CurrentAssigneeId && chore.CurrentPartner() is { } partner)
+        if (who is not null && chore.Assignees.FirstOrDefault(a => a.Id == named.Partner) is { } partner)
             who.Add(partner.DisplayName);
         var points = chore.Points;
         var dueAt = occurrenceDueAt;

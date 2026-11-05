@@ -26,7 +26,7 @@ export function SearchBar({ open, onClose, onSelectChore, onSelectUser }: Search
 
   // Re-use cached data so no extra fetches when search opens.
   const { data: chores = [] } = useQuery({ queryKey: ['chores'], queryFn: choresApi.list })
-  const { data: leaderboard = [] } = useQuery({ queryKey: ['leaderboard'], queryFn: usersApi.leaderboard })
+  const { data: leaderboard = [] } = useQuery({ queryKey: ['leaderboard'], queryFn: () => usersApi.leaderboard() })
 
   // Focus input when opened; reset when closed.
   useEffect(() => {
@@ -192,7 +192,7 @@ export function SearchBar({ open, onClose, onSelectChore, onSelectUser }: Search
                           >
                             <Avatar color={user.avatarColor} name={user.displayName} size={24} frame={user.equippedFrameKey} emoji={user.avatarEmoji} />
                             <span className="flex-1 font-medium text-foreground">{user.displayName}</span>
-                            <span className="text-xs text-muted-foreground">{t('common.pts', { count: user.points })}</span>
+                            <span className="text-xs text-muted-foreground">{t('common.pts', { count: user.earnedPoints })}</span>
                           </button>
                         </li>
                       )

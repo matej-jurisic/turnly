@@ -23,6 +23,13 @@ export interface User {
   equippedThemeKey?: string | null
   /** Language notifications are worded in, synced from the device's language picker. Null = English. */
   language?: string | null
+  /** Daily digest time "HH:mm" (household-local), or null when off. */
+  digestTime?: string | null
+}
+
+/** The caller's daily digest time, written as sent (null = off). */
+export interface NotificationScheduleUpdate {
+  digestTime: string | null
 }
 
 /** Self-service profile update (avatar color + optional quiet hours). */
@@ -45,7 +52,7 @@ export interface LeaderboardEntry {
   id: string
   displayName: string
   avatarColor: string
-  points: number
+  earnedPoints: number
   weeklyPoints: number
   equippedFrameKey?: string | null
   avatarEmoji?: string | null
@@ -76,7 +83,9 @@ export interface RarityOdds {
 }
 
 export interface GachaState {
-  points: number
+  tickets: number
+  ticketProgress: number
+  pointsPerTicket: number
   dust: number
   pullCost: number
   tenPullCost: number
@@ -292,6 +301,11 @@ export interface Chore extends RecurrenceFields {
   currentPartner?: User | null
   /** The partner coming up alongside `nextAssignee`, if any. */
   nextPartner?: User | null
+  /** Each time of day has its own turn (`slotTurns`). `dueAt`/`currentAssignee` then mirror the
+   * earliest slot (`dueAt` personalised to your own slot that day). */
+  turnPerSlot: boolean
+  /** Each slot's own turn, in time-of-day order. Empty unless `turnPerSlot`. */
+  slotTurns: ChoreSlotTurn[]
   /** Who the chore will rotate to next, for strategies whose outcome is fixed by current state
    * (null for the random strategies, one-time chores, and single-assignee chores). */
   nextAssignee?: User | null
@@ -324,6 +338,21 @@ export interface Chore extends RecurrenceFields {
   isMuted: boolean
   /** When your mute lapses, or null for an indefinite mute (or no mute). */
   mutedUntil?: string | null
+  /** *Your* own notification entries on this chore, which replace `notifications` for you. Empty =
+   * you follow the chore's. */
+  myNotifications: ChoreNotification[]
+}
+
+/** One time-of-day slot's own turn on a `turnPerSlot` chore. `time` ("HH:mm") names the slot in requests. */
+export interface ChoreSlotTurn {
+  time: string
+  label?: string | null
+  dueAt?: string | null
+  currentAssignee?: User | null
+  currentPartner?: User | null
+  nextAssignee?: User | null
+  nextPartner?: User | null
+  openOffer?: ChoreOffer | null
 }
 
 /** What a notification is about, from the recipient's point of view. Mirrors the backend enum. */
@@ -356,6 +385,8 @@ export interface ChoreOffer {
   id: string
   fromUser: User
   bountyPoints: number
+  /** The slot ("HH:mm") on offer on a `turnPerSlot` chore; null for the whole chore. */
+  slotTime?: string | null
 }
 
 export interface ChoreRequest extends RecurrenceFields {
@@ -389,6 +420,10 @@ export interface ChoreRequest extends RecurrenceFields {
   pairs?: string[][] | null
   /** Which of the current assignee's pairs holds the turn (null: they hold it alone). */
   currentPartnerId?: string | null
+  /** Give each of `timesOfDay` its own turn. */
+  turnPerSlot?: boolean
+  /** Who holds each slot when `turnPerSlot` is on. */
+  slotTurns?: { time: string; currentAssigneeId: string | null; currentPartnerId?: string | null }[] | null
 }
 
 export type CreateChoreRequest = ChoreRequest
@@ -410,12 +445,16 @@ export interface CompleteChoreRequest {
   /** Admin-only (or a member on an Anyone chore, naming themselves plus fellow assignees): exactly who did it and gets the points (assignees or not), overriding
    * `completedByUserId` and the default partner. One person on a per-person chore. */
   completedByUserIds?: string[] | null
+  /** On a `turnPerSlot` chore, which slot was done. Omitted = your own slot that day, else the earliest. */
+  slotTime?: string | null
 }
 
 export interface SkipChoreRequest {
   notes?: string | null
   /** Track-mode only: whose schedule to skip (defaults to the caller). */
   userId?: string | null
+  /** On a `turnPerSlot` chore, which slot to skip. */
+  slotTime?: string | null
 }
 
 /** Admin-only direct move. Members offer the chore instead. */
@@ -423,6 +462,8 @@ export interface ReassignChoreRequest {
   assigneeId: string
   /** On a paired chore, which of the assignee's pairs takes it. */
   partnerId?: string | null
+  /** On a `turnPerSlot` chore, which slot moves. */
+  slotTime?: string | null
 }
 
 /** Omit `toUserId` to nudge everyone currently holding the chore. */
@@ -435,6 +476,8 @@ export interface NudgeChoreRequest {
 export interface OfferChoreRequest {
   /** Points paid to whoever claims it. Deducted up front, capped at the offerer's balance. */
   bountyPoints: number
+  /** On a `turnPerSlot` chore, which slot to hand over. */
+  slotTime?: string | null
 }
 
 export interface RescheduleChoreRequest {
@@ -442,6 +485,8 @@ export interface RescheduleChoreRequest {
   dueTime?: string | null
   /** Track-mode only: whose schedule to reschedule. */
   userId?: string | null
+  /** On a `turnPerSlot` chore, which slot to reschedule. */
+  slotTime?: string | null
 }
 
 export interface FreezeReassignment {
@@ -478,8 +523,10 @@ export interface PushSubscribeRequest {
 export interface PushDevice {
   id: string
   label: string
+  /** A browser's push endpoint, or an Android install's FCM token. */
   endpoint: string
   createdAt: string
+  kind: 'Web' | 'Android'
 }
 
 export interface NotificationInboxItem {

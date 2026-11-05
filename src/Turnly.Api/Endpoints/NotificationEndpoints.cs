@@ -147,6 +147,17 @@ public static class NotificationEndpoints
             return result.Succeeded ? Results.NoContent() : result.Error!.ToProblem();
         });
 
+        // The caller's own notification entries for a chore (empty = follow the chore's).
+        group.MapPut("/personal/{choreId:guid}", async (
+            Guid choreId, SetPersonalNotificationsRequest req, ClaimsPrincipal principal,
+            NotificationService notifications, CancellationToken ct) =>
+        {
+            if (principal.GetUserId() is not { } userId)
+                return Results.Unauthorized();
+            var result = await notifications.SetPersonalNotificationsAsync(userId, choreId, req.Notifications ?? [], ct);
+            return result.Succeeded ? Results.Ok(result.Value) : result.Error!.ToProblem();
+        });
+
         // Dev/debug: send an immediate test push to the calling admin's own devices.
         group.MapPost("/test", async (
             ClaimsPrincipal principal, NotificationService notifications, CancellationToken ct) =>
@@ -154,6 +165,16 @@ public static class NotificationEndpoints
             if (principal.GetUserId() is not { } userId)
                 return Results.Unauthorized();
             var result = await notifications.SendTestAsync(userId, ct);
+            return result.Succeeded ? Results.Ok(new { sent = result.Value }) : result.Error!.ToProblem();
+        }).RequireAuthorization("Admin");
+
+        // Send the calling admin their daily digest as it would read right now.
+        group.MapPost("/test-digest", async (
+            ClaimsPrincipal principal, NotificationService notifications, CancellationToken ct) =>
+        {
+            if (principal.GetUserId() is not { } userId)
+                return Results.Unauthorized();
+            var result = await notifications.SendTestDigestAsync(userId, DateTimeOffset.UtcNow, ct);
             return result.Succeeded ? Results.Ok(new { sent = result.Value }) : result.Error!.ToProblem();
         }).RequireAuthorization("Admin");
     }

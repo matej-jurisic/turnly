@@ -21,12 +21,13 @@ import { ChoreFormModal } from '@/components/chores/ChoreFormModal'
 import { ReassignModal } from '@/components/chores/ReassignModal'
 import { OfferModal } from '@/components/chores/OfferModal'
 import { NudgeModal } from '@/components/chores/NudgeModal'
+import { PersonalNotificationsModal } from '@/components/chores/PersonalNotificationsModal'
 import { OfferBoard } from '@/components/chores/OfferBoard'
 import { CopyChoreModal } from '@/components/chores/CopyChoreModal'
 import { RescheduleModal } from '@/components/chores/RescheduleModal'
 import { ChoreFilters, type ChoreView } from '@/components/chores/ChoreFilters'
 import { emptyFilters, mineFilters, type ChoreFilterState } from '@/lib/chore-filters'
-import { choreDueStatus, isAnyone, isOnDemand } from '@/lib/chore-format'
+import { choreDueStatus, hasSlotTurns, isAnyone, isOnDemand } from '@/lib/chore-format'
 import { cn } from '@/lib/utils'
 import { t } from '@/lib/i18n'
 
@@ -52,9 +53,11 @@ export function ChoresPage() {
   const [editing, setEditing] = useState<Chore | null>(null)
   const [creating, setCreating] = useState(false)
   const [completing, setCompleting] = useState<Chore | null>(null)
+  const [completingSlot, setCompletingSlot] = useState<string | undefined>()
   const [reassigning, setReassigning] = useState<Chore | null>(null)
   const [offering, setOffering] = useState<Chore | null>(null)
   const [nudging, setNudging] = useState<Chore | null>(null)
+  const [personalizing, setPersonalizing] = useState<Chore | null>(null)
   const [rescheduling, setRescheduling] = useState<Chore | null>(null)
   const [copying, setCopying] = useState<Chore | null>(null)
   const [details, setDetails] = useState<Chore | null>(null)
@@ -143,6 +146,9 @@ export function ChoresPage() {
       for (const u of [c.currentAssignee, c.currentPartner, c.nextAssignee, c.nextPartner])
         if (u) map.set(u.id, u)
       for (const t of c.tracks) map.set(t.user.id, t.user)
+      for (const s of c.slotTurns)
+        for (const u of [s.currentAssignee, s.currentPartner, s.nextAssignee, s.nextPartner])
+          if (u) map.set(u.id, u)
       if (isAnyone(c)) for (const u of c.assignees) map.set(u.id, u)
     }
     return [...map.values()].sort((a, b) => a.displayName.localeCompare(b.displayName))
@@ -162,13 +168,14 @@ export function ChoresPage() {
       if (filters.tags.length && !filters.tags.some((t) => c.tags.includes(t))) return false
       if (filters.assignees.length) {
         // Track-mode chores have no single current assignee — match any of their track owners; an
-        // Anyone chore is on every assignee's plate.
+        // Anyone chore is on every assignee's plate; a slot-turn chore on every slot holder's.
+        const turns = hasSlotTurns(c) ? c.slotTurns : [c]
         const ids = c.tracks.length
           ? c.tracks.map((t) => t.user.id as string | undefined)
           : isAnyone(c)
             ? c.assignees.map((u) => u.id as string | undefined)
-            : [c.currentAssignee?.id, c.currentPartner?.id,
-              ...(filters.includeNext ? [c.nextAssignee?.id, c.nextPartner?.id] : [])]
+            : turns.flatMap((x) => [x.currentAssignee?.id, x.currentPartner?.id,
+              ...(filters.includeNext ? [x.nextAssignee?.id, x.nextPartner?.id] : [])])
         if (!filters.assignees.some((a) => ids.includes(a))) return false
       }
       if (filters.repeat.length && !filters.repeat.includes(c.repeatType)) return false
@@ -201,7 +208,7 @@ export function ChoresPage() {
     deletePending: deleteMutation.isPending,
     freezePending: freezeMutation.isPending || unfreezeMutation.isPending,
     mutePending: muteMutation.isPending,
-    onComplete: () => setCompleting(chore),
+    onComplete: () => { setCompleting(chore); setCompletingSlot(undefined) },
     onUndo: async () => {
       const wasSkip = chore.lastCompletion?.isSkip
       if (
@@ -245,6 +252,7 @@ export function ChoresPage() {
     },
     onDetails: () => setDetails(chore),
     onToggleMute: () => muteMutation.mutate({ id: chore.id, muted: chore.isMuted }),
+    onMyNotifications: () => setPersonalizing(chore),
     onFreeze: () => freezeMutation.mutate(chore.id),
     onUnfreeze: () => unfreezeMutation.mutate(chore.id),
   })
@@ -369,6 +377,7 @@ export function ChoresPage() {
       {completing && (
         <CompleteModal
           chore={completing}
+          slotTime={completingSlot}
           onClose={() => setCompleting(null)}
           onDone={() => {
             setCompleting(null)
@@ -403,6 +412,10 @@ export function ChoresPage() {
         <NudgeModal chore={nudging} onClose={() => setNudging(null)} />
       )}
 
+      {personalizing && (
+        <PersonalNotificationsModal chore={personalizing} onClose={() => setPersonalizing(null)} />
+      )}
+
       {rescheduling && (
         <RescheduleModal
           chore={rescheduling}
@@ -429,7 +442,7 @@ export function ChoresPage() {
         <ChoreDetailsModal
           chore={details}
           onClose={() => setDetails(null)}
-          onComplete={() => { setCompleting(details); setDetails(null) }}
+          onComplete={(slotTime) => { setCompleting(details); setCompletingSlot(slotTime); setDetails(null) }}
           onNudge={() => { setNudging(details); setDetails(null) }}
         />
       )}
@@ -441,7 +454,7 @@ export function ChoresPage() {
           avatarColor={railUser.avatarColor}
           avatarEmoji={railUser.avatarEmoji}
           equippedFrameKey={railUser.equippedFrameKey}
-          points={railUser.points}
+          points={railUser.earnedPoints}
           weeklyPoints={railUser.weeklyPoints}
           onClose={() => setRailUser(null)}
         />

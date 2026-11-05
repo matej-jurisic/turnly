@@ -112,6 +112,25 @@
       to the due time on the chore, in the chore details, and in the push notification title
       ("Feed the dog (Morning)"). Labels are display-only and don't affect scheduling; removing a time
       removes its label.
+    - **Separate turn for each time** — on a rotating chore with two or more times, each time can get
+      its own turn: its own holder, its own due date and its own rotation. Morning and evening can
+      belong to different people, both known in advance, and either can be done without waiting for
+      the other. It stays one chore with one history, so "last done", streaks and stats cover every
+      time together.
+        - The chore form picks who holds each time. The chore row shows each time's holder; the
+          details dialog lists every time with its due date, holder, who takes it next, and its own
+          complete button. Completing from the row picks your own time that day (else the earliest
+          open one), and the complete dialog lets you choose another.
+        - Each time rotates on its own. Least-completed and least-assigned count the whole chore's
+          history, so the total is balanced; the rotation passes over anyone who already has another
+          time that day, as long as someone else is free.
+        - Auto-advance expires each time on its own window, rescue and "covered for you" go by that
+          time's holder, reminders go to whoever holds the occurrence they're for, offers and admin
+          reassignment move one time, and freezing someone hands each of their times on. The daily
+          digest lists every time you hold.
+        - Not available for per-person (`Everyone`) or `Anyone` chores, on-demand chores, or chores
+          that need several completions per occurrence. Turning it on keeps every open occurrence
+          where it is; turning it off continues from the earliest one. Existing history is untouched.
 - **Auto-advance incomplete** — for multi-completion chores, the schedule can roll forward
   automatically once the completion window closes: any unfilled slots are recorded as **missed
   (expired)** and the chore advances to the next occurrence (and rotates the assignee) without waiting
@@ -163,9 +182,10 @@ Per-chore notification schedule — a list of notification entries, each with:
 - **Missed / expired occurrence** — when a chore has **auto-advance** on, the background service closes an unfilled occurrence after its completion window passes: the missing slots are logged as expired (no points, no actor, not undoable) and the schedule advances. Expired occurrences appear in history and break the on-time streak.
 - Points awarded on completion (fixed value set per chore)
 - Points are per-user, accumulated over time
+- **Leaderboard** — ranks by points **earned** (completions and admin adjustments), all time or month by month (the Points page's month filter, which also narrows your own points log). Spending on awards, cosmetics or bounties never lowers your place; the balance is just a wallet
 - **Points log** — each user has a full history of point changes: earnings (per completion), deductions (per redemption), and **manual admin adjustments**. Any member can see anyone's: clicking a person on the leaderboard shows their completions plus everything else that moved their points (spending, bounties, adjustments); missed and skipped occurrences stay on the History page
 - **Manual point adjustment** — an admin can grant or deduct points from any user with an optional reason; the change is recorded in that user's points log
-- **Rescue** - when someone other than the person (or pair) holding a chore completes it after it went overdue, the completion is a rescue: it counts as late for nobody (neither the rescuer's nor the holder's late count), and history shows it as "rescue" instead of "on time" or "late". The rescuer still gets the points and the completion count. Does not apply to `Everyone` chores, where nobody can do another person's share. The chore's on-time streak still resets, since the occurrence itself was not done on time.
+- **Rescue** - when someone other than the person (or pair) holding a chore completes it after it went overdue, the completion is a rescue: it counts as late for nobody (neither the rescuer's nor the holder's late count), and history shows it as "rescue" instead of "on time" or "late". The same goes for someone who took the chore over (claimed an offer, or an admin reassigned it to them) only after it was already overdue: they were never late on it. The rescuer still gets the points and the completion count. Does not apply to `Everyone` chores, where nobody can do another person's share. The chore's on-time streak still resets, since the occurrence itself was not done on time.
 - **On-time streak** — each chore tracks how many of its most recent occurrences were completed on or before the due date; a late completion, a skip, or a missed (expired) occurrence resets the streak to 0. For `Everyone` chores the streak is tracked per assignee.
 
 ---
@@ -201,9 +221,10 @@ Per-chore notification schedule — a list of notification entries, each with:
 
 ## Cosmetics
 
-A points-funded random-pull system for **cosmetic** rewards, shown as the **Cosmetics** tab of the
-**Rewards** page. No real money: pulls are paid for with the same
-chore-earned points used for awards, so it is a reward sink, not gambling.
+A random-pull system for **cosmetic** rewards, shown as the **Cosmetics** tab of the
+**Rewards** page. No real money: pulls are paid for with **pull tickets**, a separate currency
+earned alongside points (one ticket per 50 points earned from chores or admin grants). Pulls never
+cost points, so cosmetics don't compete with saving for awards.
 
 - **Four cosmetic slots:**
     - **Avatar frames** — a decorative ring around your avatar, visible to everyone on every avatar
@@ -218,13 +239,14 @@ chore-earned points used for awards, so it is a reward sink, not gambling.
       equipped to begin with, so a new avatar shows initials.
     - Free starters are never rolled in a pull.
 - **Built-in catalog** — a predefined set defined by the app (not admin-configurable), each item tagged with a **rarity**: Common / Rare / Epic / Legendary
-- **Pulls** — spend points on a single pull or a discounted **10-pull**; each roll picks a rarity by published **drop rates**, then a random cosmetic of that rarity
+- **Tickets** — granted automatically as points are earned; undoing a completion (or a negative admin adjustment) takes back an unspent ticket if the points it was granted for are gone. Spending points, refunds and bounties never move tickets
+- **Pulls** — spend 1 ticket on a single pull or 9 on a **10-pull**; each roll picks a rarity by published **drop rates**, then a random cosmetic of that rarity
 - **Pity** — a counter guarantees a Legendary within a fixed number of pulls; it resets whenever a Legendary is obtained
 - **Dust** — a duplicate pull pays out **dust** (scaled by rarity) instead of a second copy; dust is spent to **craft** a specific cosmetic directly (craft cost is higher than the dupe payout)
 - **Published odds** — the drop rates are shown openly on the Cosmetics tab
 - **Equip** — handled from a **Customization** option in the account menu (not the Rewards page). It is one appearance picker: the base **Light** / **Dark** modes plus any owned **theme palettes** (mutually exclusive: choosing a palette supersedes light/dark, choosing a base mode clears the palette), any owned **avatar frame** (or None), and any owned **avatar color**. Equipping a theme recolors the app immediately and persists across devices and reloads (no flash)
 - **Reveal** — a pull shows a celebration popup (with confetti) listing what dropped, with new unlocks and dust gained
-- **Cosmetics tab** — balances (points in the page header, dust on the pull card), pull buttons, a pity progress bar, the odds disclosure, and a collection grid grouped by slot and rarity (shows owned vs. locked, with craft on locked items); equipping is done from the account menu Customization picker
+- **Cosmetics tab** — balances (points in the page header, tickets and dust on the pull card), progress toward the next ticket, pull buttons, a pity progress bar, the odds disclosure, and a collection grid grouped by slot and rarity (shows owned vs. locked, with craft on locked items); equipping is done from the account menu Customization picker
 - **Reversal-safe** — owned cosmetics are permanent; there is no admin revoke in v1
 
 ---
@@ -236,6 +258,9 @@ chore-earned points used for awards, so it is a reward sink, not gambling.
     - **Type:** `reminder` (upcoming), `due` (at due time), `follow-up` (after due time passes without completion)
     - **When:** `before` | `at due` | `after` — with an offset in minutes / hours / days
     - **Who:** `current assignee` | `all assignees`
+- The schedule editor offers **templates**, common combinations (e.g. 1 hour before + at due time,
+  at due time + 1 hour after) that replace the list as a starting point, both for an admin's chore
+  schedule and a user's own
 - All notifications for a chore instance stop firing once it is marked complete (for
   `Everyone` chores, reminders fire **per assignee** and stop once that person completes
   their own share)
@@ -258,6 +283,18 @@ receives, and an admin cannot set them on someone's behalf.
   offered), **nudges** (someone reminds you about a chore you hold), **covered for you** (someone else
   completes a chore you hold), and **app messages** (test pushes and account notices - always delivered, so a test push
   can never be silently swallowed).
+- **Reminders** — any assignee can give a chore their own notification schedule, with the same
+  entries an admin configures (reminder, due or follow-up; before, at or after the due time; only on
+  their turn, or always). Their entries replace the chore's for them alone; everyone else keeps the
+  chore's schedule, and an admin editing the chore leaves them in place. Works on chores with no
+  notifications of their own. Clearing them goes back to the chore's schedule. Not available on
+  on-demand chores, which are never due.
+- **Daily summary** — a user can pick a time for one push a day listing the chores they hold that are
+  overdue or due today (by the household day). Nothing is sent on a day with nothing to say, muted chores are left out, and paused users get
+  none. Quiet hours postpone it until they end (for up to six hours after the chosen time) rather than
+  turning it into an inbox-only record. An admin can send themselves a test summary from the same
+  setting: it reads as the summary would right now (or "Nothing due today"), and doesn't use up the
+  day's real one.
 - **Mute a chore** — silence one specific chore from its menu, rather than a whole category. A mute is
   yours alone: everyone else still gets notified normally. It can be indefinite or set to lapse at a
   chosen time, and a muted chore shows a small bell-off marker in the chore list.
@@ -291,7 +328,7 @@ receives, and an admin cannot set them on someone's behalf.
 ### Fresh start (admin only)
 
 - A **Fresh start** action in Settings (Danger zone) gives a clean slate while **keeping every chore and its schedule**
-- Clears all chore activity (completions, skips, auto-expired slots), assignment history, the points log, award redemptions, achievements, and cosmetics progress (owned cosmetics, dust, pity)
+- Clears all chore activity (completions, skips, auto-expired slots), assignment history, the points log, award redemptions, achievements, and cosmetics progress (owned cosmetics, tickets, dust, pity)
 - Resets every user's points to **0** and their equipped cosmetics (frame, theme, avatar color) back to the free defaults
 - Keeps users, tags, awards, push devices, notification schedules, and each user's personal notification preferences and chore mutes; each chore keeps its current assignee and next due date
 - Irreversible — a confirmation is required before it runs
@@ -371,8 +408,9 @@ receives, and an admin cannot set them on someone's behalf.
 - Environment variable configuration
 - No external dependencies required (push handled via self-hosted VAPID keys)
 - **Family timezone** — an admin sets the instance's timezone (IANA or Windows id) in settings; it is
-  used to evaluate per-user quiet hours against local wall-clock time. Falls back to the server's host
-  zone when unset.
+  used to evaluate per-user quiet hours against local wall-clock time, and to keep recurring chores on
+  their local time across daylight-saving changes (a chore due at 12:00 stays at 12:00). Quiet hours fall
+  back to the server's host zone when unset; schedules then keep the offset they were created with.
 - **Day start** — an admin sets when the household's day rolls over (midnight by default, up to
   12:00). A chore with no due time stays "due today" until then instead of going overdue at 00:00:
   with a 05:00 day start, Monday's chore done at 01:00 on Tuesday is still on time, keeps the on-time

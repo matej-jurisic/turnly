@@ -283,4 +283,38 @@ public class UserServiceTests
         var chore = await ctx.Db.Chores.FindAsync(choreId);
         Assert.Equal(originalDue, chore!.DueAt);
     }
+
+    [Fact]
+    public async Task GetLeaderboardAsync_ranks_by_points_earned_not_balance()
+    {
+        using var ctx = new TestContext();
+        var saver = await SeedAdminAsync(ctx);
+        var spender = (await ctx.Users.CreateAsync(NewUser("spender"))).Value!.Id;
+        await ctx.Users.AdjustPointsAsync(saver, new AdjustPointsRequest(60, "grant"));
+        await ctx.Users.AdjustPointsAsync(spender, new AdjustPointsRequest(100, "grant"));
+        var award = (await ctx.Awards.CreateAsync(new CreateAwardRequest("Ice cream", null, "🍦", 90))).Value!;
+        await ctx.Redemptions.RedeemAsync(spender, award.Id);
+
+        var board = await ctx.Users.GetLeaderboardAsync();
+
+        Assert.Equal(spender, board[0].Id);
+        Assert.Equal(100, board[0].EarnedPoints);
+        Assert.Equal(100, board[0].WeeklyPoints);
+        Assert.Equal(60, board[1].EarnedPoints);
+    }
+
+    [Fact]
+    public async Task GetLeaderboardAsync_with_range_counts_only_points_earned_in_it()
+    {
+        using var ctx = new TestContext();
+        var admin = await SeedAdminAsync(ctx);
+        await ctx.Users.AdjustPointsAsync(admin, new AdjustPointsRequest(40, "grant"));
+        var now = DateTimeOffset.UtcNow;
+
+        var current = await ctx.Users.GetLeaderboardAsync(now.AddDays(-1), now.AddDays(1));
+        var past = await ctx.Users.GetLeaderboardAsync(now.AddDays(-60), now.AddDays(-30));
+
+        Assert.Equal(40, current.Single(e => e.Id == admin).EarnedPoints);
+        Assert.Equal(0, past.Single(e => e.Id == admin).EarnedPoints);
+    }
 }

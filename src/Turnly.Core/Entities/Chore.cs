@@ -70,6 +70,12 @@ public class Chore
     /// more than once per period, see <see cref="Recurrence.RotationBoundary.AppliesTo"/>).</summary>
     public RotationPeriod RotationPeriod { get; set; } = RotationPeriod.EveryOccurrence;
 
+    /// <summary>Gives each of the <see cref="TimesOfDay"/> its own turn (<see cref="SlotTurns"/>): its
+    /// own holder, due date and rotation, so slots can be held by different people and done in any
+    /// order while the history stays one chore's. Only on rotating chores with two or more times and
+    /// one completion per occurrence; stored false everywhere else.</summary>
+    public bool TurnPerSlot { get; set; }
+
     /// <summary>How the next assignee is chosen when the chore advances to a new occurrence.</summary>
     public AssignmentStrategy AssignmentStrategy { get; set; } = AssignmentStrategy.KeepLastAssigned;
 
@@ -144,22 +150,31 @@ public class Chore
     /// not: the stored one while the two are still a pair, otherwise (never set, or the pair was
     /// edited away) the assignee's first live pair. Null when they hold it alone.
     /// Needs <see cref="Assignees"/> loaded.</summary>
-    public Guid? HeldPartnerId()
+    public Guid? HeldPartnerId() => HeldPartnerId(CurrentAssigneeId, CurrentPartnerId);
+
+    /// <summary><see cref="HeldPartnerId()"/> for any holder/stored-partner pair of columns, such as a
+    /// <see cref="ChoreSlotTurn"/>'s.</summary>
+    public Guid? HeldPartnerId(Guid? assigneeId, Guid? storedPartnerId)
     {
-        if (CurrentAssigneeId is not { } current) return null;
-        if (CurrentPartnerId is { } stored && Pairs.Any(p => p.Is(current, stored))) return stored;
+        if (assigneeId is not { } current) return null;
+        if (storedPartnerId is { } stored && Pairs.Any(p => p.Is(current, stored))) return stored;
         return LivePairs().FirstOrDefault(p => p.Has(current))?.Other(current);
     }
 
     /// <summary>Who shares the current turn with the current assignee, or null when there is nobody.
     /// A frozen partner counts as none: they're away, so the other member carries the turn alone.
     /// Needs <see cref="Assignees"/> loaded.</summary>
-    public User? CurrentPartner() =>
-        HeldPartnerId() is { } id ? Assignees.FirstOrDefault(a => a.Id == id && !a.IsFrozen) : null;
+    public User? CurrentPartner() => PartnerOf(CurrentAssigneeId, CurrentPartnerId);
+
+    /// <summary><see cref="CurrentPartner"/> for any holder/stored-partner pair of columns.</summary>
+    public User? PartnerOf(Guid? assigneeId, Guid? storedPartnerId) =>
+        HeldPartnerId(assigneeId, storedPartnerId) is { } id ? Assignees.FirstOrDefault(a => a.Id == id && !a.IsFrozen) : null;
 
     /// <summary>Everyone holding the current occurrence: the current assignee plus their partner on a
     /// paired chore. Empty when unassigned. On an <see cref="AssignmentStrategy.Anyone"/> chore every
-    /// non-frozen assignee holds it. Needs <see cref="Assignees"/> loaded.</summary>
+    /// non-frozen assignee holds it. Needs <see cref="Assignees"/> loaded. On a
+    /// <see cref="TurnPerSlot"/> chore this is the earliest slot's holders (the mirror); see
+    /// <see cref="SlotHolderIds"/>.</summary>
     public IEnumerable<Guid> CurrentHolderIds()
     {
         if (AssignmentStrategy == AssignmentStrategy.Anyone)
@@ -171,6 +186,20 @@ public class Chore
         yield return current;
         if (CurrentPartner() is { } partner) yield return partner.Id;
     }
+
+    /// <summary>Who holds one slot's turn: its assignee plus their partner on a paired chore.</summary>
+    public IEnumerable<Guid> SlotHolderIds(ChoreSlotTurn slot)
+    {
+        if (slot.CurrentAssigneeId is not { } current) yield break;
+        yield return current;
+        if (PartnerOf(current, slot.CurrentPartnerId) is { } partner) yield return partner.Id;
+    }
+
+    /// <summary>The slot turn an occurrence belongs to, by its time-of-day in its own stored offset
+    /// (how <see cref="SlotLabel"/> reads it). Null when the chore has no slot turns or the time is no
+    /// longer one of its slots.</summary>
+    public ChoreSlotTurn? SlotOf(DateTimeOffset? dueAt) =>
+        dueAt is { } due ? SlotTurns.FirstOrDefault(s => s.Time == TimeOnly.FromTimeSpan(due.TimeOfDay)) : null;
 
     /// <summary>Who is credited alongside <paramref name="userId"/> when they do the turn held by
     /// <paramref name="holderId"/> and <paramref name="holderPartnerId"/>. A holder shares it with
@@ -206,11 +235,23 @@ public class Chore
     /// <see cref="AssignmentStrategy.LeastAssigned"/> strategy and undo of rotations.</summary>
     public ICollection<ChoreAssignment> Assignments { get; set; } = new List<ChoreAssignment>();
 
-    /// <summary>Per-chore notification schedule (reminder/due/follow-up entries).</summary>
+    /// <summary>Per-chore notification schedule (reminder/due/follow-up entries): the shared entries
+    /// plus every user's personal ones. Read through <see cref="SharedNotifications"/> /
+    /// <see cref="PersonalNotifications"/>.</summary>
     public ICollection<ChoreNotification> Notifications { get; set; } = new List<ChoreNotification>();
+
+    /// <summary>The chore's own schedule, as the admin set it.</summary>
+    public IEnumerable<ChoreNotification> SharedNotifications() => Notifications.Where(n => n.UserId == null);
+
+    /// <summary>One user's own entries, which replace the shared schedule for them when there are any.</summary>
+    public IEnumerable<ChoreNotification> PersonalNotifications(Guid userId) => Notifications.Where(n => n.UserId == userId);
 
     /// <summary>Per-assignee independent schedules — populated only when
     /// <see cref="AssignmentStrategy"/> is <see cref="Enums.AssignmentStrategy.Independent"/>. Each
     /// holds one assignee's own <c>DueAt</c> + quota; <see cref="DueAt"/> mirrors the earliest of them.</summary>
     public ICollection<ChoreAssigneeTrack> AssigneeTracks { get; set; } = new List<ChoreAssigneeTrack>();
+
+    /// <summary>One turn per time-of-day slot, populated only when <see cref="TurnPerSlot"/> is set.
+    /// <see cref="DueAt"/> and the current holder columns mirror the earliest of them.</summary>
+    public ICollection<ChoreSlotTurn> SlotTurns { get; set; } = new List<ChoreSlotTurn>();
 }

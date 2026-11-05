@@ -6,13 +6,19 @@ namespace Turnly.Core.Entities;
 /// <see cref="Timing"/> the occurrence due time (offset by <see cref="OffsetValue"/> +
 /// <see cref="OffsetUnit"/>, ignored for <see cref="NotificationTiming.AtDue"/>) to
 /// <see cref="Recipients"/>. Notifications stop once the occurrence is completed because completion
-/// advances the chore's <c>DueAt</c> (see <see cref="NotificationDelivery"/>).</summary>
+/// advances the chore's <c>DueAt</c> (see <see cref="NotificationDelivery"/>).
+/// An entry with a <see cref="UserId"/> is that user's own: the chore's shared entries (null
+/// <see cref="UserId"/>) skip anyone who has any entries of their own on it.</summary>
 public class ChoreNotification
 {
     public Guid Id { get; set; } = Guid.NewGuid();
 
     public Guid ChoreId { get; set; }
     public Chore? Chore { get; set; }
+
+    /// <summary>Whose personal entry this is, or null for the chore's shared schedule (the admin's).</summary>
+    public Guid? UserId { get; set; }
+    public User? User { get; set; }
 
     public NotificationType Type { get; set; } = NotificationType.Reminder;
     public NotificationTiming Timing { get; set; } = NotificationTiming.Before;

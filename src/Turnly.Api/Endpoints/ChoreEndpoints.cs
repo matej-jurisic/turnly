@@ -94,22 +94,23 @@ public static class ChoreEndpoints
         });
 
         // Take an offered chore. The service authorizes eligibility and settles the claim race.
-        group.MapPost("/{id:guid}/offer/claim", async (Guid id,
+        // `?slot=HH:mm` picks which slot's offer on a slot-turn chore.
+        group.MapPost("/{id:guid}/offer/claim", async (Guid id, string? slot,
             ClaimsPrincipal principal, ChoreService chores, CancellationToken ct) =>
         {
             if (principal.GetUserId() is not { } userId)
                 return Results.Unauthorized();
-            var result = await chores.ClaimOfferAsync(id, userId, ct);
+            var result = await chores.ClaimOfferAsync(id, userId, slot, ct);
             return result.Succeeded ? Results.Ok(result.Value) : result.Error!.ToProblem();
         });
 
         // Pull your own offer back (admins can withdraw anyone's).
-        group.MapDelete("/{id:guid}/offer", async (Guid id,
+        group.MapDelete("/{id:guid}/offer", async (Guid id, string? slot,
             ClaimsPrincipal principal, ChoreService chores, CancellationToken ct) =>
         {
             if (principal.GetUserId() is not { } userId)
                 return Results.Unauthorized();
-            var result = await chores.WithdrawOfferAsync(id, userId, ct);
+            var result = await chores.WithdrawOfferAsync(id, userId, slot, ct);
             return result.Succeeded ? Results.Ok(result.Value) : result.Error!.ToProblem();
         });
 

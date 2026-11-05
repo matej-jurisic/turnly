@@ -1,8 +1,8 @@
 import type { Chore } from '@/lib/types'
 import { Badge } from '@/components/ui/Badge'
 import {
-  canComplete, choreHasDueTime, dueStatus, formatDueDate, formatDueWeekday, isAnyone, isIndependent, isOnDemand, nextDueTimeLabel,
-  offerSentence, showStreak, pairLabel,
+  canComplete, choreHasDueTime, dueStatus, formatDuePill, isAnyone, isIndependent, isOnDemand, nextDueTimeLabel,
+  offerSentence, showStreak, pairLabel, slotHoldersDiffer, slotName,
 } from '@/lib/chore-format'
 import { BellOffIcon, CheckIcon, ReassignIcon } from '@/components/chores/icons'
 import { t } from '@/lib/i18n'
@@ -21,6 +21,7 @@ export interface ChoreItemProps {
   mutePending?: boolean
   onComplete: () => void
   onToggleMute: () => void
+  onMyNotifications: () => void
   onUndo: () => void
   onSkip: () => void
   onReassign: () => void
@@ -38,7 +39,7 @@ export interface ChoreItemProps {
 const DUE_TONE = { overdue: 'red', today: 'amber', upcoming: 'blue', later: 'neutral' } as const
 
 /** Plain-text assignee label (no avatar) for the compact row's second line. Rotating chores show the
- * current assignee; independent chores would overflow if every track owner were listed, so they
+ * current assignee (each slot's, on a slot-turn chore whose slots are held by different people); independent chores would overflow if every track owner were listed, so they
  * collapse to "First +N" (or just the name when there's a single assignee). */
 function assigneeLabel(chore: Chore): string {
   if (isIndependent(chore)) {
@@ -48,6 +49,10 @@ function assigneeLabel(chore: Chore): string {
     return `${names[0]} +${names.length - 1}`
   }
   if (isAnyone(chore)) return t('chore.anyone')
+  if (slotHoldersDiffer(chore))
+    return chore.slotTurns
+      .map((s) => `${slotName(s)} ${s.currentAssignee ? pairLabel(s.currentAssignee, s.currentPartner) : t('chore.unassigned')}`)
+      .join(' · ')
   return chore.currentAssignee ? pairLabel(chore.currentAssignee, chore.currentPartner) : t('chore.unassigned')
 }
 
@@ -109,7 +114,7 @@ export function ChoreCompactItem(props: ChoreItemProps) {
             <Badge tone="neutral" className="ml-auto shrink-0">{t('chores.paused')}</Badge>
           ) : chore.dueAt ? (
             <Badge tone={DUE_TONE[status]} className="ml-auto shrink-0">
-              {t('chores.dueDate', { day: formatDueWeekday(chore.dueAt), date: formatDueDate(chore.dueAt) })}{nextDueTimeLabel(chore) && ` · ${nextDueTimeLabel(chore)}`}
+              {formatDuePill(chore.dueAt)}{nextDueTimeLabel(chore) && ` · ${nextDueTimeLabel(chore)}`}
             </Badge>
           ) : isOnDemand(chore) ? (
             <Badge tone="neutral" className="ml-auto shrink-0">{t('repeat.OnDemand')}</Badge>

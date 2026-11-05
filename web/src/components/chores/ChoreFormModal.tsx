@@ -96,6 +96,14 @@ export function ChoreFormModal({ title, chore, onClose, onSaved }: ChoreFormModa
   // people are still selected as assignees (see `activePairs`).
   const [pairs, setPairs] = useState<string[][]>(chore?.pairs ?? [])
   const [pairDraft, setPairDraft] = useState<[string, string]>(['', ''])
+  // A turn per time of day, and who holds each ("assignee|partner", keyed by "HH:mm").
+  const [turnPerSlot, setTurnPerSlot] = useState(chore?.turnPerSlot ?? false)
+  const [slotHolders, setSlotHolders] = useState<Record<string, string>>(
+    Object.fromEntries((chore?.slotTurns ?? []).map((s) => [
+      s.time,
+      [s.currentAssignee?.id, s.currentPartner?.id].filter(Boolean).join('|'),
+    ])),
+  )
   const [selectedTags, setSelectedTags] = useState<string[]>(chore?.tags ?? [])
   const [notifications, setNotifications] = useState<ChoreNotificationInput[]>(
     chore?.notifications.map((n) => ({
@@ -185,6 +193,26 @@ export function ChoreFormModal({ title, chore, onClose, onSaved }: ChoreFormModa
     })
   }
 
+  // A turn per slot needs slots, a turn to hand over and one completion per occurrence.
+  const canTurnPerSlot = isMultiTime && !noHolder && !isOnDemand && (isCustom || completionsRequired <= 1)
+  const slotsOn = canTurnPerSlot && turnPerSlot
+  // The unit holding a slot: the one picked while it still exists, else the same lead's first unit,
+  // else the chore's current holder. '' (nobody) only on a Manual chore.
+  const slotUnit = (time: string): string[] | undefined => {
+    const picked = slotHolders[time]
+    if (isManual && (picked === '' || (picked === undefined && !currentUnit))) return undefined
+    return holderUnits.find((u) => u.join('|') === picked)
+      ?? holderUnits.find((u) => picked !== undefined && u[0] === picked.split('|')[0])
+      ?? (picked === undefined ? currentUnit : undefined)
+      ?? holderUnits[0]
+  }
+  const slotTurns = slotsOn
+    ? uniqueSortedTimes.map((time) => {
+        const unit = slotUnit(time)
+        return { time, currentAssigneeId: unit?.[0] ?? null, currentPartnerId: unit?.[1] ?? null }
+      })
+    : null
+
   const mutation = useMutation({
     mutationFn: () => {
       const body: ChoreRequest = {
@@ -207,8 +235,15 @@ export function ChoreFormModal({ title, chore, onClose, onSaved }: ChoreFormModa
         timesOfDay: isMultiTime ? uniqueSortedTimes : null,
         timeLabels: isMultiTime ? labelsByTime : null,
         assigneeIds,
-        currentAssigneeId: noHolder ? null : currentAssigneeId || (isManual ? null : ''),
-        currentPartnerId: noHolder ? null : currentUnit?.find((id) => id !== currentAssigneeId) ?? null,
+        // With a turn per slot the chore's own holder is the earliest slot's.
+        currentAssigneeId: noHolder ? null
+          : slotTurns ? slotTurns[0].currentAssigneeId ?? (isManual ? null : '')
+          : currentAssigneeId || (isManual ? null : ''),
+        currentPartnerId: noHolder ? null
+          : slotTurns ? slotTurns[0].currentPartnerId
+          : currentUnit?.find((id) => id !== currentAssigneeId) ?? null,
+        turnPerSlot: slotsOn,
+        slotTurns,
         tagNames: selectedTags,
         notifications: isOnDemand ? [] : notifications,
         tracks: isIndependent
@@ -450,6 +485,17 @@ export function ChoreFormModal({ title, chore, onClose, onSaved }: ChoreFormModa
             >
               {t('form.addTime')}
             </button>
+            {canTurnPerSlot && (
+              <label className="flex items-center gap-2 pt-1 text-sm text-foreground">
+                <input
+                  type="checkbox"
+                  checked={turnPerSlot}
+                  onChange={(e) => setTurnPerSlot(e.target.checked)}
+                  className="h-4 w-4 rounded border-border text-primary focus:ring-ring"
+                />
+                {t('form.turnPerSlot')}
+              </label>
+            )}
           </div>
         )}
         {repeatType !== 'OneTime' && (
@@ -617,6 +663,32 @@ export function ChoreFormModal({ title, chore, onClose, onSaved }: ChoreFormModa
                 ))}
               </div>
             )}
+          </div>
+        ) : slotsOn ? (
+          <div>
+            <Label>{t('form.currentAssignee')}</Label>
+            <div className="space-y-1.5">
+              {uniqueSortedTimes.map((time) => (
+                <div key={time} className="flex items-center gap-2">
+                  <span className="w-24 shrink-0 truncate text-sm text-muted-foreground">
+                    {labelsByTime[time] || time}
+                  </span>
+                  <Select
+                    value={slotUnit(time)?.join('|') ?? ''}
+                    onChange={(e) => setSlotHolders((prev) => ({ ...prev, [time]: e.target.value }))}
+                    disabled={selectedAssignees.length === 0}
+                    aria-label={t('form.slotHolder', { slot: labelsByTime[time] || time })}
+                  >
+                    {isManual && <option value="">{t('chore.unassigned')}</option>}
+                    {holderUnits.map((unit) => (
+                      <option key={unit.join('|')} value={unit.join('|')}>
+                        {unit.map(userName).join(' & ')}
+                      </option>
+                    ))}
+                  </Select>
+                </div>
+              ))}
+            </div>
           </div>
         ) : !isAnyone && (
           <div>

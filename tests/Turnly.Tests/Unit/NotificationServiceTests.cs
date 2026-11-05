@@ -405,6 +405,25 @@ public class NotificationServiceTests
         Assert.Equal(ErrorType.Forbidden, result.Error!.Type);
     }
 
+    [Fact]
+    public async Task ListDevicesAsync_includes_android_devices_and_they_can_be_removed()
+    {
+        using var ctx = new TestContext();
+        var (admin, member) = await SeedUsersAsync(ctx);
+        await SubscribeAsync(ctx, member, "https://push.example/m");
+        await ctx.Notifications.SubscribeFcmAsync(member, "fcm-member");
+        await ctx.Notifications.SubscribeFcmAsync(admin, "fcm-admin");
+
+        var devices = await ctx.Notifications.ListDevicesAsync(member);
+        var android = Assert.Single(devices, d => d.Kind == "Android");
+        Assert.Equal("fcm-member", android.Endpoint);
+        Assert.Equal(2, devices.Count);
+
+        Assert.Equal(ErrorType.Forbidden, (await ctx.Notifications.RemoveDeviceAsync(admin, android.Id)).Error!.Type);
+        Assert.True((await ctx.Notifications.RemoveDeviceAsync(member, android.Id)).Succeeded);
+        Assert.Equal(["fcm-admin"], await ctx.Db.FcmDevices.Select(d => d.Token).ToListAsync());
+    }
+
     // ── Freeze-aware notification filtering ─────────────────────────────────────────────────────
 
     [Fact]

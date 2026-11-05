@@ -11,6 +11,14 @@ let lastToken: string | null = null
 let listenersAttached = false
 // The latest tap handler, refreshed on each register call so deep links use the current navigator.
 let onOpenChore: (url: string) => void = () => {}
+const registeredListeners = new Set<() => void>()
+
+/** Calls `listener` each time this device's token reaches the backend (the registration arrives
+ * asynchronously, after `registerNativePush` returns). Returns the unsubscribe. */
+export function onNativePushRegistered(listener: () => void): () => void {
+  registeredListeners.add(listener)
+  return () => { registeredListeners.delete(listener) }
+}
 
 /** The most recent FCM token registered for this device, or null. */
 export function getNativePushToken(): string | null {
@@ -44,6 +52,7 @@ export async function registerNativePush(onOpen: (url: string) => void): Promise
       lastToken = token.value
       try {
         await notificationsApi.fcmSubscribe(token.value)
+        registeredListeners.forEach((listener) => listener())
       } catch {
         // Best-effort: a failed register just means no native push until the next attempt.
       }

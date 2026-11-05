@@ -17,6 +17,9 @@ public static class AssignmentPicker
     /// for <see cref="AssignmentStrategy.LeastAssigned"/>); missing = never assigned.</param>
     /// <param name="lastCompletedAt">When each user most recently completed this chore (tie-break
     /// for <see cref="AssignmentStrategy.LeastCompleted"/>); missing = never completed.</param>
+    /// <param name="avoid">Units to pass over whenever someone else is eligible (e.g. whoever already
+    /// holds another slot that day). Round-robin skips them in order; the counting and random
+    /// strategies choose among the rest. Never applies to <see cref="AssignmentStrategy.KeepLastAssigned"/>.</param>
     public static T Pick<T>(
         AssignmentStrategy strategy,
         IReadOnlyList<T> orderedAssignees,
@@ -25,12 +28,24 @@ public static class AssignmentPicker
         IReadOnlyDictionary<T, int> completedCounts,
         IReadOnlyDictionary<T, DateTimeOffset> lastAssignedAt,
         IReadOnlyDictionary<T, DateTimeOffset> lastCompletedAt,
-        Random rng) where T : struct
+        Random rng,
+        IReadOnlySet<T>? avoid = null) where T : struct
     {
         if (orderedAssignees.Count == 0)
             throw new ArgumentException("At least one assignee is required.", nameof(orderedAssignees));
         if (orderedAssignees.Count == 1)
             return orderedAssignees[0];
+
+        if (avoid is { Count: > 0 } && strategy != AssignmentStrategy.KeepLastAssigned
+            && orderedAssignees.Any(a => !avoid.Contains(a)))
+        {
+            if (strategy == AssignmentStrategy.RoundRobin)
+                return NextInOrder(orderedAssignees, current, avoid);
+            var rest = orderedAssignees.Where(a => !avoid.Contains(a)).ToList();
+            if (rest.Count == 1)
+                return rest[0];
+            orderedAssignees = rest;
+        }
 
         return strategy switch
         {
@@ -72,9 +87,16 @@ public static class AssignmentPicker
         return best;
     }
 
-    private static T NextInOrder<T>(IReadOnlyList<T> assignees, T? current) where T : struct
+    /// <summary>The first after <paramref name="current"/> in the stable order, passing over anyone in
+    /// <paramref name="skip"/> (the caller guarantees someone isn't).</summary>
+    private static T NextInOrder<T>(IReadOnlyList<T> assignees, T? current, IReadOnlySet<T>? skip = null) where T : struct
     {
         var idx = current is { } c ? assignees.IndexOf(c) : -1;
+        for (var step = 1; step <= assignees.Count; step++)
+        {
+            var candidate = assignees[(idx + step) % assignees.Count];
+            if (skip is null || !skip.Contains(candidate)) return candidate;
+        }
         return assignees[(idx + 1) % assignees.Count];
     }
 

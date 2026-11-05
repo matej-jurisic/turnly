@@ -1343,6 +1343,25 @@ public class ChoreServiceTests
         Assert.Equal(1, await ctx.Db.ChoreNotifications.CountAsync(n => n.ChoreId == chore.Id));
     }
 
+    [Fact]
+    public async Task UpdateAsync_keeps_members_personal_notifications()
+    {
+        using var ctx = new TestContext();
+        var (_, member) = await SeedUsersAsync(ctx);
+        var reminder = new ChoreNotificationInput(
+            NotificationType.Reminder, NotificationTiming.Before, 30,
+            NotificationOffsetUnit.Minutes, NotificationRecipients.CurrentAssignee);
+        var create = NewChore(member, [member]) with { Notifications = [reminder] };
+        var chore = (await ctx.Chores.CreateAsync(create)).Value!;
+        await ctx.Notifications.SetPersonalNotificationsAsync(member, chore.Id, [reminder with { OffsetValue = 10 }]);
+
+        var result = await ctx.Chores.UpdateAsync(chore.Id, ToUpdate(create) with { Notifications = [] });
+
+        Assert.True(result.Succeeded);
+        Assert.Empty(result.Value!.Notifications);
+        Assert.Equal(1, await ctx.Db.ChoreNotifications.CountAsync(n => n.ChoreId == chore.Id && n.UserId == member));
+    }
+
     // ── Scheduling preferences end-to-end ────────────────────────────────────────────────────
 
     [Fact]
@@ -2603,6 +2622,54 @@ public class ChoreServiceTests
         var holder = stats.Single(s => s.UserId == member);
         Assert.Equal((0, 0, 0), (holder.OnTimeCount, holder.OverdueCount, holder.MissedCount));
         Assert.True(Assert.Single(await ctx.Chores.GetHistoryAsync(null, null, chore.Id)).IsRescue);
+    }
+
+    [Fact]
+    public async Task With_a_household_timezone_the_next_due_follows_daylight_saving()
+    {
+        using var ctx = new TestContext();
+        var (_, member) = await SeedUsersAsync(ctx);
+        await ctx.Settings.SetTimeZoneAsync("Europe/Zagreb");
+        var saturday = new DateTimeOffset(2026, 10, 24, 12, 0, 0, TimeSpan.FromHours(2));
+        var chore = (await ctx.Chores.CreateAsync(NewChore(member, [member], start: saturday))).Value!;
+
+        var done = await ctx.Chores.CompleteAsync(chore.Id, member, new CompleteChoreRequest(null, CompletedAt: saturday));
+
+        Assert.Equal(new DateTimeOffset(2026, 10, 25, 12, 0, 0, TimeSpan.FromHours(1)), done.Value!.DueAt);
+    }
+
+    [Fact]
+    public async Task Completing_an_offer_claimed_after_it_went_late_is_a_rescue()
+    {
+        using var ctx = new TestContext();
+        var (admin, member) = await SeedUsersAsync(ctx);
+        var chore = (await ctx.Chores.CreateAsync(NewChore(member, [member, admin]))).Value!;
+        await ctx.Chores.OfferAsync(chore.Id, member, new OfferChoreRequest());
+        await ctx.Chores.ClaimOfferAsync(chore.Id, admin);
+
+        await ctx.Chores.CompleteAsync(chore.Id, admin, new CompleteChoreRequest(null));
+
+        var rescuer = (await ctx.Users.GetStatsAsync()).UserStats.Single(s => s.UserId == admin);
+        Assert.Equal((0, 1), (rescuer.OverdueCount, rescuer.RescueCount));
+        Assert.True(Assert.Single(await ctx.Chores.GetHistoryAsync(null, null, chore.Id)).IsRescue);
+    }
+
+    [Fact]
+    public async Task Completing_late_an_offer_claimed_while_still_on_time_is_late()
+    {
+        using var ctx = new TestContext();
+        var (admin, member) = await SeedUsersAsync(ctx);
+        var chore = (await ctx.Chores.CreateAsync(NewChore(member, [member, admin]))).Value!;
+        await ctx.Chores.OfferAsync(chore.Id, member, new OfferChoreRequest());
+        await ctx.Chores.ClaimOfferAsync(chore.Id, admin);
+        var claim = (await ctx.Db.ChoreAssignments.Where(a => a.ChoreId == chore.Id && a.UserId == admin).ToListAsync()).Single();
+        claim.AssignedAt = Start.AddHours(-1);
+        await ctx.Db.SaveChangesAsync();
+
+        await ctx.Chores.CompleteAsync(chore.Id, admin, new CompleteChoreRequest(null));
+
+        Assert.Equal(1, (await ctx.Users.GetStatsAsync()).UserStats.Single(s => s.UserId == admin).OverdueCount);
+        Assert.False(Assert.Single(await ctx.Chores.GetHistoryAsync(null, null, chore.Id)).IsRescue);
     }
 
     [Fact]

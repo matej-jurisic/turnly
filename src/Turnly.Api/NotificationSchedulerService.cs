@@ -4,7 +4,8 @@ using Turnly.Core.Services;
 
 namespace Turnly.Api;
 
-/// <summary>Polls once a minute and fires any chore notifications that have come due. Idle (no
+/// <summary>Polls once a minute and fires any chore notifications that have come due, plus the daily
+/// digests whose time has come. Idle (no
 /// scheduling) until VAPID keys are configured. Each tick runs in its own DI scope so it can use the
 /// scoped <see cref="NotificationService"/>/<c>DbContext</c>.</summary>
 public class NotificationSchedulerService : BackgroundService
@@ -41,6 +42,9 @@ public class NotificationSchedulerService : BackgroundService
                 var fired = await notifications.ProcessDueAsync(DateTimeOffset.UtcNow, stoppingToken);
                 if (fired > 0)
                     _logger.LogInformation("Fired {Count} chore notification(s).", fired);
+                var digests = await notifications.ProcessDigestsAsync(DateTimeOffset.UtcNow, stoppingToken);
+                if (digests > 0)
+                    _logger.LogInformation("Sent {Count} daily digest(s).", digests);
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {

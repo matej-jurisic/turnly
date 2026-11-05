@@ -85,7 +85,7 @@ function Row({ label, value, valueClass }: { label: string; value: number; value
 function LeaderboardCard({ onSelectUser }: { onSelectUser: (entry: LeaderboardEntry) => void }) {
   const { data: leaderboard = [] } = useQuery({
     queryKey: ['leaderboard'],
-    queryFn: usersApi.leaderboard,
+    queryFn: () => usersApi.leaderboard(),
   })
 
   const top = useMemo(

@@ -3,7 +3,10 @@ import { useMutation, useQuery } from '@tanstack/react-query'
 import { choresApi, usersApi, ApiError } from '@/lib/api'
 import { celebrate } from '@/lib/confetti'
 import { celebrateAchievements } from '@/lib/achievementCelebration'
-import { creditedPartner, formatDate, isAnyone, isIndependent, peopleLabel, toLocalDateInput, toLocalDueInstant } from '@/lib/chore-format'
+import {
+  creditedPartner, defaultSlot, focusSlot, formatDate, hasSlotTurns, isAnyone, isIndependent, peopleLabel,
+  toLocalDateInput, toLocalDueInstant,
+} from '@/lib/chore-format'
 import { toast } from '@/lib/toast'
 import { useAuthStore } from '@/store/auth'
 import type { Chore, User } from '@/lib/types'
@@ -11,17 +14,26 @@ import { Button } from '@/components/ui/Button'
 import { Input, Label, Select } from '@/components/ui/Field'
 import { Avatar, Modal } from '@/components/ui/Modal'
 import { TimeField } from '@/components/ui/TimeField'
+import { SlotPicker } from '@/components/chores/SlotPicker'
 import { plural, t, tRich } from '@/lib/i18n'
 
 interface CompleteModalProps {
   chore: Chore
+  /** On a slot-turn chore, the slot to start on (otherwise your own slot that day). */
+  slotTime?: string
   onClose: () => void
   onDone: () => void
 }
 
-export function CompleteModal({ chore, onClose, onDone }: CompleteModalProps) {
+export function CompleteModal({ chore: fullChore, slotTime: initialSlot, onClose, onDone }: CompleteModalProps) {
   const currentUser = useAuthStore((s) => s.user)
   const isAdmin = currentUser?.role === 'Admin'
+
+  // A slot-turn chore completes one slot; everything below reads that slot's turn.
+  const slotted = hasSlotTurns(fullChore)
+  const [slotTime, setSlotTime] = useState(() => initialSlot ?? defaultSlot(fullChore, currentUser?.id)?.time)
+  const slot = slotted ? fullChore.slotTurns.find((s) => s.time === slotTime) : undefined
+  const chore = focusSlot(fullChore, slot)
 
   const isIndep = isIndependent(chore)
   const trackUsers = chore.tracks.map((t) => t.user)
@@ -40,6 +52,13 @@ export function CompleteModal({ chore, onClose, onDone }: CompleteModalProps) {
     ? [(viewerOwnsTrack ? currentUser?.id : trackUsers[0]?.id) ?? '']
     : [currentUser?.id ?? '', ...(defaultPartner ? [defaultPartner.id] : [])]
   const [pickedIds, setPickedIds] = useState<string[]>(defaultIds)
+  const pickSlot = (time: string) => {
+    setSlotTime(time)
+    // Another slot may be held by a different pair, so the default credit follows it.
+    const next = focusSlot(fullChore, fullChore.slotTurns.find((s) => s.time === time))
+    const partner = currentUser ? creditedPartner(next, currentUser.id) : null
+    setPickedIds([currentUser?.id ?? '', ...(partner ? [partner.id] : [])])
+  }
   // Backdating: off by default (the completion is stamped "now"). Turning it on reveals a date and
   // time, pre-filled with the current moment so only the part that differs needs changing.
   const [backdate, setBackdate] = useState(false)
@@ -72,6 +91,7 @@ export function CompleteModal({ chore, onClose, onDone }: CompleteModalProps) {
         notes: notes.trim() || null,
         completedByUserIds,
         completedAt: backdate ? toLocalDueInstant(doneDate, doneTime) : null,
+        slotTime: slot?.time ?? null,
       }),
     onSuccess: (completed) => {
       celebrate()
@@ -93,6 +113,7 @@ export function CompleteModal({ chore, onClose, onDone }: CompleteModalProps) {
         }}
         className="space-y-4"
       >
+        {slotted && <SlotPicker slots={fullChore.slotTurns} value={slotTime} onChange={pickSlot} />}
         {credited.length > 0 && (
           <p className="text-sm text-muted-foreground">
             {tRich(

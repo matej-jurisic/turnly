@@ -8,11 +8,10 @@ using Turnly.Core.Enums;
 
 namespace Turnly.Core.Services;
 
-/// <summary>The gacha: spend points on random pulls across the code-defined
-/// <see cref="CosmeticCatalog"/>, with a pity counter that guarantees a Legendary, a dust economy
-/// for duplicates, and direct crafting. Points deductions mirror
-/// <see cref="RedemptionService.RedeemAsync"/> (negative <see cref="PointsLogEntry"/> +
-/// <c>User.Points</c>). Equipped cosmetics live on <see cref="User"/> so they project through
+/// <summary>The gacha: spend pull tickets (<c>User.PullTickets</c>, earned alongside points) on random
+/// pulls across the code-defined <see cref="CosmeticCatalog"/>, with a pity counter that guarantees a
+/// Legendary, a dust economy for duplicates, and direct crafting. Pulls never cost points, so
+/// cosmetics don't compete with awards. Equipped cosmetics live on <see cref="User"/> so they project through
 /// <c>UserDto.FromEntity</c>. The RNG is injectable so pulls are unit-testable with a seed.</summary>
 public class GachaService
 {
@@ -43,11 +42,11 @@ public class GachaService
             .ToArray();
 
         return Result.Success(new GachaStateDto(
-            user.Points, user.Dust, CosmeticCatalog.PullCost, CosmeticCatalog.TenPullCost,
+            user.PullTickets, user.TicketProgress, CosmeticCatalog.PointsPerTicket, user.Dust, CosmeticCatalog.PullCost, CosmeticCatalog.TenPullCost,
             user.PullsSinceLegendary, CosmeticCatalog.PityThreshold, odds, cosmetics));
     }
 
-    /// <summary>Spends points on <paramref name="count"/> rolls (1 or 10). Each roll picks a rarity by
+    /// <summary>Spends tickets on <paramref name="count"/> rolls (1 or 10). Each roll picks a rarity by
     /// the published odds — unless the pity counter forces a Legendary — then a random cosmetic of
     /// that rarity. A new cosmetic is unlocked; a duplicate awards dust. Saves once.</summary>
     public async Task<Result<List<PullResultDto>>> PullAsync(Guid userId, int count, DateTimeOffset now, CancellationToken ct = default)
@@ -60,18 +59,10 @@ public class GachaService
             return Result.Fail<List<PullResultDto>>(Error.NotFound("User not found."));
 
         var cost = count == 10 ? CosmeticCatalog.TenPullCost : CosmeticCatalog.PullCost;
-        if (user.Points < cost)
-            return Result.Fail<List<PullResultDto>>(Error.Conflict("Not enough points for this pull."));
+        if (user.PullTickets < cost)
+            return Result.Fail<List<PullResultDto>>(Error.Conflict("Not enough tickets for this pull."));
 
-        // Deduct points up front (mirrors RedemptionService.RedeemAsync).
-        user.Points -= cost;
-        _db.PointsLog.Add(new PointsLogEntry
-        {
-            UserId = userId,
-            Delta = -cost,
-            Type = PointsLogType.GachaPull,
-            Description = count == 10 ? "Gacha pull x10" : "Gacha pull"
-        });
+        user.PullTickets -= cost;
 
         // Track ownership in-memory so a brand-new item pulled twice in one batch dupes correctly.
         var ownedKeys = (await OwnedAsync(userId, ct)).Keys.ToHashSet();

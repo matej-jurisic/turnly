@@ -93,11 +93,11 @@ export function Avatar({
     </span>
   )
 
-  if (!frame) return inner
-
+  // Unframed avatars get the same padding as a transparent ring, so a framed and an unframed avatar
+  // of the same size take up the same box and their faces line up.
   const pad = Math.max(2, Math.round(size * 0.09))
   return (
-    <span className={frameClasses(frame)} style={{ padding: pad }}>
+    <span className={frame ? frameClasses(frame) : 'inline-flex shrink-0 rounded-full'} style={{ padding: pad }}>
       {inner}
     </span>
   )

@@ -47,6 +47,8 @@ public class ResetService
             .SetProperty(u => u.Points, 0)
             .SetProperty(u => u.Dust, 0)
             .SetProperty(u => u.PullsSinceLegendary, 0)
+            .SetProperty(u => u.PullTickets, 0)
+            .SetProperty(u => u.TicketProgress, 0)
             .SetProperty(u => u.EquippedFrameKey, (string?)null)
             .SetProperty(u => u.EquippedThemeKey, (string?)null)
             .SetProperty(u => u.AvatarEmoji, (string?)null)

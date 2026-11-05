@@ -18,6 +18,10 @@ public class ChoreAssignment
     /// they took it alone (and on rows written before pairs could overlap). A plain id, not a navigation.</summary>
     public Guid? PartnerUserId { get; set; }
 
+    /// <summary>On a <see cref="Chore.TurnPerSlot"/> chore, the slot this turn was for; null for the
+    /// whole chore (and on rows written before slot turns existed).</summary>
+    public TimeOnly? SlotTime { get; set; }
+
     public DateTimeOffset AssignedAt { get; set; } = DateTimeOffset.UtcNow;
 
     /// <summary>The completion whose rotation produced this assignment, if any; null for the

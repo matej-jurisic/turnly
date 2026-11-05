@@ -10,9 +10,10 @@ import { disablePush, enablePush, getCurrentEndpoint, isPushEnabled, pushPermiss
 import { isNative } from '@/lib/native'
 import { clearServerOrigin, getServerOrigin } from '@/lib/server-config'
 import { setRefreshToken } from '@/lib/native-auth'
-import { getNativePushToken, nativePushPermission, registerNativePush, unregisterNativePush } from '@/lib/native-push'
+import { getNativePushToken, nativePushPermission, onNativePushRegistered, registerNativePush, unregisterNativePush } from '@/lib/native-push'
 import { useAuthStore } from '@/store/auth'
-import type { DeliveryChannel, NotificationCategory, NotificationPreference } from '@/lib/types'
+import type { DeliveryChannel, NotificationCategory, NotificationPreference, PushDevice } from '@/lib/types'
+import { formatDate } from '@/lib/chore-format'
 import { Button } from '@/components/ui/Button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { Input, Label, Select } from '@/components/ui/Field'
@@ -73,6 +74,8 @@ export function SettingsPage() {
       {isNative() ? <NativeNotificationsCard /> : <NotificationsCard />}
 
       <NotificationPreferencesCard />
+
+      <DigestCard />
 
       <QuietHoursCard />
 
@@ -220,12 +223,6 @@ function NotificationsCard() {
   const [testing, setTesting] = useState(false)
   const [message, setMessage] = useState<{ kind: 'ok' | 'error'; text: string } | null>(null)
 
-  const supported = permission !== 'unsupported'
-  const { data: devices } = useQuery({
-    queryKey: ['push-devices'],
-    queryFn: notificationsApi.devices,
-    enabled: supported,
-  })
 
   const refreshLocalState = async () => {
     setEnabled(await isPushEnabled())
@@ -276,15 +273,6 @@ function NotificationsCard() {
     }
   }
 
-  const removeMutation = useMutation({
-    mutationFn: (id: string) => notificationsApi.removeDevice(id),
-    onSuccess: async () => {
-      await refreshLocalState()
-      queryClient.invalidateQueries({ queryKey: ['push-devices'] })
-    },
-    onError: (err) => setMessage({ kind: 'error', text: err instanceof ApiError ? err.message : t('settings.removeDeviceFailed') }),
-  })
-
   return (
     <Card>
       <CardHeader>
@@ -312,36 +300,11 @@ function NotificationsCard() {
           </Button>
         )}
 
-        {devices && devices.length > 0 && (
-          <div className="space-y-2 border-t border-border pt-3">
-            <p className="text-sm text-foreground">{t('settings.yourDevices')}</p>
-            <ul className="space-y-1">
-              {devices.map((d) => {
-                const isThis = currentEndpoint != null && d.endpoint === currentEndpoint
-                return (
-                  <li key={d.id} className="flex items-center justify-between gap-2 rounded-md bg-accent px-3 py-2 text-sm">
-                    <span className="flex items-center gap-2 text-foreground">
-                      {d.label}
-                      {isThis && <span className="rounded bg-primary/10 px-1.5 py-0.5 text-xs text-primary">{t('settings.thisDevice')}</span>}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => removeMutation.mutate(d.id)}
-                      disabled={removeMutation.isPending}
-                      aria-label={t('settings.removeItem', { name: d.label })}
-                      className="text-muted-foreground transition-colors hover:text-destructive disabled:opacity-50"
-                    >
-                      <XIcon />
-                    </button>
-                  </li>
-                )
-              })}
-            </ul>
-            <p className="text-xs text-muted-foreground">
-              {t('settings.removeDeviceNote')}
-            </p>
-          </div>
-        )}
+        <DeviceList
+          currentEndpoint={currentEndpoint}
+          onRemoved={refreshLocalState}
+          onError={(text) => setMessage({ kind: 'error', text })}
+        />
 
         {isAdmin && enabled && (
           <div className="border-t border-border pt-3">
@@ -361,8 +324,64 @@ function NotificationsCard() {
   )
 }
 
+/** The user's push devices, browsers and Android installs alike, each removable. Shared by the web
+ * and native notification cards; `currentEndpoint` (a push endpoint or FCM token) marks this one. */
+function DeviceList({ currentEndpoint, onRemoved, onError }: {
+  currentEndpoint: string | null
+  onRemoved: (wasCurrent: boolean) => void
+  onError: (text: string) => void
+}) {
+  const queryClient = useQueryClient()
+  const { data: devices } = useQuery({ queryKey: ['push-devices'], queryFn: notificationsApi.devices })
+
+  const removeMutation = useMutation({
+    mutationFn: (device: PushDevice) => notificationsApi.removeDevice(device.id),
+    onSuccess: (_data, device) => {
+      onRemoved(device.endpoint === currentEndpoint)
+      queryClient.invalidateQueries({ queryKey: ['push-devices'] })
+    },
+    onError: (err) => onError(err instanceof ApiError ? err.message : t('settings.removeDeviceFailed')),
+  })
+
+  if (!devices || devices.length === 0) return null
+
+  return (
+    <div className="space-y-2 border-t border-border pt-3">
+      <p className="text-sm text-foreground">{t('settings.yourDevices')}</p>
+      <ul className="space-y-1">
+        {devices.map((d) => {
+          const label = d.kind === 'Android' ? t('settings.androidApp') : d.label
+          const isThis = currentEndpoint != null && d.endpoint === currentEndpoint
+          return (
+            <li key={d.id} className="flex items-center justify-between gap-2 rounded-md bg-accent px-3 py-2 text-sm">
+              <span className="flex min-w-0 flex-wrap items-center gap-x-2 text-foreground">
+                {label}
+                <span className="text-xs text-muted-foreground">{formatDate(d.createdAt)}</span>
+                {isThis && <span className="rounded bg-primary/10 px-1.5 py-0.5 text-xs text-primary">{t('settings.thisDevice')}</span>}
+              </span>
+              <button
+                type="button"
+                onClick={() => removeMutation.mutate(d)}
+                disabled={removeMutation.isPending}
+                aria-label={t('settings.removeItem', { name: label })}
+                className="text-muted-foreground transition-colors hover:text-destructive disabled:opacity-50"
+              >
+                <XIcon />
+              </button>
+            </li>
+          )
+        })}
+      </ul>
+      <p className="text-xs text-muted-foreground">
+        {t('settings.removeDeviceNote')}
+      </p>
+    </div>
+  )
+}
+
 function NativeNotificationsCard() {
   const isAdmin = useAuthStore((s) => s.user?.role === 'Admin')
+  const queryClient = useQueryClient()
   const navigate = useNavigate()
   const [permission, setPermission] = useState<'granted' | 'denied' | 'prompt' | 'unsupported' | null>(null)
   const [enabled, setEnabled] = useState(getNativePushToken() != null)
@@ -373,6 +392,13 @@ function NativeNotificationsCard() {
   useEffect(() => {
     void nativePushPermission().then(setPermission)
   }, [])
+
+  // The token lands after registration resolves: refresh the list (and the "This device" marker) then.
+  const [token, setToken] = useState(getNativePushToken())
+  useEffect(() => onNativePushRegistered(() => {
+    setToken(getNativePushToken())
+    queryClient.invalidateQueries({ queryKey: ['push-devices'] })
+  }), [queryClient])
 
   async function enable() {
     setBusy(true)
@@ -400,6 +426,7 @@ function NativeNotificationsCard() {
     try {
       await unregisterNativePush()
       setEnabled(false)
+      queryClient.invalidateQueries({ queryKey: ['push-devices'] })
       setMessage({ kind: 'ok', text: t('settings.pushDisabled') })
     } catch (err) {
       setMessage({ kind: 'error', text: err instanceof Error ? err.message : t('common.error') })
@@ -449,6 +476,12 @@ function NativeNotificationsCard() {
             {busy ? t('settings.working') : t('settings.enableDevice')}
           </Button>
         )}
+
+        <DeviceList
+          currentEndpoint={enabled ? token : null}
+          onRemoved={(wasCurrent) => { if (wasCurrent) setEnabled(false) }}
+          onError={(text) => setMessage({ kind: 'error', text })}
+        />
 
         {isAdmin && enabled && (
           <div className="border-t border-border pt-3">
@@ -573,6 +606,71 @@ function NotificationPreferencesCard() {
         <p className="text-xs text-muted-foreground">
           {t('settings.muteHint')}
         </p>
+      </CardContent>
+    </Card>
+  )
+}
+
+function DigestCard() {
+  const user = useAuthStore((s) => s.user)
+  const setUser = useAuthStore((s) => s.setUser)
+  const savedDigest = user?.digestTime ?? null
+  const [digestOn, setDigestOn] = useState(Boolean(savedDigest))
+  const [digestTime, setDigestTime] = useState(savedDigest ?? '07:30')
+
+  const mutation = useMutation({
+    mutationFn: () =>
+      authApi.updateNotificationSchedule({ digestTime: digestOn ? digestTime : null }),
+    onSuccess: (updated) => {
+      setUser(updated)
+      toast.success(t('settings.digestUpdated'))
+    },
+    onError: (err) => toast.error(err instanceof ApiError ? err.message : t('common.error')),
+  })
+
+  // Admin-only: sends the digest as it would read right now, without using up today's.
+  const testMutation = useMutation({
+    mutationFn: () => notificationsApi.testDigest(),
+    onSuccess: ({ sent }) =>
+      sent > 0 ? toast.success(plural('settings.testSent', sent)) : toast.error(t('settings.testNoDevice')),
+    onError: (err) => toast.error(err instanceof ApiError ? err.message : t('settings.testFailed')),
+  })
+
+  const nextDigest = digestOn ? digestTime : null
+  const dirty = nextDigest !== savedDigest
+  const invalid = digestOn && !digestTime
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>{t('settings.digestTitle')}</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <label className="flex items-center gap-2 text-sm text-foreground">
+          <input
+            type="checkbox"
+            checked={digestOn}
+            onChange={(e) => setDigestOn(e.target.checked)}
+            className="h-4 w-4 accent-primary"
+          />
+          {t('settings.digestEnable')}
+        </label>
+        {digestOn && (
+          <div>
+            <Label htmlFor="digest-time">{t('settings.digestTime')}</Label>
+            <Input id="digest-time" type="time" value={digestTime} onChange={(e) => setDigestTime(e.target.value)} className="w-32" />
+          </div>
+        )}
+        <div className="flex flex-wrap gap-2">
+          <Button onClick={() => mutation.mutate()} disabled={!dirty || invalid || mutation.isPending}>
+            {mutation.isPending ? t('common.saving') : t('settings.digestSave')}
+          </Button>
+          {user?.role === 'Admin' && (
+            <Button variant="secondary" onClick={() => testMutation.mutate()} disabled={testMutation.isPending}>
+              {testMutation.isPending ? t('settings.sending') : t('settings.digestTest')}
+            </Button>
+          )}
+        </div>
       </CardContent>
     </Card>
   )

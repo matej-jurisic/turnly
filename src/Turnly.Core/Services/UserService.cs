@@ -32,31 +32,45 @@ public class UserService
         return users.Select(u => UserDto.FromEntity(u, weeklyByUser.GetValueOrDefault(u.Id))).ToList();
     }
 
-    public async Task<List<LeaderboardEntryDto>> GetLeaderboardAsync(CancellationToken ct = default)
+    /// <summary>Ranks by points earned, all time or within [<paramref name="from"/>, <paramref name="to"/>)
+    /// (the Points page's month filter; the client sends its local month bounds).</summary>
+    public async Task<List<LeaderboardEntryDto>> GetLeaderboardAsync(
+        DateTimeOffset? from = null, DateTimeOffset? to = null, CancellationToken ct = default)
     {
-        var weeklyByUser = await ComputeWeeklyPointsAsync(ct);
+        var log = await EarnedLogAsync(ct);
+        var weekStart = GetCurrentWeekStart();
+        var earnedByUser = log
+            .Where(e => (from is null || e.CreatedAt >= from) && (to is null || e.CreatedAt < to))
+            .GroupBy(e => e.UserId).ToDictionary(g => g.Key, g => g.Sum(e => e.Delta));
+        var weeklyByUser = SumSince(log, weekStart);
         var users = await _db.Users.ToListAsync(ct);
         return users
-            .OrderByDescending(u => u.Points)
             .Select(u => new LeaderboardEntryDto(
-                u.Id, u.DisplayName, u.AvatarColor, u.Points,
+                u.Id, u.DisplayName, u.AvatarColor, earnedByUser.GetValueOrDefault(u.Id),
                 weeklyByUser.GetValueOrDefault(u.Id), u.EquippedFrameKey, u.AvatarEmoji))
+            .OrderByDescending(e => e.EarnedPoints)
             .ToList();
     }
 
-    // SQLite can't translate DateTimeOffset comparisons to SQL, so filter in memory.
-    // Project to minimal columns to avoid loading full entities.
-    private async Task<Dictionary<Guid, int>> ComputeWeeklyPointsAsync(CancellationToken ct)
-    {
-        var weekStart = GetCurrentWeekStart();
-        var log = await _db.PointsLog
-            .Select(e => new { e.UserId, e.Delta, e.CreatedAt })
+    private async Task<Dictionary<Guid, int>> ComputeWeeklyPointsAsync(CancellationToken ct) =>
+        SumSince(await EarnedLogAsync(ct), GetCurrentWeekStart());
+
+    /// <summary>The points-log rows that count as work done: completions (a reversal deletes its row)
+    /// and admin adjustments. Spending, refunds and bounties are left out, so the leaderboard ranks
+    /// who earned the most rather than who saved the most. Minimal columns; SQLite can't compare a
+    /// DateTimeOffset in SQL, so callers filter by date in memory.</summary>
+    private async Task<List<EarnedRow>> EarnedLogAsync(CancellationToken ct) =>
+        await _db.PointsLog
+            .Where(e => e.Type == PointsLogType.Completion || e.Type == PointsLogType.Adjustment)
+            .Select(e => new EarnedRow(e.UserId, e.Delta, e.CreatedAt))
             .ToListAsync(ct);
-        return log
-            .Where(e => e.CreatedAt >= weekStart)
+
+    private static Dictionary<Guid, int> SumSince(List<EarnedRow> log, DateTimeOffset since) =>
+        log.Where(e => e.CreatedAt >= since)
             .GroupBy(e => e.UserId)
             .ToDictionary(g => g.Key, g => g.Sum(e => e.Delta));
-    }
+
+    private record EarnedRow(Guid UserId, int Delta, DateTimeOffset CreatedAt);
 
     private static DateTimeOffset GetCurrentWeekStart()
     {
@@ -70,7 +84,7 @@ public class UserService
         var users = await _db.Users.OrderBy(u => u.DisplayName).ToListAsync(ct);
         var allCompletions = await _db.ChoreCompletions
             .Where(c => !c.IsSkip) // skips are not real completions — exclude from stats
-            .Select(c => new { c.ChoreId, c.CompletedByUserId, c.PartnerUserId, HelperIds = c.Helpers.Select(h => h.Id).ToList(), c.CompletedAt, c.OccurrenceDueAt, c.IsExpired, c.PreviousAssigneeId, c.PreviousPartnerId })
+            .Select(c => new { c.ChoreId, c.CompletedByUserId, c.PartnerUserId, HelperIds = c.Helpers.Select(h => h.Id).ToList(), c.CompletedAt, c.OccurrenceDueAt, c.IsExpired, c.PreviousAssigneeId, c.PreviousPartnerId, c.TakenOverFromId })
             .ToListAsync(ct);
         // An all-day chore is on time until the household's day start, not midnight.
         var lateGrace = await AppSettingsService.ReadLateGraceByChoreAsync(_db, ct);
@@ -93,7 +107,7 @@ public class UserService
             {
                 var inPeriod = mine.Where(c => c.CompletedAt >= since && c.OccurrenceDueAt.HasValue).ToList();
                 // Stepping in late for someone else's overdue chore is a rescue: late for nobody.
-                var rescues = inPeriod.Count(c => ChoreCompletion.IsRescue(false, false, c.CompletedAt, c.OccurrenceDueAt, c.CompletedByUserId, c.PartnerUserId, c.PreviousAssigneeId, c.PreviousPartnerId, lateGrace.GetValueOrDefault(c.ChoreId)));
+                var rescues = inPeriod.Count(c => ChoreCompletion.IsRescue(false, false, c.CompletedAt, c.OccurrenceDueAt, c.CompletedByUserId, c.PartnerUserId, c.PreviousAssigneeId, c.PreviousPartnerId, c.TakenOverFromId, lateGrace.GetValueOrDefault(c.ChoreId)));
                 var late = inPeriod.Count(c => c.CompletedAt > c.OccurrenceDueAt!.Value + lateGrace.GetValueOrDefault(c.ChoreId));
                 return new TimelinessCountsDto(
                     inPeriod.Count - late,
@@ -225,6 +239,24 @@ public class UserService
         return Result.Success(UserDto.FromEntity(user));
     }
 
+    /// <summary>Self-service: sets the caller's daily digest time.</summary>
+    public async Task<Result<UserDto>> UpdateNotificationScheduleAsync(Guid id, UpdateNotificationScheduleRequest req, CancellationToken ct = default)
+    {
+        if (Validators.DueTime(req.DigestTime, out var digestTime) is { } timeError)
+            return Result.Fail<UserDto>(timeError);
+
+        var user = await _db.Users.FindAsync([id], ct);
+        if (user is null)
+            return Result.Fail<UserDto>(Error.NotFound("User not found."));
+
+        // A new time re-arms today's digest, so moving it later still delivers one today.
+        if (user.DigestTime != digestTime)
+            user.DigestSentOn = null;
+        user.DigestTime = digestTime;
+        await _db.SaveChangesAsync(ct);
+        return Result.Success(UserDto.FromEntity(user));
+    }
+
     /// <summary>Self-service: records the language the user picked on their device, so notifications
     /// reach them worded in it. The most recent device to report wins.</summary>
     public async Task<Result<UserDto>> SetLanguageAsync(Guid id, SetLanguageRequest req, CancellationToken ct = default)
@@ -278,6 +310,7 @@ public class UserService
             Description = string.IsNullOrWhiteSpace(req.Description) ? null : req.Description.Trim(),
         });
         user.Points += req.Delta;
+        user.TrackEarned(req.Delta);
 
         await _db.SaveChangesAsync(ct);
 
@@ -322,10 +355,15 @@ public class UserService
 
         return Result.Success(new UserFreezePreviewDto(
             reassignments.Select(r => new FreezeReassignmentDto(
-                r.Chore.Id, r.Chore.Name, r.Chore.Emoji,
+                r.Chore.Id, PreviewName(r.Chore, r.Slot), r.Chore.Emoji,
                 r.NewAssignee.Id, r.NewAssignee.DisplayName, r.NewAssignee.AvatarColor)).ToArray(),
-            unassignable.Select(c => new FreezeUnassignableDto(c.Id, c.Name, c.Emoji)).ToArray()));
+            unassignable.Select(u => new FreezeUnassignableDto(u.Chore.Id, PreviewName(u.Chore, u.Slot), u.Chore.Emoji)).ToArray()));
     }
+
+    /// <summary>A chore's name in the freeze preview, naming the slot on a slot-turn chore
+    /// ("Feed the dog (Evening)", or its time when unlabelled).</summary>
+    private static string PreviewName(Chore chore, ChoreSlotTurn? slot) =>
+        slot is null ? chore.Name : $"{chore.Name} ({chore.TimeLabels.GetValueOrDefault(slot.Time) ?? slot.Time.ToString("HH\\:mm")})";
 
     public async Task<Result<UserDto>> FreezeAsync(Guid userId, CancellationToken ct = default)
     {
@@ -355,12 +393,13 @@ public class UserService
                      && c.AssigneeTracks.Any(t => t.UserId == userId))
             .ToListAsync(ct);
         var dayStart = await AppSettingsService.ReadDayStartAsync(_db, ct);
+        var zone = AppSettingsService.ReadHouseholdZone(_db);
 
         foreach (var chore in trackChores)
         {
             var track = chore.AssigneeTracks.FirstOrDefault(t => t.UserId == userId);
             if (track is null) continue;
-            track.DueAt = ChoreService.StepForwardIfOverdue(chore, track.DueAt, now - chore.LateGrace(dayStart));
+            track.DueAt = ChoreService.StepForwardIfOverdue(chore, track.DueAt, now - chore.LateGrace(dayStart), zone);
             chore.DueAt = ChoreService.EarliestTrackDue(chore.AssigneeTracks);
         }
 

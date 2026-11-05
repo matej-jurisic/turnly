@@ -11,35 +11,50 @@ public class GachaServiceTests
 {
     private static readonly DateTimeOffset Now = new(2026, 6, 17, 9, 0, 0, TimeSpan.Zero);
 
-    private static async Task<Guid> SeedUserAsync(TestContext ctx, int points = 0, int dust = 0)
+    private static async Task<Guid> SeedUserAsync(TestContext ctx, int tickets = 0, int dust = 0, int points = 0)
     {
         var admin = await ctx.Setup.CreateFirstAdminAsync(new SetupRequest("admin", "Admin", "password123", null));
         var id = admin.Value!.User.Id;
         var u = await ctx.Db.Users.FindAsync(id);
-        u!.Points = points;
+        u!.PullTickets = tickets;
+        u.Points = points;
         u.Dust = dust;
         await ctx.Db.SaveChangesAsync();
         return id;
     }
 
     [Fact]
-    public async Task Pull_deducts_points()
+    public async Task Pull_spends_tickets_not_points()
     {
         using var ctx = new TestContext();
-        var id = await SeedUserAsync(ctx, points: 100);
+        var id = await SeedUserAsync(ctx, tickets: 2, points: 500);
 
         var result = await ctx.Gacha.PullAsync(id, 1, Now);
 
         Assert.True(result.Succeeded);
         var u = await ctx.Db.Users.FindAsync(id);
-        Assert.Equal(100 - CosmeticCatalog.PullCost, u!.Points);
+        Assert.Equal(2 - CosmeticCatalog.PullCost, u!.PullTickets);
+        Assert.Equal(500, u.Points);
+        Assert.False(await ctx.Db.PointsLog.AnyAsync(e => e.UserId == id));
     }
 
     [Fact]
-    public async Task Pull_fails_when_short_on_points()
+    public async Task Pull_fails_when_short_on_tickets()
     {
         using var ctx = new TestContext();
-        var id = await SeedUserAsync(ctx, points: 10);
+        var id = await SeedUserAsync(ctx, tickets: CosmeticCatalog.TenPullCost - 1, points: 10_000);
+
+        var result = await ctx.Gacha.PullAsync(id, 10, Now);
+
+        Assert.False(result.Succeeded);
+        Assert.Equal(ErrorType.Conflict, result.Error!.Type);
+    }
+
+    [Fact]
+    public async Task Pull_fails_with_no_tickets()
+    {
+        using var ctx = new TestContext();
+        var id = await SeedUserAsync(ctx);
 
         var result = await ctx.Gacha.PullAsync(id, 1, Now);
 
@@ -51,7 +66,7 @@ public class GachaServiceTests
     public async Task Pity_forces_a_legendary_and_resets()
     {
         using var ctx = new TestContext();
-        var id = await SeedUserAsync(ctx, points: 100);
+        var id = await SeedUserAsync(ctx, tickets: 1);
         var u = await ctx.Db.Users.FindAsync(id);
         u!.PullsSinceLegendary = CosmeticCatalog.PityThreshold - 1;
         await ctx.Db.SaveChangesAsync();
@@ -68,7 +83,7 @@ public class GachaServiceTests
     public async Task Duplicate_pull_awards_dust_and_no_new_row()
     {
         using var ctx = new TestContext();
-        var id = await SeedUserAsync(ctx, points: 100);
+        var id = await SeedUserAsync(ctx, tickets: 1);
         // Pre-own every Legendary cosmetic, then force a Legendary pull via pity, so the roll must dupe.
         foreach (var def in CosmeticCatalog.All.Where(c => c.Rarity == CosmeticRarity.Legendary))
             ctx.Db.UserCosmetics.Add(new UserCosmetic { UserId = id, CosmeticKey = def.Key });
@@ -234,5 +249,37 @@ public class GachaServiceTests
 
         Assert.False(result.Succeeded);
         Assert.Equal(ErrorType.Validation, result.Error!.Type);
+    }
+
+    [Fact]
+    public async Task Earned_points_grant_tickets_and_reversals_take_them_back()
+    {
+        using var ctx = new TestContext();
+        var id = await SeedUserAsync(ctx);
+        var step = CosmeticCatalog.PointsPerTicket;
+
+        await ctx.Users.AdjustPointsAsync(id, new AdjustPointsRequest(step * 2 + 30, "grant"));
+        var u = await ctx.Db.Users.FindAsync(id);
+        Assert.Equal(2, u!.PullTickets);
+        Assert.Equal(30, u.TicketProgress);
+
+        await ctx.Users.AdjustPointsAsync(id, new AdjustPointsRequest(-50, "correction"));
+        Assert.Equal(1, u.PullTickets);
+        Assert.Equal(step - 20, u.TicketProgress);
+    }
+
+    [Fact]
+    public async Task A_reversal_with_no_tickets_left_is_paid_off_by_later_earnings()
+    {
+        using var ctx = new TestContext();
+        var id = await SeedUserAsync(ctx);
+        var step = CosmeticCatalog.PointsPerTicket;
+
+        await ctx.Users.AdjustPointsAsync(id, new AdjustPointsRequest(-40, "correction"));
+        await ctx.Users.AdjustPointsAsync(id, new AdjustPointsRequest(step, "grant"));
+
+        var u = await ctx.Db.Users.FindAsync(id);
+        Assert.Equal(0, u!.PullTickets);
+        Assert.Equal(step - 40, u.TicketProgress);
     }
 }

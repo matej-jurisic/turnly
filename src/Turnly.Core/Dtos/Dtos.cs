@@ -31,18 +31,22 @@ public record UserDto(
     /// <summary>Language notifications are worded in ("en" / "hr", null = English).</summary>
     public string? Language { get; init; }
 
+    /// <summary>Daily digest time ("HH:mm"), or null when off.</summary>
+    public string? DigestTime { get; init; }
+
     public static UserDto FromEntity(User u, int weeklyPoints = 0) =>
         new(u.Id, u.Username, u.DisplayName, u.AvatarColor, u.Role, u.Points, weeklyPoints, u.CreatedAt,
             u.QuietHoursStart?.ToString("HH:mm"), u.QuietHoursEnd?.ToString("HH:mm"))
             { IsFrozen = u.IsFrozen, EquippedFrameKey = u.EquippedFrameKey, EquippedThemeKey = u.EquippedThemeKey,
-              AvatarEmoji = u.AvatarEmoji, Language = u.Language };
+              AvatarEmoji = u.AvatarEmoji, Language = u.Language,
+              DigestTime = u.DigestTime?.ToString("HH:mm") };
 }
 
 public record LeaderboardEntryDto(
     Guid Id,
     string DisplayName,
     string AvatarColor,
-    int Points,
+    int EarnedPoints,
     int WeeklyPoints,
     string? EquippedFrameKey = null,
     string? AvatarEmoji = null);
@@ -69,6 +73,13 @@ public record UpdateUserRequest(string DisplayName, UserRole Role);
 public record UpdateProfileRequest(string? QuietHoursStart = null, string? QuietHoursEnd = null);
 
 public record SetLanguageRequest(string Language);
+
+/// <summary>The caller's daily digest time, written as given: null turns the digest off.</summary>
+public record UpdateNotificationScheduleRequest(string? DigestTime = null);
+
+/// <summary>The caller's own notification entries for one chore, replacing any they had. Empty = follow
+/// the chore's shared schedule again.</summary>
+public record SetPersonalNotificationsRequest(ChoreNotificationInput[] Notifications);
 
 public record ChangePasswordRequest(string CurrentPassword, string NewPassword);
 
@@ -149,7 +160,7 @@ public record ChoreDto(
             nextAssignee is null ? null : UserDto.FromEntity(nextAssignee),
             c.Assignees.Select(UserDto.FromEntity).OrderBy(u => u.DisplayName).ToArray(),
             c.Tags.Select(t => t.Name).OrderBy(n => n).ToArray(),
-            c.Notifications.OrderBy(n => n.CreatedAt).Select(ChoreNotificationDto.FromEntity).ToArray(),
+            c.SharedNotifications().OrderBy(n => n.CreatedAt).Select(ChoreNotificationDto.FromEntity).ToArray(),
             lastCompletion is null ? null : ChoreCompletionDto.FromEntity(lastCompletion),
             occurrenceProgress,
             currentStreak,
@@ -163,6 +174,7 @@ public record ChoreDto(
             Pairs = c.Pairs.Select(p => new[] { p.First, p.Second }).ToArray(),
             CurrentPartner = c.CurrentPartner() is { } partner ? UserDto.FromEntity(partner) : null,
             NextPartner = nextPartner is null ? null : UserDto.FromEntity(nextPartner),
+            TurnPerSlot = c.TurnPerSlot,
         };
 
     /// <summary>Optional names for individual <see cref="TimesOfDay"/> slots, keyed by "HH:mm" (e.g.
@@ -185,6 +197,14 @@ public record ChoreDto(
     /// <summary>The partner coming up alongside <see cref="NextAssignee"/>, if any.</summary>
     public UserDto? NextPartner { get; init; }
 
+    /// <summary>Whether each time-of-day slot has its own turn (<see cref="SlotTurns"/>). The top-level
+    /// due date and holder then mirror the earliest slot (the due date personalized to the viewer's
+    /// own earliest slot, like a track).</summary>
+    public bool TurnPerSlot { get; init; }
+
+    /// <summary>Each slot's own turn, in time-of-day order. Empty unless <see cref="TurnPerSlot"/>.</summary>
+    public ChoreSlotTurnDto[] SlotTurns { get; init; } = [];
+
     public bool IsFrozen { get; init; }
 
     /// <summary>The live offer waiting to be claimed, if any. Null when the chore isn't up for grabs.</summary>
@@ -197,6 +217,10 @@ public record ChoreDto(
 
     /// <summary>When the viewer's mute lapses, or null for an indefinite mute (or no mute at all).</summary>
     public DateTimeOffset? MutedUntil { get; init; }
+
+    /// <summary>The <i>viewer's</i> own notification entries on this chore, which replace
+    /// <see cref="Notifications"/> for them. Empty = they follow the chore's schedule.</summary>
+    public ChoreNotificationDto[] MyNotifications { get; init; } = [];
 
     /// <summary>Achievements the credited user just unlocked with this completion — set only on the
     /// response to a self-completion so the client can show a celebration popup. Empty otherwise; not
@@ -221,6 +245,18 @@ public record ChoreAssigneeTrackDto(
     int Progress,
     bool Started,
     int Streak);
+
+/// <summary>One time-of-day slot's turn on a <see cref="ChoreDto.TurnPerSlot"/> chore. <see cref="Time"/>
+/// ("HH:mm") identifies the slot in requests.</summary>
+public record ChoreSlotTurnDto(
+    string Time,
+    string? Label,
+    DateTimeOffset? DueAt,
+    UserDto? CurrentAssignee,
+    UserDto? CurrentPartner,
+    UserDto? NextAssignee,
+    UserDto? NextPartner,
+    ChoreOfferDto? OpenOffer);
 
 public record ChoreNotificationDto(
     Guid Id,
@@ -304,7 +340,18 @@ public interface IChoreInput
     /// <see cref="Pairs"/> together with <see cref="CurrentAssigneeId"/>. Null keeps the pair that
     /// holds it now, or falls back to the assignee's first pair.</summary>
     Guid? CurrentPartnerId { get; }
+    /// <summary>Give each of <see cref="TimesOfDay"/> its own turn. Ignored (stored false) where it
+    /// can't apply: fewer than two times, per-person or anyone chores, or several completions per
+    /// occurrence.</summary>
+    bool TurnPerSlot { get; }
+    /// <summary>Who holds each slot when <see cref="TurnPerSlot"/> is on, keyed by "HH:mm". A slot left
+    /// out keeps its holder (a new one starts with <see cref="CurrentAssigneeId"/>).</summary>
+    SlotTurnInput[]? SlotTurns { get; }
 }
+
+/// <summary>Who holds one slot of a <see cref="IChoreInput.TurnPerSlot"/> chore, as supplied on
+/// create/update. <see cref="CurrentPartnerId"/> works like the chore-level one.</summary>
+public record SlotTurnInput(string Time, Guid? CurrentAssigneeId, Guid? CurrentPartnerId = null);
 
 /// <summary>One assignee's quota as supplied on create/update of a track-mode chore.</summary>
 public record TrackInput(Guid UserId, int CompletionsRequired);
@@ -340,7 +387,9 @@ public record CreateChoreRequest(
     RotationPeriod RotationPeriod = RotationPeriod.EveryOccurrence,
     Dictionary<string, string>? TimeLabels = null,
     Guid[][]? Pairs = null,
-    Guid? CurrentPartnerId = null) : IChoreInput;
+    Guid? CurrentPartnerId = null,
+    bool TurnPerSlot = false,
+    SlotTurnInput[]? SlotTurns = null) : IChoreInput;
 
 public record UpdateChoreRequest(
     string Name,
@@ -373,7 +422,9 @@ public record UpdateChoreRequest(
     RotationPeriod RotationPeriod = RotationPeriod.EveryOccurrence,
     Dictionary<string, string>? TimeLabels = null,
     Guid[][]? Pairs = null,
-    Guid? CurrentPartnerId = null) : IChoreInput;
+    Guid? CurrentPartnerId = null,
+    bool TurnPerSlot = false,
+    SlotTurnInput[]? SlotTurns = null) : IChoreInput;
 
 public record CopyChoreRequest(string NewName);
 
@@ -382,21 +433,26 @@ public record CopyChoreRequest(string NewName);
 /// <summary><see cref="CompletedByUserIds"/> (admin-only, except a member on an Anyone chore naming themselves plus fellow assignees) names exactly who did it and gets the points,
 /// assignees or not, overriding <see cref="CompletedByUserId"/> and the default partner. On a per-person
 /// chore it may name only one assignee.</summary>
+/// <param name="SlotTime">On a slot-turn chore, which slot ("HH:mm") was done. Null picks the earliest
+/// open slot the completer holds, else the earliest open slot. Ignored on other chores.</param>
 public record CompleteChoreRequest(string? Notes, Guid? CompletedByUserId = null, DateTimeOffset? CompletedAt = null,
-    IReadOnlyList<Guid>? CompletedByUserIds = null);
+    IReadOnlyList<Guid>? CompletedByUserIds = null, string? SlotTime = null);
 
 /// <summary><see cref="UserId"/> names whose track to skip on a track-mode chore (required there);
-/// ignored for rotating chores, which only have one schedule to skip.</summary>
-public record SkipChoreRequest(string? Notes, Guid? UserId = null);
+/// ignored for rotating chores, which only have one schedule to skip. <see cref="SlotTime"/> picks
+/// the slot on a slot-turn chore, as on <see cref="CompleteChoreRequest"/>.</summary>
+public record SkipChoreRequest(string? Notes, Guid? UserId = null, string? SlotTime = null);
 
 /// <summary>Admin-only direct move of a chore to another assignee.</summary>
 /// <param name="PartnerId">On a paired chore, which of the assignee's pairs takes it. Null picks the
 /// assignee's first pair (or just them, when they have none).</param>
-public record ReassignChoreRequest(Guid AssigneeId, Guid? PartnerId = null);
+/// <param name="SlotTime">On a slot-turn chore, which slot moves (required there).</param>
+public record ReassignChoreRequest(Guid AssigneeId, Guid? PartnerId = null, string? SlotTime = null);
 
 /// <summary>Puts a chore up for any other assignee to take. <see cref="BountyPoints"/> is the
-/// (optional) sweetener, capped at the offerer's balance.</summary>
-public record OfferChoreRequest(int BountyPoints = 0);
+/// (optional) sweetener, capped at the offerer's balance. <see cref="SlotTime"/> names the slot on
+/// a slot-turn chore; null offers the earliest slot the offerer holds.</summary>
+public record OfferChoreRequest(int BountyPoints = 0, string? SlotTime = null);
 
 /// <summary>Pings whoever owes a chore. <see cref="ToUserId"/> null nudges everyone currently holding
 /// it (the assignee and their partner, or every other assignee on a per-person chore).</summary>
@@ -406,13 +462,20 @@ public record NudgeChoreRequest(Guid? ToUserId = null, string? Note = null);
 /// can show the "up for grabs" state, the bounty, and the claim action.</summary>
 public record ChoreOfferDto(Guid Id, UserDto FromUser, int BountyPoints)
 {
+    /// <summary>The slot ("HH:mm") on offer on a slot-turn chore; null for the whole chore.</summary>
+    public string? SlotTime { get; init; }
+
     public static ChoreOfferDto FromEntity(ChoreOffer o) =>
-        new(o.Id, UserDto.FromEntity(o.FromUser!), o.BountyPoints);
+        new(o.Id, UserDto.FromEntity(o.FromUser!), o.BountyPoints)
+        {
+            SlotTime = o.SlotTime?.ToString("HH\\:mm")
+        };
 }
 
 /// <summary><see cref="UserId"/> names whose track to reschedule on a track-mode chore (required
-/// there); ignored for rotating chores.</summary>
-public record RescheduleChoreRequest(DateTimeOffset DueAt, string? DueTime, Guid? UserId = null);
+/// there); ignored for rotating chores. <see cref="SlotTime"/> names the slot on a slot-turn chore
+/// (null = the earliest).</summary>
+public record RescheduleChoreRequest(DateTimeOffset DueAt, string? DueTime, Guid? UserId = null, string? SlotTime = null);
 
 /// <summary>Admin-only correction of a logged activity entry. On a completion it changes when the
 /// chore was done. On an auto-expired entry it turns the miss into a real completion by
@@ -554,10 +617,16 @@ public record PushSubscribeRequest(string Endpoint, string P256dh, string Auth);
 /// <summary>Register (or refresh) the native app's FCM token. <see cref="Token"/> on unsubscribe too.</summary>
 public record FcmSubscribeRequest(string Token);
 
-public record PushDeviceDto(Guid Id, string Label, string Endpoint, DateTimeOffset CreatedAt)
+/// <summary>One of a user's push devices: a browser (<c>Web</c>, <see cref="Endpoint"/> = its push
+/// endpoint) or an install of the Android app (<c>Android</c>, <see cref="Endpoint"/> = its FCM token),
+/// so the client can mark the one it's running on.</summary>
+public record PushDeviceDto(Guid Id, string Label, string Endpoint, DateTimeOffset CreatedAt, string Kind = "Web")
 {
     public static PushDeviceDto FromEntity(Turnly.Core.Entities.PushSubscription s) =>
         new(s.Id, string.IsNullOrWhiteSpace(s.DeviceLabel) ? "Unknown device" : s.DeviceLabel!, s.Endpoint, s.CreatedAt);
+
+    public static PushDeviceDto FromEntity(Turnly.Core.Entities.FcmDevice d) =>
+        new(d.Id, string.IsNullOrWhiteSpace(d.DeviceLabel) ? "Unknown device" : d.DeviceLabel!, d.Token, d.CreatedAt, "Android");
 }
 
 public record NotificationInboxDto(
@@ -669,7 +738,9 @@ public record RarityOddsDto(
 /// <summary>Everything the gacha page needs: balances, pull pricing, pity progress, the published
 /// odds, and the full catalog with per-user ownership.</summary>
 public record GachaStateDto(
-    int Points,
+    int Tickets,
+    int TicketProgress,
+    int PointsPerTicket,
     int Dust,
     int PullCost,
     int TenPullCost,

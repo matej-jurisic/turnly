@@ -1,11 +1,12 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { choresApi, ApiError } from '@/lib/api'
 import { toast } from '@/lib/toast'
-import type { Chore } from '@/lib/types'
+import type { Chore, ChoreOffer } from '@/lib/types'
 import { Badge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
 import { t } from '@/lib/i18n'
+import { slotName } from '@/lib/chore-format'
 
 /**
  * "Up for grabs" band above the chore list: every offer the viewer can actually take, with its bounty
@@ -17,7 +18,8 @@ export function OfferBoard({ chores, meId, onSelect }: { chores: Chore[]; meId?:
   const queryClient = useQueryClient()
 
   const claimMutation = useMutation({
-    mutationFn: (choreId: string) => choresApi.claimOffer(choreId),
+    mutationFn: ({ choreId, slotTime }: { choreId: string; slotTime?: string | null }) =>
+      choresApi.claimOffer(choreId, slotTime),
     onSuccess: (chore) => {
       toast.success(t('board.yours', { name: chore.name }))
       void queryClient.invalidateQueries({ queryKey: ['chores'] })
@@ -32,10 +34,15 @@ export function OfferBoard({ chores, meId, onSelect }: { chores: Chore[]; meId?:
     },
   })
 
-  const claimable = chores.filter((c) => {
-    const offer = c.openOffer
-    if (!offer || !meId || offer.fromUser.id === meId) return false
-    return c.assignees.some((u) => u.id === meId)
+  // One row per offer: a slot-turn chore can have one on each slot.
+  const claimable = chores.flatMap((c) => {
+    if (!meId || !c.assignees.some((u) => u.id === meId)) return []
+    const offers = c.turnPerSlot && c.slotTurns.length
+      ? c.slotTurns.flatMap((s) => (s.openOffer ? [{ offer: s.openOffer, slot: slotName(s) }] : []))
+      : c.openOffer ? [{ offer: c.openOffer, slot: null }] : []
+    return offers
+      .filter(({ offer }) => offer.fromUser.id !== meId)
+      .map(({ offer, slot }) => ({ chore: c, offer: offer as ChoreOffer, slot }))
   })
 
   if (claimable.length === 0) return null
@@ -44,10 +51,9 @@ export function OfferBoard({ chores, meId, onSelect }: { chores: Chore[]; meId?:
     <section aria-label={t('board.label')}>
       <h2 className="mb-2 px-1 text-sm font-semibold text-foreground">{t('offer.upForGrabs')}</h2>
       <Card className="divide-y divide-border p-0">
-        {claimable.map((chore) => {
-          const offer = chore.openOffer!
+        {claimable.map(({ chore, offer, slot }) => {
           return (
-            <div key={chore.id} className="flex items-center gap-3 px-3 py-2.5">
+            <div key={offer.id} className="flex items-center gap-3 px-3 py-2.5">
               <button
                 type="button"
                 onClick={() => onSelect(chore)}
@@ -55,7 +61,7 @@ export function OfferBoard({ chores, meId, onSelect }: { chores: Chore[]; meId?:
               >
                 {chore.emoji && <span aria-hidden>{chore.emoji}</span>}
                 <span className="min-w-0 flex-1">
-                  <span className="block truncate text-sm text-foreground">{chore.name}</span>
+                  <span className="block truncate text-sm text-foreground">{slot ? `${chore.name} (${slot})` : chore.name}</span>
                   <span className="block truncate text-xs text-muted-foreground">
                     {t('board.from', { name: offer.fromUser.displayName })}
                   </span>
@@ -66,7 +72,7 @@ export function OfferBoard({ chores, meId, onSelect }: { chores: Chore[]; meId?:
               )}
               <Button
                 size="sm"
-                onClick={() => claimMutation.mutate(chore.id)}
+                onClick={() => claimMutation.mutate({ choreId: chore.id, slotTime: offer.slotTime })}
                 disabled={claimMutation.isPending}
               >
                 {t('offer.claim')}

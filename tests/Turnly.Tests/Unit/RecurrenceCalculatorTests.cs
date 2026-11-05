@@ -481,4 +481,59 @@ public class RecurrenceCalculatorTests
             DaysOfMonth: new[] { 5, 10 }, Months: new[] { 6, 7 });
         Assert.Equal(new DateTimeOffset(2026, 7, 5, 9, 0, 0, TimeSpan.Zero), Next(rule, Wed));
     }
+
+    // ── Household timezone (daylight saving) ───────────────────────────────────────────────
+
+    private static readonly TimeZoneInfo Zagreb = TimeZoneInfo.FindSystemTimeZoneById("Europe/Zagreb");
+    private static readonly TimeSpan Summer = TimeSpan.FromHours(2);
+    private static readonly TimeSpan Winter = TimeSpan.FromHours(1);
+
+    [Fact]
+    public void Zoned_daily_keeps_its_local_time_across_the_autumn_change()
+    {
+        // Clocks go back on 25 Oct 2026.
+        var rule = new RecurrenceRule(RepeatType.Daily) { Zone = Zagreb };
+        var saturday = new DateTimeOffset(2026, 10, 24, 23, 59, 59, Summer);
+
+        Assert.Equal(new DateTimeOffset(2026, 10, 25, 23, 59, 59, Winter), Next(rule, saturday));
+    }
+
+    [Fact]
+    public void Zoned_times_of_day_keep_their_local_time_across_the_autumn_change()
+    {
+        var rule = new RecurrenceRule(RepeatType.Daily, TimesOfDay: [new TimeOnly(12, 0), new TimeOnly(23, 0)]) { Zone = Zagreb };
+        var lateSlot = new DateTimeOffset(2026, 10, 24, 23, 0, 0, Summer);
+
+        Assert.Equal(new DateTimeOffset(2026, 10, 25, 12, 0, 0, Winter), Next(rule, lateSlot));
+    }
+
+    [Fact]
+    public void Zoned_completion_date_scheduling_reads_the_completion_on_the_local_clock()
+    {
+        // Completed 00:30 local on 26 Oct (23:30 UTC on the 25th): the next day is the 27th, not the 26th.
+        var rule = new RecurrenceRule(RepeatType.Daily) { Zone = Zagreb };
+        var due = new DateTimeOffset(2026, 10, 25, 20, 0, 0, Winter);
+        var completed = new DateTimeOffset(2026, 10, 25, 23, 30, 0, TimeSpan.Zero);
+
+        Assert.Equal(new DateTimeOffset(2026, 10, 27, 20, 0, 0, Winter),
+            Next(rule, due, SchedulingPreference.FromCompletionDate, completedAt: completed, now: completed));
+    }
+
+    [Fact]
+    public void Zoned_weekly_keeps_its_local_time_across_the_spring_change()
+    {
+        // Clocks go forward on 29 Mar 2026.
+        var rule = new RecurrenceRule(RepeatType.Weekly) { Zone = Zagreb };
+        var due = new DateTimeOffset(2026, 3, 25, 18, 0, 0, Winter);
+
+        Assert.Equal(new DateTimeOffset(2026, 4, 1, 18, 0, 0, Summer), Next(rule, due));
+    }
+
+    [Fact]
+    public void Without_a_zone_the_anchor_offset_is_kept()
+    {
+        var saturday = new DateTimeOffset(2026, 10, 24, 23, 59, 59, Summer);
+
+        Assert.Equal(new DateTimeOffset(2026, 10, 25, 23, 59, 59, Summer), Next(new RecurrenceRule(RepeatType.Daily), saturday));
+    }
 }

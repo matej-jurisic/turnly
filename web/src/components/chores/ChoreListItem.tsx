@@ -3,8 +3,8 @@ import { Badge } from '@/components/ui/Badge'
 import { Card } from '@/components/ui/Card'
 import { Avatar } from '@/components/ui/Modal'
 import {
-  canComplete, choreDueStatus, compactRepeatLabel, completionProgressLabel, formatDueDate, formatDueWeekday, isAnyone, isIndependent, nextDueTimeLabel,
-  offerSentence, repeatLabel, showStreak, trackIsDone, trackStatusText, pairLabel,
+  canComplete, choreDueStatus, compactRepeatLabel, completionProgressLabel, formatDuePill, isAnyone, isIndependent, nextDueTimeLabel,
+  offerSentence, repeatLabel, showStreak, trackIsDone, trackStatusText, pairLabel, slotHoldersDiffer, slotName, formatDueTime, nextSlot,
 } from '@/lib/chore-format'
 import { BellOffIcon, CheckIcon, ReassignIcon } from '@/components/chores/icons'
 import { ChoreMenu } from '@/components/chores/ChoreMenu'
@@ -23,6 +23,7 @@ export function ChoreListItem({
   mutePending,
   onComplete,
   onToggleMute,
+  onMyNotifications,
   onUndo,
   onSkip,
   onReassign,
@@ -46,6 +47,7 @@ export function ChoreListItem({
   mutePending?: boolean
   onComplete: () => void
   onToggleMute: () => void
+  onMyNotifications: () => void
   onUndo: () => void
   onSkip: () => void
   onReassign: () => void
@@ -70,7 +72,7 @@ export function ChoreListItem({
             tone={choreDueStatus(chore) === 'overdue' ? 'red' : 'violet'}
             className={cn('shrink-0 border bg-card', choreDueStatus(chore) === 'overdue' ? 'border-destructive' : 'border-primary')}
           >
-            {t('chores.dueDate', { day: formatDueWeekday(chore.dueAt), date: formatDueDate(chore.dueAt) })}{nextDueTimeLabel(chore) && ` · ${nextDueTimeLabel(chore)}`}
+            {formatDuePill(chore.dueAt)}{nextDueTimeLabel(chore) && ` · ${nextDueTimeLabel(chore)}`}
           </Badge>
         ) : null}
         {chore.completionsRequired > 1 ? (
@@ -122,6 +124,7 @@ export function ChoreListItem({
                   mutePending={mutePending}
                   onDetails={onDetails}
                   onToggleMute={onToggleMute}
+                  onMyNotifications={onMyNotifications}
                   onUndo={onUndo}
                   onSkip={onSkip}
                   onReassign={onReassign}
@@ -140,7 +143,7 @@ export function ChoreListItem({
             {chore.description && (
               <p className="text-sm text-muted-foreground">{chore.description}</p>
             )}
-            <div className="mt-2.5 flex items-center justify-between gap-3">
+            <div className={'mt-2.5 flex justify-between gap-3 ' + (slotHoldersDiffer(chore) ? 'items-end' : 'items-center')}>
               <div className="flex min-w-0 flex-wrap items-center gap-2">
                 <Badge tone="violet">{t('common.pts', { count: chore.points })}</Badge>
                 {chore.openOffer && (() => {
@@ -157,9 +160,6 @@ export function ChoreListItem({
                 {showStreak(chore) && (
                   <Badge tone="secondary" className="border border-border">🔥 {chore.currentStreak}</Badge>
                 )}
-                {chore.tags.map((tag) => (
-                  <Badge key={tag} tone="neutral">{tag}</Badge>
-                ))}
               </div>
               {isIndependent(chore) ? (
                 <div className="flex shrink-0 items-center gap-1.5">
@@ -185,10 +185,40 @@ export function ChoreListItem({
                 </div>
               ) : isAnyone(chore) ? (
                 <span className="min-w-0 truncate text-sm text-muted-foreground">{t('chore.anyone')}</span>
+              ) : slotHoldersDiffer(chore) ? (
+                <div className="flex min-w-0 max-w-[65%] shrink-0 flex-col items-end gap-1">
+                  {chore.slotTurns.map((s) => {
+                    const people = [s.currentAssignee, s.currentPartner].filter((u) => !!u)
+                    const isNext = s.time === nextSlot(chore)?.time
+                    return (
+                      <span
+                        key={s.time}
+                        title={`${slotName(s)} ${formatDueTime(s.time)}: ${s.currentAssignee ? pairLabel(s.currentAssignee, s.currentPartner) : t('chore.unassigned')}${isNext ? ` (${t('chore.slotNext')})` : ''}`}
+                        className={'flex min-w-0 max-w-full items-center gap-2 ' + (isNext ? '' : 'opacity-60')}
+                      >
+                        <span className={'shrink-0 text-xs ' + (isNext ? 'font-medium text-primary' : 'text-muted-foreground/70')}>{slotName(s)}</span>
+                        {s.currentAssignee ? (
+                          <>
+                            <span className={'min-w-0 truncate text-sm ' + (isNext ? 'text-foreground' : 'text-muted-foreground')}>
+                              {pairLabel(s.currentAssignee, s.currentPartner)}
+                            </span>
+                            <span className="flex shrink-0 gap-1">
+                              {people.map((u) => (
+                                <Avatar key={u!.id} color={u!.avatarColor} name={u!.displayName} size={24} frame={u!.equippedFrameKey} emoji={u!.avatarEmoji} />
+                              ))}
+                            </span>
+                          </>
+                        ) : (
+                          <Badge tone="amber">{t('chore.unassigned')}</Badge>
+                        )}
+                      </span>
+                    )
+                  })}
+                </div>
               ) : !chore.currentAssignee ? (
                 <Badge tone="amber">{t('chore.unassigned')}</Badge>
               ) : (
-                <div className="flex min-w-0 items-center gap-2">
+                <div className="flex min-w-0 max-w-[65%] shrink-0 items-center gap-2">
                   <span className="min-w-0 truncate text-sm text-muted-foreground">
                     {pairLabel(chore.currentAssignee, chore.currentPartner)}
                   </span>

@@ -25,14 +25,17 @@ public record CosmeticDefinition(
 public record RarityConfig(CosmeticRarity Rarity, double Odds, int DustAward, int DustCraftCost);
 
 /// <summary>The fixed catalog of gacha cosmetics plus the economy constants (avatar frames, app
-/// theme palettes, and avatar colors). All numbers here are tunable knobs.</summary>
+/// theme palettes, and avatar colors). Pulls cost tickets, not points. All numbers here are tunable knobs.</summary>
 public static class CosmeticCatalog
 {
-    /// <summary>Point cost of a single pull.</summary>
-    public const int PullCost = 50;
+    /// <summary>Earned points per pull ticket (see <c>User.TrackEarned</c>).</summary>
+    public const int PointsPerTicket = 50;
 
-    /// <summary>Point cost of a ten-pull (a ~10% discount over ten singles).</summary>
-    public const int TenPullCost = 450;
+    /// <summary>Ticket cost of a single pull.</summary>
+    public const int PullCost = 1;
+
+    /// <summary>Ticket cost of a ten-pull (one ticket off ten singles).</summary>
+    public const int TenPullCost = 9;
 
     /// <summary>Pulls without a Legendary after which the next pull is forced to a Legendary.</summary>
     public const int PityThreshold = 60;

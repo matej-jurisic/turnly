@@ -3,6 +3,9 @@ import { isNative } from '@/lib/native'
 import { getServerOrigin } from '@/lib/server-config'
 import { getRefreshToken, setRefreshToken } from '@/lib/native-auth'
 import type {
+  ChoreNotification,
+  ChoreNotificationInput,
+  NotificationScheduleUpdate,
   AppVersion,
   AppSettings,
   AuthResponse,
@@ -137,6 +140,7 @@ async function readError(res: Response): Promise<string> {
 }
 
 const json = (body: unknown) => JSON.stringify(body)
+const slotQuery = (slotTime?: string | null) => (slotTime ? `?slot=${encodeURIComponent(slotTime)}` : '')
 
 export const authApi = {
   status: () => request<{ needsSetup: boolean }>('/setup/status', { retry: false }),
@@ -171,13 +175,17 @@ export const authApi = {
     }),
   updateProfile: (body: ProfileUpdate) =>
     request<User>('/users/me', { method: 'PUT', body: json(body) }),
+  updateNotificationSchedule: (body: NotificationScheduleUpdate) =>
+    request<User>('/users/me/notification-schedule', { method: 'PUT', body: json(body) }),
   setLanguage: (language: string) =>
     request<User>('/users/me/language', { method: 'PUT', body: json({ language }) }),
 }
 
 export const usersApi = {
   list: () => request<User[]>('/users'),
-  leaderboard: () => request<LeaderboardEntry[]>('/users/leaderboard'),
+  /** All time, or the points earned within [from, to). */
+  leaderboard: (range?: { from: string; to: string }) =>
+    request<LeaderboardEntry[]>('/users/leaderboard' + (range ? '?' + new URLSearchParams(range) : '')),
   create: (body: CreateUserRequest) => request<User>('/users', { method: 'POST', body: json(body) }),
   update: (id: string, body: UpdateUserRequest) =>
     request<User>(`/users/${id}`, { method: 'PUT', body: json(body) }),
@@ -209,9 +217,11 @@ export const choresApi = {
     request<Chore>(`/chores/${id}/reassign`, { method: 'POST', body: json(body) }),
   offer: (id: string, body: OfferChoreRequest) =>
     request<Chore>(`/chores/${id}/offer`, { method: 'POST', body: json(body) }),
-  claimOffer: (id: string) =>
-    request<Chore>(`/chores/${id}/offer/claim`, { method: 'POST', body: json({}) }),
-  withdrawOffer: (id: string) => request<Chore>(`/chores/${id}/offer`, { method: 'DELETE' }),
+  /** `slotTime` picks which slot's offer on a slot-turn chore. */
+  claimOffer: (id: string, slotTime?: string | null) =>
+    request<Chore>(`/chores/${id}/offer/claim${slotQuery(slotTime)}`, { method: 'POST', body: json({}) }),
+  withdrawOffer: (id: string, slotTime?: string | null) =>
+    request<Chore>(`/chores/${id}/offer${slotQuery(slotTime)}`, { method: 'DELETE' }),
   /** Returns who was actually nudged (anyone still on the sender's cooldown is left out). */
   nudge: (id: string, body: NudgeChoreRequest) =>
     request<User[]>(`/chores/${id}/nudge`, { method: 'POST', body: json(body) }),
@@ -275,6 +285,7 @@ export const notificationsApi = {
   fcmUnsubscribe: (token: string) =>
     request<void>('/notifications/fcm-unsubscribe', { method: 'POST', body: json({ token }) }),
   test: () => request<{ sent: number }>('/notifications/test', { method: 'POST', body: json({}) }),
+  testDigest: () => request<{ sent: number }>('/notifications/test-digest', { method: 'POST', body: json({}) }),
   devices: () => request<PushDevice[]>('/notifications/devices'),
   removeDevice: (id: string) => request<void>(`/notifications/devices/${id}`, { method: 'DELETE' }),
   inbox: () => request<NotificationInboxItem[]>('/notifications/inbox'),
@@ -295,6 +306,8 @@ export const notificationsApi = {
     request<void>(`/notifications/mutes/${choreId}`, { method: 'POST', body: json({ until: until ?? null }) }),
   unmuteChore: (choreId: string) =>
     request<void>(`/notifications/mutes/${choreId}`, { method: 'DELETE' }),
+  setPersonal: (choreId: string, notifications: ChoreNotificationInput[]) =>
+    request<ChoreNotification[]>(`/notifications/personal/${choreId}`, { method: 'PUT', body: json({ notifications }) }),
 }
 
 export const achievementsApi = {

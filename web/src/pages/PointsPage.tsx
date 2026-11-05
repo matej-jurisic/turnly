@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import { authApi, usersApi } from '@/lib/api'
 import { useAuthStore } from '@/store/auth'
 import type { LeaderboardEntry } from '@/lib/types'
@@ -11,22 +11,70 @@ import { cn } from '@/lib/utils'
 import { locale, t } from '@/lib/i18n'
 import { pointsLogLabel } from '@/lib/points-format'
 
+/** First day of a local month; null = all time. */
+type Month = Date | null
+
+function startOfMonth(d: Date) {
+  return new Date(d.getFullYear(), d.getMonth(), 1)
+}
+
+function shiftMonth(m: Date, delta: number) {
+  return new Date(m.getFullYear(), m.getMonth() + delta, 1)
+}
+
+function inMonth(iso: string, month: Month) {
+  if (!month) return true
+  const at = new Date(iso)
+  return at >= month && at < shiftMonth(month, 1)
+}
+
+function monthLabel(m: Date) {
+  return m.toLocaleDateString(locale(), { month: 'long', year: 'numeric' })
+}
+
 export function PointsPage() {
   const user = useAuthStore((s) => s.user)
   const [selectedUser, setSelectedUser] = useState<LeaderboardEntry | null>(null)
-  const { data: leaderboard = [] } = useQuery({
+  // The stepper's month is kept apart from whether it is applied, so "All time" doesn't lose it.
+  const [shownMonth, setShownMonth] = useState(() => startOfMonth(new Date()))
+  const [showAllTime, setShowAllTime] = useState(true)
+  const month: Month = showAllTime ? null : shownMonth
+  const range = month
+    ? { from: month.toISOString(), to: shiftMonth(month, 1).toISOString() }
+    : undefined
+  // All-time totals stay loaded for the details modal, whatever month the board shows.
+  const { data: allTime = [] } = useQuery({
     queryKey: ['leaderboard'],
-    queryFn: usersApi.leaderboard,
+    queryFn: () => usersApi.leaderboard(),
   })
+  const { data: monthly = [] } = useQuery({
+    queryKey: ['leaderboard', range?.from],
+    queryFn: () => usersApi.leaderboard(range),
+    enabled: !!range,
+    placeholderData: keepPreviousData,
+  })
+  const leaderboard = month ? monthly : allTime
+  const selectedTotal = allTime.find((e) => e.id === selectedUser?.id)
 
   if (!user) return null
   return (
     <div className="space-y-8">
-      <h1 className="text-2xl font-semibold text-foreground">{t('nav.points')}</h1>
+      <div className="flex items-center justify-between gap-3">
+        <h1 className="text-2xl font-semibold text-foreground">{t('nav.points')}</h1>
+        <MonthFilter
+          month={shownMonth}
+          allTime={showAllTime}
+          onAllTime={() => setShowAllTime(true)}
+          onMonth={(m) => {
+            setShownMonth(m)
+            setShowAllTime(false)
+          }}
+        />
+      </div>
       {leaderboard.length > 0 && (
         <LeaderboardSection entries={leaderboard} onSelect={setSelectedUser} />
       )}
-      <PointsCard userId={user.id} />
+      <PointsCard userId={user.id} month={month} />
 
       {selectedUser && (
         <UserDetailsModal
@@ -35,7 +83,7 @@ export function PointsPage() {
           avatarColor={selectedUser.avatarColor}
           avatarEmoji={selectedUser.avatarEmoji}
           equippedFrameKey={selectedUser.equippedFrameKey}
-          points={selectedUser.points}
+          points={selectedTotal?.earnedPoints ?? selectedUser.earnedPoints}
           weeklyPoints={selectedUser.weeklyPoints}
           onClose={() => setSelectedUser(null)}
         />
@@ -44,9 +92,69 @@ export function PointsPage() {
   )
 }
 
-function PointsCard({ userId }: { userId: string }) {
+/** [All time | ‹ Oct 2026 ›]: the month segment is always shown at a fixed width, so the control
+ * never changes size. Picking or stepping a month applies it. */
+function MonthFilter({
+  month,
+  allTime,
+  onAllTime,
+  onMonth,
+}: {
+  month: Date
+  allTime: boolean
+  onAllTime: () => void
+  onMonth: (m: Date) => void
+}) {
+  const current = startOfMonth(new Date())
+  const arrowClass = cn(
+    'flex w-6 shrink-0 items-center justify-center transition-colors disabled:pointer-events-none disabled:opacity-40',
+    allTime ? 'hover:bg-accent' : 'hover:bg-primary-foreground/15',
+  )
+
+  return (
+    <div className="flex shrink-0 rounded-lg border border-border text-sm">
+      <button
+        type="button"
+        onClick={onAllTime}
+        className={cn(
+          'whitespace-nowrap rounded-l-lg px-3 py-1 transition-colors',
+          allTime ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-accent',
+        )}
+      >
+        {t('history.allTime')}
+      </button>
+      <div
+        className={cn(
+          'flex w-32 rounded-r-lg transition-colors',
+          allTime ? 'text-muted-foreground' : 'bg-primary text-primary-foreground',
+        )}
+      >
+        <button type="button" onClick={() => onMonth(shiftMonth(month, -1))} aria-label={t('calendar.prev')} className={arrowClass}>‹</button>
+        <button
+          type="button"
+          onClick={() => onMonth(month)}
+          className={cn('min-w-0 flex-1 truncate whitespace-nowrap py-1 transition-colors', allTime && 'hover:bg-accent')}
+        >
+          {month.toLocaleDateString(locale(), { month: 'short', year: 'numeric' })}
+        </button>
+        <button
+          type="button"
+          onClick={() => onMonth(shiftMonth(month, 1))}
+          disabled={month >= current}
+          aria-label={t('calendar.next')}
+          className={cn(arrowClass, 'rounded-r-lg')}
+        >
+          ›
+        </button>
+      </div>
+    </div>
+  )
+}
+
+function PointsCard({ userId, month }: { userId: string; month: Month }) {
   const { data: me } = useQuery({ queryKey: ['me'], queryFn: authApi.me })
   const { data: log } = useQuery({ queryKey: ['points-log', userId], queryFn: () => usersApi.pointsLog(userId) })
+  const entries = log?.filter((entry) => inMonth(entry.createdAt, month)) ?? []
 
   return (
     <Card>
@@ -55,11 +163,13 @@ function PointsCard({ userId }: { userId: string }) {
         <Badge tone="violet">{t('common.pts', { count: me?.points ?? 0 })}</Badge>
       </CardHeader>
       <CardContent>
-        {!log || log.length === 0 ? (
-          <p className="text-sm text-muted-foreground">{t('points.empty')}</p>
+        {entries.length === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            {month ? t('points.emptyMonth', { month: monthLabel(month) }) : t('points.empty')}
+          </p>
         ) : (
           <ul className="divide-y divide-border">
-            {log.map((entry) => (
+            {entries.map((entry) => (
               <li key={entry.id} className="flex items-center justify-between py-2 text-sm">
                 <span className="text-muted-foreground">
                   {pointsLogLabel(entry)}
@@ -86,42 +196,13 @@ function LeaderboardSection({
   entries: LeaderboardEntry[]
   onSelect: (entry: LeaderboardEntry) => void
 }) {
-  const [showWeekly, setShowWeekly] = useState(false)
-  const sorted = showWeekly
-    ? [...entries].sort((a, b) => b.weeklyPoints - a.weeklyPoints)
-    : entries
-
   return (
     <section className="space-y-3">
-      <div className="flex items-center justify-between">
-        <h2 className="text-base font-semibold text-foreground">{t('points.leaderboard')}</h2>
-        <div className="flex rounded-lg border border-border text-sm">
-          <button
-            type="button"
-            onClick={() => setShowWeekly(false)}
-            className={cn(
-              'rounded-l-lg px-3 py-1 transition-colors',
-              !showWeekly ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-accent',
-            )}
-          >
-            {t('history.allTime')}
-          </button>
-          <button
-            type="button"
-            onClick={() => setShowWeekly(true)}
-            className={cn(
-              'rounded-r-lg px-3 py-1 transition-colors',
-              showWeekly ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-accent',
-            )}
-          >
-            {t('due.upcoming')}
-          </button>
-        </div>
-      </div>
+      <h2 className="text-base font-semibold text-foreground">{t('points.leaderboard')}</h2>
 
       <Card>
         <ul className="divide-y divide-border">
-          {sorted.map((entry, index) => (
+          {entries.map((entry, index) => (
             <li
               key={entry.id}
               onClick={() => onSelect(entry)}
@@ -133,7 +214,7 @@ function LeaderboardSection({
               <Avatar color={entry.avatarColor} name={entry.displayName} size={32} frame={entry.equippedFrameKey} emoji={entry.avatarEmoji} />
               <span className="flex-1 text-sm font-medium text-foreground">{entry.displayName}</span>
               <Badge tone="violet">
-                {t('common.pts', { count: showWeekly ? entry.weeklyPoints : entry.points })}
+                {t('common.pts', { count: entry.earnedPoints })}
               </Badge>
             </li>
           ))}

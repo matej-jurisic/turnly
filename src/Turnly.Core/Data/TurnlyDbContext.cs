@@ -21,6 +21,7 @@ public class TurnlyDbContext : DbContext
     public DbSet<ChoreAssignment> ChoreAssignments => Set<ChoreAssignment>();
     public DbSet<ChoreOffer> ChoreOffers => Set<ChoreOffer>();
     public DbSet<ChoreAssigneeTrack> ChoreAssigneeTracks => Set<ChoreAssigneeTrack>();
+    public DbSet<ChoreSlotTurn> ChoreSlotTurns => Set<ChoreSlotTurn>();
     public DbSet<PointsLogEntry> PointsLog => Set<PointsLogEntry>();
     public DbSet<Award> Awards => Set<Award>();
     public DbSet<Redemption> Redemptions => Set<Redemption>();
@@ -114,6 +115,11 @@ public class TurnlyDbContext : DbContext
                 .WithOne(x => x.Chore!)
                 .HasForeignKey(x => x.ChoreId)
                 .OnDelete(DeleteBehavior.Cascade);
+
+            e.HasMany(x => x.SlotTurns)
+                .WithOne(x => x.Chore!)
+                .HasForeignKey(x => x.ChoreId)
+                .OnDelete(DeleteBehavior.Cascade);
         });
 
         b.Entity<Tag>(e =>
@@ -204,6 +210,17 @@ public class TurnlyDbContext : DbContext
                 .OnDelete(DeleteBehavior.Restrict);
         });
 
+        b.Entity<ChoreSlotTurn>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.HasIndex(x => new { x.ChoreId, x.Time }).IsUnique();
+
+            e.HasOne(x => x.CurrentAssignee)
+                .WithMany()
+                .HasForeignKey(x => x.CurrentAssigneeId)
+                .OnDelete(DeleteBehavior.Restrict);
+        });
+
         b.Entity<PointsLogEntry>(e =>
         {
             e.HasKey(x => x.Id);
@@ -245,6 +262,10 @@ public class TurnlyDbContext : DbContext
             e.Property(x => x.Timing).HasConversion<string>().HasMaxLength(16);
             e.Property(x => x.OffsetUnit).HasConversion<string>().HasMaxLength(16);
             e.Property(x => x.Recipients).HasConversion<string>().HasMaxLength(16);
+            e.HasOne(x => x.User)
+                .WithMany()
+                .HasForeignKey(x => x.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
         });
 
         b.Entity<PushSubscription>(e =>

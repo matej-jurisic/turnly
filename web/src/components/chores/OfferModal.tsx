@@ -8,6 +8,8 @@ import { Button } from '@/components/ui/Button'
 import { IntegerInput, Label } from '@/components/ui/Field'
 import { Modal } from '@/components/ui/Modal'
 import { plural, t } from '@/lib/i18n'
+import { holdsSlot } from '@/lib/chore-format'
+import { SlotPicker } from '@/components/chores/SlotPicker'
 
 /**
  * Members put a chore up for grabs: any other assignee can claim it, first come first served. The
@@ -24,11 +26,14 @@ export function OfferModal({ chore, onClose, onDone }: { chore: Chore; onClose: 
   const myPoints = me?.points ?? storedPoints
 
   const [bounty, setBounty] = useState(0)
+  // On a slot-turn chore you offer one of your own slots (the picker shows only when you hold several).
+  const mySlots = chore.turnPerSlot ? chore.slotTurns.filter((s) => holdsSlot(s, meId) && !s.openOffer) : []
+  const [slotTime, setSlotTime] = useState(() => mySlots[0]?.time)
 
   const hasTakers = chore.assignees.some((u) => u.id !== meId)
 
   const mutation = useMutation({
-    mutationFn: () => choresApi.offer(chore.id, { bountyPoints: bounty }),
+    mutationFn: () => choresApi.offer(chore.id, { bountyPoints: bounty, slotTime: slotTime ?? null }),
     onSuccess: () => {
       toast.success(t('offerModal.open'))
       // The bounty left the offerer's balance, so points on screen are stale.
@@ -42,6 +47,7 @@ export function OfferModal({ chore, onClose, onDone }: { chore: Chore; onClose: 
   return (
     <Modal title={t('offerModal.title', { name: chore.name })} onClose={onClose}>
       <form className="space-y-4" onSubmit={(e) => { e.preventDefault(); mutation.mutate() }}>
+        {mySlots.length > 1 && <SlotPicker slots={mySlots} value={slotTime} onChange={setSlotTime} />}
         <div className="space-y-1.5">
           <Label htmlFor="offer-bounty">{t('offerModal.bounty')}</Label>
           <IntegerInput id="offer-bounty" min={0} max={myPoints} value={bounty} onCommit={setBounty} />

@@ -16,6 +16,7 @@ import {
   isIndependent, notificationRecipientsLabel, notificationTimingLabel, notificationTypeLabel,
   relativeDayLabel, repeatLabel, showStreak, trackIsDone, trackStatusText, strategyLabel, schedulingLabel, rotationPeriodLabel, holdsChore, creditedPeople, peopleLabel,
   toLocalDateInput, toLocalDueInstant, canComplete, isOnDemand, occurrenceLabel, nudgeCandidates,
+  hasSlotTurns, slotName, pairLabel, formatDueDate, formatDueWeekday, formatDueTime,
 } from '@/lib/chore-format'
 import { plural, t, tRich } from '@/lib/i18n'
 import { dayStartMs } from '@/lib/day-start'
@@ -23,7 +24,8 @@ import { dayStartMs } from '@/lib/day-start'
 interface ChoreDetailsModalProps {
   chore: Chore
   onClose: () => void
-  onComplete?: () => void
+  /** Opens the complete dialog, on a given slot when one of a slot-turn chore's rows was tapped. */
+  onComplete?: (slotTime?: string) => void
   /** Opens the nudge dialog; the button only shows when there's someone to nudge. */
   onNudge?: () => void
 }
@@ -42,9 +44,12 @@ export function ChoreDetailsModal({ chore, onClose, onComplete, onNudge }: Chore
     onError: (err) => toast.error(err instanceof ApiError ? err.message : t('chores.skipFailed')),
   })
 
-  const offer = chore.openOffer
-  const isMyOffer = offer?.fromUser.id === meId
-  const canClaim = !!offer && !isMyOffer && chore.assignees.some((u) => u.id === meId)
+  // Every live offer: a slot-turn chore can have one on each slot.
+  const slotted = hasSlotTurns(chore)
+  const offers = slotted
+    ? chore.slotTurns.flatMap((s) => (s.openOffer ? [{ offer: s.openOffer, slot: slotName(s) }] : []))
+    : chore.openOffer ? [{ offer: chore.openOffer, slot: null }] : []
+  const isAssignee = chore.assignees.some((u) => u.id === meId)
 
   // A claim moves points between two people, so the balances on screen go stale too.
   const invalidateOffer = () => {
@@ -54,9 +59,9 @@ export function ChoreDetailsModal({ chore, onClose, onComplete, onNudge }: Chore
   }
 
   const claimMutation = useMutation({
-    mutationFn: () => choresApi.claimOffer(chore.id),
-    onSuccess: () => {
-      toast.success(offer?.bountyPoints ? plural('details.claimedFor', offer.bountyPoints) : t('details.claimed'))
+    mutationFn: (offer: { slotTime?: string | null; bountyPoints: number }) => choresApi.claimOffer(chore.id, offer.slotTime),
+    onSuccess: (_, offer) => {
+      toast.success(offer.bountyPoints ? plural('details.claimedFor', offer.bountyPoints) : t('details.claimed'))
       invalidateOffer()
       onClose()
     },
@@ -64,7 +69,7 @@ export function ChoreDetailsModal({ chore, onClose, onComplete, onNudge }: Chore
   })
 
   const withdrawMutation = useMutation({
-    mutationFn: () => choresApi.withdrawOffer(chore.id),
+    mutationFn: (slotTime?: string | null) => choresApi.withdrawOffer(chore.id, slotTime),
     onSuccess: () => {
       toast.success(t('details.offerWithdrawn'))
       invalidateOffer()
@@ -107,32 +112,39 @@ export function ChoreDetailsModal({ chore, onClose, onComplete, onNudge }: Chore
           <p className="text-sm text-muted-foreground">{chore.description}</p>
         )}
 
-        {offer && (
-          <div>
-            <div className="rounded-lg border border-border bg-accent/50 px-3 py-2.5 text-sm">
-              <p className="text-muted-foreground">
-                {tRich(isMyOffer ? 'offer.sentence.youOpen' : 'offer.sentence.nameOpen', {
-                  from: <strong className="text-foreground">{offer.fromUser.displayName}</strong>,
-                })}.
-                {offer.bountyPoints > 0 && (
-                  <> {tRich('offer.bountyEarns', {
-                    points: <strong className="text-foreground">{plural('points', offer.bountyPoints)}</strong>,
-                  })}</>
-                )}
-              </p>
-              {(canClaim || isMyOffer || isAdmin) && (
-                <div className="mt-2.5 flex gap-2">
-                  {canClaim && (
-                    <Button size="sm" onClick={() => claimMutation.mutate()} disabled={offerBusy}>
-                      {offer.bountyPoints > 0 ? t('offer.claimFor', { count: offer.bountyPoints }) : t('offer.claim')}
-                    </Button>
-                  )}
-                  {(isMyOffer || isAdmin) && (
-                    <Button size="sm" variant="secondary" onClick={() => withdrawMutation.mutate()} disabled={offerBusy}>{t('offer.withdraw')}</Button>
+        {offers.length > 0 && (
+          <div className="space-y-2">
+            {offers.map(({ offer, slot }) => {
+              const isMyOffer = offer.fromUser.id === meId
+              const canClaim = !isMyOffer && isAssignee
+              return (
+                <div key={offer.id} className="rounded-lg border border-border bg-accent/50 px-3 py-2.5 text-sm">
+                  <p className="text-muted-foreground">
+                    {slot && <strong className="text-foreground">{slot}: </strong>}
+                    {tRich(isMyOffer ? 'offer.sentence.youOpen' : 'offer.sentence.nameOpen', {
+                      from: <strong className="text-foreground">{offer.fromUser.displayName}</strong>,
+                    })}.
+                    {offer.bountyPoints > 0 && (
+                      <> {tRich('offer.bountyEarns', {
+                        points: <strong className="text-foreground">{plural('points', offer.bountyPoints)}</strong>,
+                      })}</>
+                    )}
+                  </p>
+                  {(canClaim || isMyOffer || isAdmin) && (
+                    <div className="mt-2.5 flex gap-2">
+                      {canClaim && (
+                        <Button size="sm" onClick={() => claimMutation.mutate(offer)} disabled={offerBusy}>
+                          {offer.bountyPoints > 0 ? t('offer.claimFor', { count: offer.bountyPoints }) : t('offer.claim')}
+                        </Button>
+                      )}
+                      {(isMyOffer || isAdmin) && (
+                        <Button size="sm" variant="secondary" onClick={() => withdrawMutation.mutate(offer.slotTime)} disabled={offerBusy}>{t('offer.withdraw')}</Button>
+                      )}
+                    </div>
                   )}
                 </div>
-              )}
-            </div>
+              )
+            })}
           </div>
         )}
 
@@ -163,6 +175,54 @@ export function ChoreDetailsModal({ chore, onClose, onComplete, onNudge }: Chore
             <Badge tone="green">{t('details.streak', { count: chore.currentStreak })}</Badge>
           )}
         </div>
+
+        {/* One turn per time of day */}
+        {slotted && (
+          <div>
+            <p className="mb-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+              {t('details.slots')}
+            </p>
+            <div className="space-y-1.5">
+              {chore.slotTurns.map((slot) => {
+                const overdue = dueStatus(slot.dueAt, true) === 'overdue'
+                const holder = slot.currentAssignee
+                return (
+                  <div
+                    key={slot.time}
+                    className="flex items-center justify-between gap-2 rounded-lg border border-border bg-accent/50 px-3 py-2"
+                  >
+                    <div className="flex min-w-0 items-center gap-2">
+                      <span className="flex shrink-0 gap-1">
+                        {[holder, slot.currentPartner].filter((u) => !!u).map((u) => (
+                          <Avatar key={u!.id} color={u!.avatarColor} name={u!.displayName} size={20} frame={u!.equippedFrameKey} emoji={u!.avatarEmoji} />
+                        ))}
+                      </span>
+                      <div className="min-w-0">
+                        <span className="block truncate text-sm text-foreground">
+                          {slotName(slot)} · {holder ? pairLabel(holder, slot.currentPartner) : t('chore.unassigned')}
+                        </span>
+                        <span className={'block truncate text-xs ' + (overdue ? 'text-warning' : 'text-muted-foreground')}>
+                          {slot.dueAt && `${t('chores.dueDate', { day: formatDueWeekday(slot.dueAt), date: formatDueDate(slot.dueAt) })} · ${formatDueTime(slot.time)}`}
+                          {slot.nextAssignee && ` · ${t('details.slotNext', { name: pairLabel(slot.nextAssignee, slot.nextPartner) })}`}
+                        </span>
+                      </div>
+                    </div>
+                    {onComplete && !chore.isFrozen && slot.dueAt && (
+                      <button
+                        type="button"
+                        onClick={() => onComplete(slot.time)}
+                        aria-label={t('details.completeSlot', { slot: slotName(slot) })}
+                        className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      >
+                        <CheckIcon />
+                      </button>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        )}
 
         {/* Per-person schedules (track mode) */}
         {isIndependent(chore) ? (
@@ -215,28 +275,32 @@ export function ChoreDetailsModal({ chore, onClose, onComplete, onNudge }: Chore
           <div>
             <p className="mb-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">{t('details.assignees')}</p>
             <div className="flex flex-wrap gap-2">
-              {chore.assignees.map((u) => (
-                <span
-                  key={u.id}
-                  className={
-                    'flex items-center gap-1.5 rounded-md px-2 py-1 text-xs ' +
-                    (holdsChore(chore, u.id)
-                      ? 'bg-primary/10 text-primary ring-1 ring-primary'
-                      : (u.id === chore.nextAssignee?.id || u.id === chore.nextPartner?.id)
-                        ? 'bg-info/10 text-info ring-1 ring-info'
-                        : 'bg-accent text-muted-foreground')
-                  }
-                >
-                  <Avatar color={u.avatarColor} name={u.displayName} size={16} frame={u.equippedFrameKey} emoji={u.avatarEmoji} />
-                  {u.displayName}
-                  {holdsChore(chore, u.id) && (
-                    <span className="ml-0.5 opacity-70">· {t('details.current')}</span>
-                  )}
-                  {(u.id === chore.nextAssignee?.id || u.id === chore.nextPartner?.id) && !holdsChore(chore, u.id) && (
-                    <span className="ml-0.5 opacity-70">· {t('details.nextTag')}</span>
-                  )}
-                </span>
-              ))}
+              {chore.assignees.map((u) => {
+                // Each slot row names its own next holder, so the chips only mark who holds one.
+                const isNext = !slotted && (u.id === chore.nextAssignee?.id || u.id === chore.nextPartner?.id)
+                return (
+                  <span
+                    key={u.id}
+                    className={
+                      'flex items-center gap-1.5 rounded-md px-2 py-1 text-xs ' +
+                      (holdsChore(chore, u.id)
+                        ? 'bg-primary/10 text-primary ring-1 ring-primary'
+                        : isNext
+                          ? 'bg-info/10 text-info ring-1 ring-info'
+                          : 'bg-accent text-muted-foreground')
+                    }
+                  >
+                    <Avatar color={u.avatarColor} name={u.displayName} size={16} frame={u.equippedFrameKey} emoji={u.avatarEmoji} />
+                    {u.displayName}
+                    {holdsChore(chore, u.id) && (
+                      <span className="ml-0.5 opacity-70">· {t('details.current')}</span>
+                    )}
+                    {isNext && !holdsChore(chore, u.id) && (
+                      <span className="ml-0.5 opacity-70">· {t('details.nextTag')}</span>
+                    )}
+                  </span>
+                )
+              })}
             </div>
             {chore.pairs.length > 0 && (
               <p className="mt-1.5 text-xs text-muted-foreground">
@@ -327,6 +391,23 @@ export function ChoreDetailsModal({ chore, onClose, onComplete, onNudge }: Chore
           </div>
         )}
 
+        {chore.myNotifications.length > 0 && (
+          <div>
+            <p className="mb-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">{t('details.myReminders')}</p>
+            <div className="space-y-1.5">
+              {chore.myNotifications.map((n) => (
+                <div key={n.id} className="flex flex-wrap items-center gap-1.5 text-sm">
+                  <Badge tone="violet">{notificationTypeLabel(n)}</Badge>
+                  <span className="text-foreground">{notificationTimingLabel(n)}</span>
+                  {!isIndependent(chore) && (
+                    <span className="text-muted-foreground">· {notificationRecipientsLabel(n, true)}</span>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         <ChoreStats choreId={chore.id} />
 
         <ActivityList chore={chore} />
@@ -343,7 +424,7 @@ export function ChoreDetailsModal({ chore, onClose, onComplete, onNudge }: Chore
           {onComplete && !chore.isFrozen && (
             <button
               type="button"
-              onClick={onComplete}
+              onClick={() => onComplete()}
               disabled={!canComplete(chore)}
               aria-label={t('chore.markComplete')}
               className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-primary text-primary-foreground transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-30"

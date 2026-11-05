@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import type { Chore } from '@/lib/types'
-import { isAnyone, isIndependent, nudgeCandidates } from '@/lib/chore-format'
+import { hasSlotTurns, holdsSlot, isAnyone, isIndependent, isOnDemand, nudgeCandidates } from '@/lib/chore-format'
 import {
   DotsIcon, InfoIcon, SkipIcon, ReassignIcon, UndoIcon, CalendarIcon, EditIcon, CopyIcon, TrashIcon,
   PauseIcon, PlayIcon, BellIcon, BellOffIcon, NudgeIcon,
@@ -19,6 +19,7 @@ export interface ChoreMenuProps {
   mutePending?: boolean
   onDetails: () => void
   onToggleMute: () => void
+  onMyNotifications: () => void
   onUndo: () => void
   onSkip: () => void
   onReassign: () => void
@@ -32,7 +33,7 @@ export interface ChoreMenuProps {
   onUnfreeze?: () => void
 }
 
-export function ChoreMenu({ chore, isAdmin, meId, undoPending, skipPending, deletePending, freezePending, mutePending, onDetails, onToggleMute, onUndo, onSkip, onReassign, onOffer, onNudge, onReschedule, onEdit, onCopy, onDelete, onFreeze, onUnfreeze }: ChoreMenuProps) {
+export function ChoreMenu({ chore, isAdmin, meId, undoPending, skipPending, deletePending, freezePending, mutePending, onDetails, onToggleMute, onMyNotifications, onUndo, onSkip, onReassign, onOffer, onNudge, onReschedule, onEdit, onCopy, onDelete, onFreeze, onUnfreeze }: ChoreMenuProps) {
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
 
@@ -46,11 +47,18 @@ export function ChoreMenu({ chore, isAdmin, meId, undoPending, skipPending, dele
   // An unassigned chore can always be placed, even with a single candidate.
   const canReassign = isAdmin && !isIndependent(chore) && !isAnyone(chore) && (chore.assignees.length > 1 || !chore.currentAssignee)
   // A pair's turn isn't one member's to hand over, so paired chores can't be offered at all.
+  // On a slot-turn chore that's any slot of theirs not already on offer.
+  const holdsOfferable = hasSlotTurns(chore)
+    ? chore.slotTurns.some((s) => holdsSlot(s, meId) && !s.openOffer)
+    : chore.currentAssignee?.id === meId && !chore.openOffer
   const canOffer = !isIndependent(chore) && chore.assignees.length > 1 && chore.pairs.length === 0
-    && chore.currentAssignee?.id === meId && !chore.openOffer && !chore.isFrozen
+    && holdsOfferable && !chore.isFrozen
   // Anyone can chase whoever owes the chore, as long as that's somebody other than themselves.
   const canNudge = nudgeCandidates(chore, meId).length > 0
-  const canReschedule = isAdmin && Boolean(chore.dueAt) && !isIndependent(chore)
+  // Own notifications only ever reach their owner as an assignee, and need a due time to fire from.
+  const canPersonalize = !isOnDemand(chore) && chore.assignees.some((a) => a.id === meId)
+  // A slot's occurrence keeps to its own time of day, so slot-turn chores aren't rescheduled by hand.
+  const canReschedule = isAdmin && Boolean(chore.dueAt) && !isIndependent(chore) && !hasSlotTurns(chore)
 
   useEffect(() => {
     if (!open) return
@@ -74,7 +82,7 @@ export function ChoreMenu({ chore, isAdmin, meId, undoPending, skipPending, dele
       </button>
 
       {open && (
-        <div className="absolute right-0 top-full z-20 mt-1 min-w-[140px] rounded-lg border border-border bg-card py-1 shadow-pop">
+        <div className="absolute right-0 top-full z-20 mt-1 min-w-[140px] whitespace-nowrap rounded-lg border border-border bg-card py-1 shadow-pop">
           <button
             type="button"
             onClick={() => { setOpen(false); onDetails() }}
@@ -93,6 +101,16 @@ export function ChoreMenu({ chore, isAdmin, meId, undoPending, skipPending, dele
             {chore.isMuted ? <BellIcon /> : <BellOffIcon />}
             {chore.isMuted ? t('menu.unmute') : t('menu.mute')}
           </button>
+          {canPersonalize && (
+            <button
+              type="button"
+              onClick={() => { setOpen(false); onMyNotifications() }}
+              className="flex w-full items-center gap-2 px-3 py-2 text-sm text-foreground transition-colors hover:bg-accent"
+            >
+              <BellIcon />
+              {t('menu.myNotifications')}
+            </button>
+          )}
           {canSkip && (
             <button
               type="button"

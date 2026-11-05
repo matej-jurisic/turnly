@@ -28,7 +28,7 @@ export function HistoryPage() {
   const [filterChoreId, setFilterChoreId] = useState('')
 
   const { data: tags = [] } = useQuery({ queryKey: ['tags'], queryFn: tagsApi.list })
-  const { data: members = [] } = useQuery({ queryKey: ['leaderboard'], queryFn: usersApi.leaderboard })
+  const { data: members = [] } = useQuery({ queryKey: ['leaderboard'], queryFn: () => usersApi.leaderboard() })
   const { data: chores = [] } = useQuery({ queryKey: ['chores'], queryFn: choresApi.list })
   const { data: stats } = useQuery({ queryKey: ['stats'], queryFn: historyApi.stats })
 

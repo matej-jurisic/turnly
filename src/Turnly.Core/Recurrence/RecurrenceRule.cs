@@ -30,6 +30,11 @@ public record RecurrenceRule(
     /// DaysOfWeek / DaysOfMonth calendar modes); see <see cref="RecurrenceCalculator"/>.</summary>
     public IReadOnlyCollection<TimeOnly> TimesOfDay { get; init; } = TimesOfDay ?? Array.Empty<TimeOnly>();
 
+    /// <summary>The household's timezone. When set, the schedule is worked out on its local wall clock and
+    /// every result takes that zone's offset for its own date, so a chore due at 12:00 stays at 12:00
+    /// across a daylight-saving change. Null keeps the anchor's offset (no timezone configured).</summary>
+    public TimeZoneInfo? Zone { get; init; }
+
     public static RecurrenceRule FromChore(Chore c) => new(
         c.RepeatType, c.CustomMode, c.IntervalCount, c.IntervalUnit,
         c.Weekdays, c.DaysOfMonth, c.Months, c.WeeksOfMonth, c.TimesOfDay);

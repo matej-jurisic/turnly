@@ -7,6 +7,7 @@ import type {
 } from '@/lib/types'
 import { IntegerInput, Label, Select } from '@/components/ui/Field'
 import { localized, t } from '@/lib/i18n'
+import { notificationTimingLabel } from '@/lib/chore-format'
 
 const TYPE_OPTIONS: { value: NotificationType; label: string }[] = [
   localized({ value: 'Reminder' as const }, { label: 'notifType.Reminder' }),
@@ -31,6 +32,11 @@ const RECIPIENT_OPTIONS: { value: NotificationRecipients; label: string }[] = [
   localized({ value: 'AllAssignees' as const }, { label: 'notifEdit.allAssignees' }),
 ]
 
+const PERSONAL_RECIPIENT_OPTIONS: { value: NotificationRecipients; label: string }[] = [
+  localized({ value: 'CurrentAssignee' as const }, { label: 'notifEdit.myTurn' }),
+  localized({ value: 'AllAssignees' as const }, { label: 'notifEdit.always' }),
+]
+
 const DEFAULT_ENTRY: ChoreNotificationInput = {
   type: 'Reminder',
   timing: 'Before',
@@ -39,16 +45,37 @@ const DEFAULT_ENTRY: ChoreNotificationInput = {
   recipients: 'CurrentAssignee',
 }
 
+const entry = (
+  type: NotificationType, timing: NotificationTiming, offsetValue = 0, offsetUnit: NotificationOffsetUnit = 'Hours',
+): ChoreNotificationInput => ({ type, timing, offsetValue, offsetUnit, recipients: 'CurrentAssignee' })
+
+/** Common combinations offered as a starting point; picking one replaces the list. */
+const TEMPLATES: ChoreNotificationInput[][] = [
+  [entry('Reminder', 'Before', 1)],
+  [entry('Reminder', 'Before', 1), entry('Due', 'AtDue')],
+  [entry('Reminder', 'Before', 1, 'Days'), entry('Due', 'AtDue')],
+  [entry('Due', 'AtDue'), entry('FollowUp', 'After', 1)],
+  [entry('Reminder', 'Before', 1, 'Days'), entry('Reminder', 'Before', 1), entry('Due', 'AtDue'), entry('FollowUp', 'After', 2)],
+]
+
+/** "1 day before due, at due time", read off the entries so it can't drift from what gets applied. */
+function templateLabel(entries: ChoreNotificationInput[]): string {
+  const text = entries.map(notificationTimingLabel).join(', ')
+  return text.charAt(0).toUpperCase() + text.slice(1)
+}
+
 interface Props {
   value: ChoreNotificationInput[]
   onChange: (next: ChoreNotificationInput[]) => void
   /** Track-mode chore: reminders always go to each person about their own schedule, so the
    * recipients selector is hidden (the choice is moot). */
   independent?: boolean
+  /** A user's own entries: they only ever reach that user, so recipients read as when they fire. */
+  personal?: boolean
 }
 
 /** Editor for a chore's notification schedule — a list of reminder/due/follow-up entries. */
-export function NotificationsEditor({ value, onChange, independent = false }: Props) {
+export function NotificationsEditor({ value, onChange, independent = false, personal = false }: Props) {
   const update = (i: number, patch: Partial<ChoreNotificationInput>) =>
     onChange(value.map((e, idx) => (idx === i ? { ...e, ...patch } : e)))
   const remove = (i: number) => onChange(value.filter((_, idx) => idx !== i))
@@ -56,19 +83,35 @@ export function NotificationsEditor({ value, onChange, independent = false }: Pr
 
   return (
     <div className="space-y-2">
-      <div className="flex items-center justify-between">
-        <Label className="mb-0">{t('notifEdit.title')}</Label>
-        <button
-          type="button"
-          onClick={add}
-          className="text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
-        >
-          {t('notifEdit.add')}
-        </button>
+      <div className="flex items-center justify-between gap-3">
+        <Label className="mb-0 shrink-0">{t('notifEdit.title')}</Label>
+        <div className="flex min-w-0 flex-1 items-center justify-end gap-3">
+          <select
+            value=""
+            onChange={(e) => {
+              const picked = TEMPLATES[Number(e.target.value)]
+              if (picked) onChange(picked.map((n) => ({ ...n })))
+            }}
+            aria-label={t('notifEdit.template')}
+            className="h-8 min-w-0 max-w-44 flex-1 rounded-md border border-input bg-card px-2 text-xs text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            <option value="" disabled>{t('notifEdit.template')}</option>
+            {TEMPLATES.map((entries, i) => (
+              <option key={i} value={i}>{templateLabel(entries)}</option>
+            ))}
+          </select>
+          <button
+            type="button"
+            onClick={add}
+            className="shrink-0 text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+          >
+            {t('notifEdit.add')}
+          </button>
+        </div>
       </div>
 
       {value.length === 0 ? (
-        <p className="text-sm text-muted-foreground">{t('notifEdit.empty')}</p>
+        <p className="text-sm text-muted-foreground">{t(personal ? 'notifEdit.personalEmpty' : 'notifEdit.empty')}</p>
       ) : (
         <div className="space-y-2">
           {value.map((entry, i) => (
@@ -139,7 +182,7 @@ export function NotificationsEditor({ value, onChange, independent = false }: Pr
                   onChange={(e) => update(i, { recipients: e.target.value as NotificationRecipients })}
                   aria-label={t('notifEdit.recipients')}
                 >
-                  {RECIPIENT_OPTIONS.map((o) => (
+                  {(personal ? PERSONAL_RECIPIENT_OPTIONS : RECIPIENT_OPTIONS).map((o) => (
                     <option key={o.value} value={o.value}>{o.label}</option>
                   ))}
                 </Select>
